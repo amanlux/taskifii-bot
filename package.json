@@ -2,9 +2,14 @@
   "name": "taskifii-bot",
   "version": "1.0.0",
   "description": "Telegram bot for Taskifii MVP",
-  "main": "index.js",
+  "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.0.0"
+  
+
   },
   "repository": {
     "type": "git",
