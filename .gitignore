@@ -1,0 +1,13 @@
+# Node modules (if we use Node.js later)
+node_modules/
+# Python virtual environments (if we use Python)
+venv/
+*.pyc
+__pycache__/
+
+# Environment files
+.env
+
+# Logs
+logs/
+*.log
