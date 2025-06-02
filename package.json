@@ -1,0 +1,23 @@
+{
+  "name": "taskifii-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for Taskifii MVP",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amanlux/taskifii-bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/amanlux/taskifii-bot/issues"
+  },
+  "homepage": "https://github.com/amanlux/taskifii-bot#readme",
+  "dependencies": {
+    "telegraf": "^4.16.3"
+  }
+}

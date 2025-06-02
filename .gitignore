@@ -1,13 +1,9 @@
-# Node modules (if we use Node.js later)
+# Ignore Node.js dependencies folder
 node_modules/
-# Python virtual environments (if we use Python)
-venv/
-*.pyc
-__pycache__/
 
-# Environment files
+# Ignore any environment‐variable file
 .env
 
-# Logs
+# Ignore logs (optional)
 logs/
 *.log
