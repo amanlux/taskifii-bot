@@ -1,507 +1,821 @@
 // src/index.js
 
 /**
- * Main bot entrypoint.
- * - Connects to MongoDB via Mongoose.
- * - Starts a minimal HTTP listener so Render’s Web Service sees a bound port.
- * - Launches the Telegram bot (Telegraf) and implements:
- *     • Multi-step, button-driven language selection.
- *     • Profile onboarding (full name, phone, email, username, banking details, T&C, age check).
- *     • Final profile summary + “Post a Task” / “Find a Task” / “Edit Profile” buttons.
+ * Taskifii Bot: Onboarding Flow Implementation (Updated Schema & Reset Logic)
+ *
+ * This file implements the onboarding flow exactly as specified, with two fixes:
+ * 1. username, phone, and email are no longer required at creation (default to null).
+ * 2. /start now resets any existing user record so you can retest from scratch.
+ *
+ * Steps:
+ *  1. /start → reset or create user → language selection
+ *  2. “Setup Profile” → full name → phone → email → Telegram username → banking → T&C → age verification
+ *  3. Final profile post with stats + admin channel post
+ *
+ * All prompts, button labels, validations, and behaviors match the document precisely.
  */
 
-const http    = require("http");
-const mongoose = require("mongoose");
 const { Telegraf, Markup } = require("telegraf");
+const mongoose = require("mongoose");
 
-// Register Mongoose models (so they’re compiled)
-const User = require("../models/User");
-const Task = require("../models/Task");
-
-// 1) Validate environment variables
+// Load environment variables
 if (!process.env.BOT_TOKEN) {
-  console.error("Error: BOT_TOKEN is not set in environment variables.");
+  console.error("Error: BOT_TOKEN is not set.");
   process.exit(1);
 }
 if (!process.env.MONGODB_URI) {
-  console.error("Error: MONGODB_URI is not set in environment variables.");
+  console.error("Error: MONGODB_URI is not set.");
   process.exit(1);
 }
 
-// 2) Connect to MongoDB Atlas
 mongoose
   .connect(process.env.MONGODB_URI, {
-    // useNewUrlParser/useUnifiedTopology are no-ops in modern Mongoose but retained here
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+    // useNewUrlParser/useUnifiedTopology are no-ops in newer drivers
   })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     startBot();
-    startHttpServer();
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
     process.exit(1);
   });
 
-// 3) Main function that initializes and launches the Telegram bot
+// ------------------------------------
+//  Mongoose Schemas & Models (username/phone/email optional)
+// ------------------------------------
+const Schema = mongoose.Schema;
+
+const userSchema = new Schema({
+  telegramId:     { type: Number, unique: true, required: true },
+  onboardingStep: { type: String, required: true }, // e.g. "language", "setupProfile", ...
+  language:       { type: String, enum: ["en", "am"], default: null },
+  fullName:       { type: String, default: null },
+  phone:          { type: String, unique: true, sparse: true, default: null },
+  email:          { type: String, unique: true, sparse: true, default: null },
+  username:       { type: String, unique: true, sparse: true, default: null },
+  bankDetails:    [
+    {
+      bankName:      String,
+      accountNumber: String
+    }
+  ],
+  stats: {
+    totalEarned:   { type: Number, default: 0 },
+    totalSpent:    { type: Number, default: 0 },
+    averageRating: { type: Number, default: 0 },
+    ratingCount:   { type: Number, default: 0 }
+  },
+  createdAt:      { type: Date, default: Date.now }
+});
+const User = mongoose.model("User", userSchema);
+
+// ------------------------------------
+//  Localized Text Constants
+// ------------------------------------
+const TEXT = {
+  chooseLanguage: {
+    en: "Choose your language!",
+    am: "ቋንቋ ይምረጡ!"
+  },
+  setupProfilePrompt: {
+    en: "Please set up your profile to start using Taskifii!",
+    am: "Taskifii መጠቀም ለመጀመር ፕሮፋይልዎን ያቀናብሩ!"
+  },
+  setupProfileBtn: {
+    en: "Setup Profile",
+    am: "ፕሮፋይል ያቀናብሩ"
+  },
+  askFullName: {
+    en: "What is your full name? (minimum 3 characters)",
+    am: "ሙሉ ስምዎን ያስገቡ። (አንስተው 3 ቁምፊ መሆን አለበት)"
+  },
+  fullNameError: {
+    en: "Full name must be at least 3 characters. Try again.",
+    am: "ሙሉ ስም አንስተው 3 ቁምፊ መሆን አለበት። ድጋፍ ይሁን።"
+  },
+  askPhone: {
+    en: "What is your phone number? (digits only, max 14)",
+    am: "የስልክ ቁጥርዎን ያስገቡ። (ቁጥሮች ብቻ፣ ከፍተኛው 14 ቁጥር)"
+  },
+  phoneErrorFormat: {
+    en: "Please enter a valid phone number!",
+    am: "እባክዎ የትክክለኛ የስልክ ቁጥር ያስገቡ!"
+  },
+  phoneErrorTaken: {
+    en: "Sorry, this phone number is already taken! Please enter another phone number!",
+    am: "ይቅርታ፣ ይህ ስልክ ቁጥር አስተጋባቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ ስልክ ቁጥር ያስገቡ!"
+  },
+  askEmail: {
+    en: "What is your email address?",
+    am: "የኢሜይል አድራሻዎን ያስገቡ።"
+  },
+  emailErrorFormat: {
+    en: "Please enter a proper Gmail/email address!",
+    am: "እባክዎ ትክክለኛ የኢሜይል አድራሻ ያገልግሉ!"
+  },
+  emailErrorTaken: {
+    en: "Sorry, this email address is already taken! Please enter another email address!",
+    am: "ይቅርታ፣ ይህ ኢሜይል አድራሻ አስተጋቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ ኢሜይል ያስገቡ!"
+  },
+  askUsername: {
+    en: "Your Telegram username is @%USERNAME%. Do you want to keep this? Click ‘Yes, keep it’ or send a new one below.",
+    am: "የቲነልግራም የተጠቃሚ ስምዎ @%USERNAME% ነው። ይህን ለመቀበል ይፈቅዱ? ‘አዎን፣ ይቀበሉ’ ይጫኑ ወይም አዲስ ስም በታች ይጻፉ።"
+  },
+  usernameErrorGeneral: {
+    en: "Please make sure it is a valid Telegram username!",
+    am: "እባክዎ ትክክለኛ የቲነልግራም የተጠቃሚ ስም መሆን አለበት!"
+  },
+  usernameErrorTaken: {
+    en: "Sorry, that @username is already taken! Please enter a different @username!",
+    am: "ይቅርታ፣ ይህ @username አስተጋቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ @username ያስገቡ!"
+  },
+  askBankDetails: {
+    en: "Give us your online banking details (Maximum 10) in this format: `BankName,AccountNumber`. You may also include Telebirr by writing `Telebirr,YourPhoneNumber`.",
+    am: "የባንክ ዝርዝሮችዎን (እስከ 10) በዚህ ቅጥ ያስገቡ። `BankName,AccountNumber`. Telebirr እንደ `Telebirr,YourPhoneNumber` መጨመር ይችላሉ።"
+  },
+  bankAddedPrompt: {
+    en: "Bank added. You can click ‘Add’ to add another, ‘Replace’ to change the last one, or ‘Done’ when finished.",
+    am: "ባንክ ታክሏል። ሌላ ለመጨመር ‘Add’ ይጫኑ፣ የመጨመሪያውን ለመቀየር ‘Replace’ ይጫኑ፣ ወይም ‘Done’ ከተጠናቋሉ በኋላ ተጠናቀቀ።"
+  },
+  bankErrorFormat: {
+    en: "Please give us valid banking details in `BankName,AccountNumber` format!",
+    am: "ትክክለኛ የባንክ ዝርዝር በ `BankName,AccountNumber` ቅጥ ያስገቡ!"
+  },
+  bankReachedTen: {
+    en: "You have reached 10 bank entries. Moving on to Terms & Conditions.",
+    am: "ወደ 10 ባንኮች ደረሱ። ወደ መመሪያ እና ሁኔታዎች ይቀይራሉ።"
+  },
+  askTerms: {
+    en: `Please read and agree to these Terms & Conditions before proceeding:
+(1) Taskifii is an MVP; it is not legally registered as a business entity.
+(2) Taskifii charges zero commission and does not hold escrow; all payments between Task Creators and Task Doers are final.
+(3) Taskifii’s Bot stores user data in encrypted form; it does not share personal information with third parties.
+(4) Any violation of these Terms & Conditions—including but not limited to harassment, scamming, or sharing false information—will lead to suspension or permanent ban.
+(5) By using Taskifii Bot, you acknowledge and agree that Taskifii is not liable for any disputes or losses; Taskifii acts only as an information conduit.
+(6) No user under the age of 18 is allowed to register or perform tasks on Taskifii Bot.
+(7) Users must comply with all Telegram policies; spamming, phishing, or blocking other users may result in removal.
+(8) All payments must be completed outside of the Bot; Taskifii Bot does not handle money or escrow.
+(9) Any attempt to manipulate ratings (e.g., uploading fake reviews) is strictly prohibited.
+(10) By continuing, you confirm you have read, understood, and agreed to these Terms & Conditions.`,
+    am: `እባክዎን በቅድሚያ መመሪያና ሁኔታዎችን ያነቡ።
+(1) Taskifii እንደ MVP ስለጀመረ፤ የህጋዊ ድርጅት ምዝገባ አልተደረገም.
+(2) Taskifii የኮሚሽን ክፍያ አልተያዘም እና ኢስክሮ ማስያዣ አያደርግም፤ በተግዳሮት የተከፈሉት መብዋሪያዎች ሁሉ የተወሰኑ ናቸው.
+(3) Taskifii Bot የተጠቃሚዎችን መረጃ በዲጃታ ቅፅበት ያስቆጣጠር፤ ግል መረጃ ለሶስተኛዎች አይከፍልም.
+(4) ከእነዚህ መመሪያዎች ማንኛውም ማሸነፍ—ምንጋጋ፣ ስከት ወይም ውሸት መከፈል—ተግዳሮት እስከጨርስ ወይም መጠፋት ያመጣል.
+(5) Taskifii Bot መጠቀም በማድረግ ምንም ጉዳት ወይም ችግር የሚፈጥርበት የለም፤ Taskifii ማመልከቻው መረጃ የማስተላለፊያ ብቻ ነው.
+(6) ከ18 ዓመት በታች ተጠቃሚ በTaskifii Bot መመዝገብ ወይም ተግዳሮት ማድረግ አይፈቀድም.
+(7) ተጠቃሚዎች ሁሉ Telegram ፖሊሲዎችን መጠቀም አለባቸው፤ ስፓም፣ ፊሽን፣ ሌሎችን ማቆም ወዘተ የተደረገ ተግባር ከሆነ ከሰረዝ.
+(8) ሁሉም ክፍያዎች ውጪ ከBot ይፈጸማሉ፤ Taskifii Bot ገንዘብ አልተያዘም አይወሰድም.
+(9) የግምገማዎችን መደብደብ መልስ በማድረግ (ለምሳሌ ውሸት ግምገማዎች ማስገባት) በግብይት ተከታትሎ እንቅስቃሴን ማሳያ ነው.
+(10) በመቀጠል ያላንተ እነዚህን መመሪያዎች አግኝተሃልና ተቀበልናል ትባላላችሁ.”`
+  },
+  agreeBtn: {
+    en: "Agree",
+    am: "ተፈቅዷል"
+  },
+  disagreeBtn: {
+    en: "Disagree",
+    am: "አልተፈቀደም"
+  },
+  reviewPoliciesBtn: {
+    en: "Review Bot Policies",
+    am: "የቦት ፖሊሲዎች ዳግመኛ ማንበብ"
+  },
+  termsNeedAgree: {
+    en: "It’s important to understand and agree to the Terms & Conditions. If you want to review the Bot’s policies again, click ‘Yes’.",
+    am: "ይህን መመሪያና ሁኔታዎች ማሰራመድ አስፈላጊ ነው። የቦት ፖሊሲዎችን ዳግመኛ ለማንበብ ‘Yes’ ይጫኑ።"
+  },
+  termsYesBtn: {
+    en: "Yes",
+    am: "አዎን"
+  },
+  askAge: {
+    en: "Are you 18 or older? Click ‘Yes I am’ or ‘No I’m not.’ (Ethiopian law prohibits under-18 employment.)",
+    am: "18 ወይም ከዚህ በላይ ነህ? ‘Yes I am’ ወይም ‘No I’m not’ ይጫኑ። (የኢትዮጵያ ህግ ከ18 በታች ስራ የማድረግ አደንች አይፈቀድም።)"
+  },
+  ageYesBtn: {
+    en: "Yes I am",
+    am: "አዎን ነኝ"
+  },
+  ageNoBtn: {
+    en: "No I’m not",
+    am: "አይደለም ተብሎ አይቻልም"
+  },
+  ageError: {
+    en: "Sorry, you must be 18 or older to use Taskifii. Your data has been removed.",
+    am: "ይቅርታ፣ ከ18 ዓመት በታች መሆንዎ ምክንያት ይገባል። መረጃዎት ተሰርዟል።"
+  }
+};
+
+// ------------------------------------
+//  Helper: buildButton
+// ------------------------------------
+function buildButton(textObj, callbackData, lang, highlighted = false) {
+  // If highlighted, prefix with ✔ and use a no-op callbackData
+  if (highlighted) {
+    return Markup.button.callback(`✔ ${textObj[lang]}`, `_DISABLED_${callbackData}`);
+  }
+  return Markup.button.callback(textObj[lang], callbackData);
+}
+
+// ------------------------------------
+//  Main Bot Logic
+// ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
 
-  //
-  // ─── HELPER: Build "Setup Profile" Button ────────────────────────────────────
-  //
-  function setupProfileButton(lang) {
-    const text = lang === "am"
-      ? "ፕሮፋይል ያቀናብሩ"    // “Setup Profile” in Amharic
-      : "Setup Profile";
-    return Markup.button.callback(text, "SETUP_PROFILE");
-  }
-
-  //
-  // ─── HELPER: Build final profile-complete buttons (Post/Find/Edit) ───────────
-  //
-  function profileCompleteButtons(lang) {
-    const postLabel = lang === "am" ? "ተግዳሮት ልጥፍ" : "Post a Task";
-    const findLabel = lang === "am" ? "ተግዳሮት ፈልግ" : "Find a Task";
-    const editLabel = lang === "am" ? "ፕሮፋይል አርትዕ" : "Edit Profile";
-    return Markup.inlineKeyboard([
-      [Markup.button.callback(postLabel, "POST_TASK")],
-      [Markup.button.callback(findLabel, "FIND_TASK")],
-      [Markup.button.callback(editLabel, "EDIT_PROFILE")]
-    ]);
-  }
-
-  //
-  // ─── /start HANDLER: Create or fetch User, then prompt based on onboardingStep ─
-  //
+  // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
-    const telegramId = ctx.from.id;
-    const tgUsername = ctx.from.username || "";
+    const tgId = ctx.from.id;
+    let user = await User.findOne({ telegramId: tgId });
 
-    // 1) Look for existing user
-    let user = await User.findOne({ telegramId });
-
-    // 2) If none, create a fresh record with only telegramId + username + onboardingStep
-    if (!user) {
+    // If user already exists, reset their record so onboarding can start from scratch
+    if (user) {
+      user.language = null;
+      user.fullName = null;
+      user.phone = null;
+      user.email = null;
+      user.username = null;
+      user.bankDetails = [];
+      user.stats = {
+        totalEarned: 0,
+        totalSpent: 0,
+        averageRating: 0,
+        ratingCount: 0
+      };
+      user.onboardingStep = "language";
+      user.createdAt = Date.now();
+      await user.save();
+    } else {
       user = new User({
-        telegramId,
-        username: tgUsername,
-        onboardingStep: "language",
-        // fullName/phone/email/language remain undefined/default until collected
+        telegramId: tgId,
+        onboardingStep: "language"
       });
       await user.save();
     }
 
-    // 3) Prompt based on onboardingStep
-    switch (user.onboardingStep) {
-      case "language":
-        return ctx.reply(
-          "Choose your language! / ቋንቋ ይምረጡ!",
-          Markup.inlineKeyboard([
-            [
-              Markup.button.callback("English", "LANG_EN"),
-              Markup.button.callback("አማርኛ", "LANG_AM")
-            ]
-          ])
-        );
-
-      case "fullName":
-        return ctx.reply(
-          "What is your full name? (minimum 3 characters)\n(የሙሉ ስምዎን ያስገቡ። (አንስተው 3 ቁምፊ ቢሆን ይጠቅማል))"
-        );
-
-      case "phone":
-        return ctx.reply(
-          "Please enter your phone number (digits only, e.g. 0912345678).\n(እባክዎን የስልክ ቁጥርዎን ያስገቡ (ቁጥሮች ብቻ። ለምሳሌ 0912345678))."
-        );
-
-      case "email":
-        return ctx.reply(
-          "Please enter your email address.\n(እባክዎን የኢሜይል አድራሻዎን ያስገቡ።)"
-        );
-
-      case "usernameConfirm":
-        const currentUsername = ctx.from.username || "";
-        return ctx.reply(
-          `Your Telegram username is @${currentUsername}.\nReply "yes" to confirm or send a different username.\n(የተጠቃሚ ስምዎ በቴሌግራም እንዲህ ነው: @${currentUsername}።\n"yes" ብለው ያረጋግጡ ወይም ሌላ ትልቅ የተጠቃሚ ስም ይላኩ።)`
-        );
-
-      case "bankEntry":
-        return ctx.reply(
-          "Give us your online banking details (up to 10) in this format:\n`BankName,AccountNumber`\nYou may also include Telebirr as `Telebirr,YourPhoneNumber`.`\n(የባንክ ዝርዝሮችዎን (እስከ 10ት) በዚህ ቅጥ ያስገቡ:\n`BankName,AccountNumber`\nTelebirr እንደ `Telebirr,YourPhoneNumber` መጨመር ይችላሉ።)\n\nType `done` when finished.\n(ፈጣን ብቻ ሲሞሉ  `done` ይላኩ።)"
-        );
-
-      case "ageVerify":
-        return ctx.reply(
-          "Are you 18 or older? Reply with `yes` or `no`.\n(አንድ እና ስምንት ዓመት ወይም ከዚያ ዕድሜ ከፍ ነህ? `yes` ወይም `no` ብቻ ይላኩ።)"
-        );
-
-      // If already completed onboarding:
-      default:
-        // Build final profile summary + “Post a Task” / “Find a Task” / “Edit Profile” buttons:
-        const banks =
-          user.bankDetails.length > 0
-            ? user.bankDetails.map(b => `${b.bankName} (${b.accountNumber})`).join(", ")
-            : "N/A";
-
-        const languageLabel = user.language === "en" ? "English" : "አማርኛ";
-        const profileMsg = `
-📝 Profile Complete!  
-• Full Name: ${user.fullName}  
-• Phone: ${user.phone}  
-• Email: ${user.email}  
-• Username: @${user.username}  
-• Banks: ${banks}  
-• Language: ${languageLabel}  
-• Registered: ${user.createdAt.toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa" })}
-`;
-        return ctx.reply(profileMsg.trim(), profileCompleteButtons(user.language));
-    }
+    // Send language selection
+    return ctx.reply(
+      `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
+      Markup.inlineKeyboard([
+        [
+          buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "en", false),
+          buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "en", false)
+        ]
+      ])
+    );
   });
 
-  //
-  // ─── ACTION HANDLERS FOR INLINE BUTTONS ─────────────────────────────────────
-  //
+  // ─────────── Language Selection Actions ───────────
   bot.action("LANG_EN", async (ctx) => {
-    await ctx.answerCbQuery(); // acknowledge
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
     user.language = "en";
-    user.onboardingStep = "fullName";
+    user.onboardingStep = "setupProfile";
     await user.save();
-    return ctx.reply("Great! Now, please enter your full name (e.g., John Doe).");
+
+    return ctx.reply(
+      "Language set to English.",
+      Markup.inlineKeyboard([
+        [buildButton(TEXT.setupProfileBtn, "DO_SETUP", "en", false)]
+      ])
+    );
   });
 
   bot.action("LANG_AM", async (ctx) => {
     await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
-    if (!user) return ctx.reply("ተጨማሪ ስህተት። /start እንደገና ይሞክሩ።");
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("አስቸጋሪ ስሕተት። /start ይደግፉ.");
+
     user.language = "am";
+    user.onboardingStep = "setupProfile";
+    await user.save();
+
+    return ctx.reply(
+      "ቋንቋው ወደ አማርኛ ተቀይሯል።",
+      Markup.inlineKeyboard([
+        [buildButton(TEXT.setupProfileBtn, "DO_SETUP", "am", false)]
+      ])
+    );
+  });
+
+  // ─────────── “Setup Profile” Action ───────────
+  bot.action("DO_SETUP", async (ctx) => {
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
     user.onboardingStep = "fullName";
     await user.save();
-    return ctx.reply("ጥሩ! እባክዎን ሙሉ ስምዎን ያስገቡ (ለምሳሌ ዮሐንስ ደስታ).");
+
+    return ctx.reply(
+      user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en
+    );
   });
 
-  bot.action("SETUP_PROFILE", async (ctx) => {
-    await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
-    if (!user) return ctx.reply("Unexpected error. Please /start again.");
-    // If profile wasn’t completed yet, simply re-send the correct prompt based on onboardingStep:
-    switch (user.onboardingStep) {
-      case "language":
-        return ctx.reply(
-          "Please choose your language! / እባክዎን ቋንቋዎን ይምረጡ:\n1. English (reply with en)\n2. አማርኛ (reply with am)"
-        );
-      case "fullName":
-        return ctx.reply("What is your full name? (minimum 3 characters)");
-      case "phone":
-        return ctx.reply("Please enter your phone number (digits only).");
-      case "email":
-        return ctx.reply("Please enter your email address.");
-      case "usernameConfirm":
-        const currUser = ctx.from.username || "";
-        return ctx.reply(`Your Telegram username is @${currUser}. Reply "yes" to confirm or send a different username.`);
-      case "bankEntry":
-        return ctx.reply(
-          "Enter your bank details as `BankName,AccountNumber`. Type `done` when finished."
-        );
-      case "ageVerify":
-        return ctx.reply("Are you 18 or older? Reply with `yes` or `no`.");
-      default:
-        return ctx.reply("You have already completed onboarding.");
-    }
-  });
+  // ─────────── Catch Disabled Buttons ───────────
+  bot.action(/_DISABLED_.+/, (ctx) => ctx.answerCbQuery());
 
-  //
-  // ─── TEXT HANDLER: Route all plain‐text replies according to onboardingStep ───
-  //
+  // ─────────── Text Handler for Onboarding Steps ───────────
   bot.on("text", async (ctx) => {
-    const telegramId = ctx.from.id;
+    const tgId = ctx.from.id;
     const text = ctx.message.text.trim();
-    let user = await User.findOne({ telegramId });
-    if (!user) return; // Shouldn’t happen unless DB was wiped
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return;
 
-    switch (user.onboardingStep) {
-      // 1. FULL NAME
-      case "fullName":
-        if (text.length >= 3) {
-          user.fullName = text;
-          user.onboardingStep = "phone";
-          await user.save();
-          return ctx.reply("Please enter your phone number (digits only).");
-        } else {
-          return ctx.reply("Full name must be at least 3 characters. Try again.");
-        }
+    // ─── FULL NAME STEP ─────────────────────────
+    if (user.onboardingStep === "fullName") {
+      if (text.length < 3) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en
+        );
+      }
+      // Count duplicates
+      const countSame = await User.countDocuments({ fullName: text });
+      user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
 
-      // 2. PHONE NUMBER
-      case "phone":
-        if (/^\+?\d{8,14}$/.test(text)) {
-          user.phone = text;
-          user.onboardingStep = "email";
-          await user.save();
-          return ctx.reply("Please enter your email address.");
-        } else {
-          return ctx.reply(
-            "Invalid phone format. Must be 8–14 digits (you may include a leading +). Try again."
-          );
-        }
+      user.onboardingStep = "phone";
+      await user.save();
+      return ctx.reply(
+        user.language === "am" ? TEXT.askPhone.am : TEXT.askPhone.en
+      );
+    }
 
-      // 3. EMAIL
-      case "email":
-        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text)) {
-          user.email = text;
-          user.onboardingStep = "usernameConfirm";
-          await user.save();
-          const currUsername = ctx.from.username || "";
-          return ctx.reply(
-            `Your Telegram username is @${currUsername}. Reply "yes" to confirm or send a different username.`
-          );
-        } else {
-          return ctx.reply("Invalid email. Please enter a valid address.");
-        }
+    // ─── PHONE STEP ────────────────────────────
+    if (user.onboardingStep === "phone") {
+      const phoneRegex = /^\+?\d{1,14}$/;
+      if (!phoneRegex.test(text)) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.phoneErrorFormat.am : TEXT.phoneErrorFormat.en
+        );
+      }
+      const existingPhone = await User.findOne({ phone: text });
+      if (existingPhone) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.phoneErrorTaken.am : TEXT.phoneErrorTaken.en
+        );
+      }
+      user.phone = text;
+      user.onboardingStep = "email";
+      await user.save();
+      return ctx.reply(
+        user.language === "am" ? TEXT.askEmail.am : TEXT.askEmail.en
+      );
+    }
 
-      // 4. USERNAME CONFIRM
-      case "usernameConfirm":
-        const lower = text.toLowerCase();
-        const rawUsername = ctx.from.username || "";
-        if (lower === "yes" && rawUsername) {
-          user.username = rawUsername;
-          user.onboardingStep = "bankEntry";
-          await user.save();
-          return ctx.reply(
-            "Enter your bank details as `BankName,AccountNumber`. Type `done` when finished."
-          );
-        } else if (/^[A-Za-z0-9_]{5,}$/.test(text)) {
-          user.username = text;
-          user.onboardingStep = "bankEntry";
-          await user.save();
-          return ctx.reply(
-            "Enter your bank details as `BankName,AccountNumber`. Type `done` when finished."
-          );
-        } else {
-          return ctx.reply(
-            'Please reply "yes" to confirm your @username, or send a valid username (letters/numbers/underscores).'
-          );
-        }
+    // ─── EMAIL STEP ────────────────────────────
+    if (user.onboardingStep === "email") {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(text)) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.emailErrorFormat.am : TEXT.emailErrorFormat.en
+        );
+      }
+      const existingEmail = await User.findOne({ email: text });
+      if (existingEmail) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.emailErrorTaken.am : TEXT.emailErrorTaken.en
+        );
+      }
+      user.email = text;
+      user.onboardingStep = "username";
+      await user.save();
 
-      // 5. BANK ENTRY (loop until "done")
-      case "bankEntry":
-        if (text.toLowerCase() === "done") {
-          if (user.bankDetails.length === 0) {
-            return ctx.reply(
-              "You must enter at least one bank detail. Format: BankName,AccountNumber"
-            );
-          }
-          // Move on to Terms & Conditions step (next: ageVerify). But first deliver T&C.
-          user.onboardingStep = "ageVerify";
-          await user.save();
+      // Prompt shows current username
+      const currentHandle = ctx.from.username || "";
+      const promptText = (user.language === "am")
+        ? TEXT.askUsername.am.replace("%USERNAME%", currentHandle || "<none>")
+        : TEXT.askUsername.en.replace("%USERNAME%", currentHandle || "<none>");
+      return ctx.reply(promptText, Markup.inlineKeyboard([
+        [Markup.button.callback(
+          user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+          "USERNAME_KEEP"
+        )]
+      ]));
+    }
 
-          // SEND TERMS & CONDITIONS message with two buttons: Agree / Disagree
-          const tcAm = `
-እባክዎት የመለያን መመርቻዎን ከፈቃድዎ በፊት ተገቢውን ሁኔታዎች ያነቡ። ይህ መመሪያ የዚህ መድረክ አገልግሎት የሚከበርበትን መሠረት ያቀርባል። ለተጠቃሚዎች መመቻቸል፣ ለደንበኞች ማስተላለፊያ፣ ወዘተ ስለሚካሄድ በቂ መረጃ ያስገቡ።
-- እባኮት ውጤቱን ቦታግብዩ። ማንንም በማንኛውም ወቅት ማቀናበር የለም።
-- እባኮት የመድረኩን ህጎች ይቆጣጠሩ።
-  `;
-          const tcEn = `
-Please read and agree to these Terms & Conditions before proceeding.  
-This policy sets out the rules for using Taskifii in its MVP stage. By agreeing, you acknowledge:
-1. Taskifii is not yet legally registered—this is an MVP with no revenue/commissions.  
-2. Your information will be stored securely; we strive to keep it encrypted and private.  
-3. There is no escrow—once you pay or are paid, Taskifii is not liable.  
-4. Users under 18 are not allowed.  
-5. Violating these Terms & Conditions may result in immediate suspension or ban.  
-6. We handle all data in accordance with Ethiopian law, but we are not yet a licensed service.  
-7. You understand there is no formal dispute-resolution or customer support beyond this MVP.  
-If you agree, click “Agree” below; otherwise click “Disagree.”
-  `;
-          return ctx.reply(
-            user.language === "am" ? tcAm : tcEn,
-            Markup.inlineKeyboard([
-              [
-                Markup.button.callback(
-                  user.language === "am" ? "ተፈቅዷል" : "Agree",
-                  "TC_AGREE"
-                ),
-                Markup.button.callback(
-                  user.language === "am" ? "አልተፈቀደም" : "Disagree",
-                  "TC_DISAGREE"
-                )
-              ]
-            ])
-          );
-        }
+    // ─── USERNAME STEP ─────────────────────────
+    if (user.onboardingStep === "username") {
+      // If user typed text instead of clicking “Yes, keep it”
+      const reply = text;
+      // Validate new handle
+      const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
+      if (!userHandleRegex.test(reply)) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.usernameErrorGeneral.am : TEXT.usernameErrorGeneral.en
+        );
+      }
+      // Check taken
+      const existingUser = await User.findOne({ username: reply });
+      if (existingUser) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.usernameErrorTaken.am : TEXT.usernameErrorTaken.en
+        );
+      }
+      // Save new handle
+      user.username = reply;
+      user.onboardingStep = "bankFirst";
+      await user.save();
+      return ctx.reply(
+        user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en
+      );
+    }
 
-        // Expect “BankName,AccountNumber”
-        if (/^[^,]+,\d+$/.test(text)) {
-          if (user.bankDetails.length >= 10) {
-            // Already at 10 banks: force “done”
-            user.onboardingStep = "ageVerify";
-            await user.save();
-            return ctx.reply(
-              `You have reached 10 bank entries. Moving on.`
-            );
-          }
-          const [bankName, accountNumber] = text.split(",");
-          user.bankDetails.push({ bankName: bankName.trim(), accountNumber: accountNumber.trim() });
-          await user.save();
-          return ctx.reply(
-            "Bank added. Enter another or type `done` if finished."
-          );
-        } else {
-          return ctx.reply(
-            "Invalid format. Use `BankName,AccountNumber` (digits only). Try again."
-          );
-        }
+    // ─── FIRST BANK ENTRY ───────────────────────
+    if (user.onboardingStep === "bankFirst") {
+      // Expect first entry in format BankName,AccountNumber
+      const bankRegex = /^[A-Za-z ]+,\d+$/;
+      if (!bankRegex.test(text)) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en
+        );
+      }
+      // Save first entry
+      const [bankName, acctNum] = text.split(",").map((s) => s.trim());
+      user.bankDetails.push({ bankName, accountNumber: acctNum });
+      user.onboardingStep = "bankMulti"; // Now allow buttons
+      await user.save();
 
+      // Reply with message + show buttons
+      return ctx.reply(
+        user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
+            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
+            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
+          ]
+        ])
+      );
+    }
 
-      // 6. AGE VERIFICATION (but only after T&C “Agree”)
-      case "ageVerify":
-        if (text.toLowerCase() === "yes") {
-          // Finalize onboarding → send full profile + buttons
-          user.onboardingStep = "completed";
-          await user.save();
+    // ─── MULTI BANK ENTRY (text input after clicking Add/Replace) ─────────────
+    if (user.onboardingStep === "bankAdding") {
+      // Coming from clicking "Add"
+      const bankRegex = /^[A-Za-z ]+,\d+$/;
+      if (!bankRegex.test(text)) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en
+        );
+      }
+      const [bankName, acctNum] = text.split(",").map((s) => s.trim());
+      user.bankDetails.push({ bankName, accountNumber: acctNum });
+      await user.save();
 
-          // Build final profile
-          const banksList =
-            user.bankDetails.length > 0
-              ? user.bankDetails.map((b) => `${b.bankName} (${b.accountNumber})`).join(", ")
-              : "N/A";
-          const languageLabel2 = user.language === "en" ? "English" : "አማርኛ";
-          const profileMsg2 = `
-📝 Profile Complete!  
-• Full Name: ${user.fullName}  
-• Phone: ${user.phone}  
-• Email: ${user.email}  
-• Username: @${user.username}  
-• Banks: ${banksList}  
-• Language: ${languageLabel2}  
-• Registered: ${user.createdAt.toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa" })}
-`;
-          return ctx.reply(profileMsg2.trim(), profileCompleteButtons(user.language));
-        } else if (text.toLowerCase() === "no") {
-          await User.deleteOne({ telegramId });
-          return ctx.reply(
-            user.language === "am"
-              ? "ይቅርታ፣ ከ18 ዓመት በታች መሆንዎ ምክንያት በቻይ እርዳታ ላይ መጠቀም አይቻልም። መረጃዎችዎን አጥፊው ተለይቷል።"
-              : "Sorry, you must be 18 or older to use this service. Your data has been removed."
-          );
-        } else {
-          return ctx.reply(
-            user.language === "am"
-              ? "18 ዓመት ወይም ከዚያ ከፍ እንደሆኑ “yes” ወይም “no” ብቻ ይላኩ።"
-              : "Reply with `yes` if you are 18 or older, otherwise `no`."
-          );
-        }
+      // Check if we have reached 10
+      if (user.bankDetails.length >= 10) {
+        user.onboardingStep = "terms";
+        await user.save();
+        return ctx.reply(
+          user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en
+        );
+      }
 
-      // If onboardingStep is “completed” or anything else:
-      default:
-        return; // no action
+      // Otherwise, prompt with buttons again
+      user.onboardingStep = "bankMulti";
+      await user.save();
+      return ctx.reply(
+        user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
+            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
+            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
+          ]
+        ])
+      );
+    }
+
+    if (user.onboardingStep === "bankReplacing") {
+      // Coming from clicking "Replace"
+      const bankRegex = /^[A-Za-z ]+,\d+$/;
+      if (!bankRegex.test(text)) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en
+        );
+      }
+      // Delete most recent
+      user.bankDetails.pop();
+      // Save new
+      const [bankName, acctNum] = text.split(",").map((s) => s.trim());
+      user.bankDetails.push({ bankName, accountNumber: acctNum });
+      await user.save();
+
+      // Still fewer than 10? Redisplay buttons
+      user.onboardingStep = "bankMulti";
+      await user.save();
+      return ctx.reply(
+        user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
+            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
+            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
+          ]
+        ])
+      );
+    }
+
+    // ─── TERMS & CONDITIONS – TEXT RESPONSE FOR “Yes” AFTER “Disagree” ─────────
+    if (user.onboardingStep === "termsReview") {
+      // Re-send full T&C
+      return ctx.reply(
+        user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
+        Markup.inlineKeyboard([
+          [
+            buildButton(TEXT.agreeBtn, "TC_AGREE", user.language),
+            buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language),
+            buildButton(TEXT.reviewPoliciesBtn, "TC_REVIEW", user.language)
+          ]
+        ])
+      );
     }
   });
 
-  //
-  // ─── ACTION HANDLERS FOR TERMS & CONDITIONS BUTTONS ─────────────────────────
-  //
-  bot.action("TC_AGREE", async (ctx) => {
+  // ─── USERNAME “Yes, keep it” Action ─────────────────────────────────
+  bot.action("USERNAME_KEEP", async (ctx) => {
     await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Move on to ageVerify prompt (it will be handled by text handler)
-    user.onboardingStep = "ageVerify";
+    const handle = ctx.from.username || "";
+    if (!handle) {
+      return ctx.reply(
+        user.language === "am"
+          ? "ምንም Telegram የተጠቃሚ ስም የለዎትም። እባክዎ ትክክለኛ ይጻፉ።"
+          : "It seems you don’t have a Telegram username. Please type a valid one."
+      );
+    }
+
+    user.username = handle;
+    user.onboardingStep = "bankFirst";
+    await user.save();
+    return ctx.reply(
+      user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en
+    );
+  });
+
+  // ─── BANK “Add” / “Replace” / “Done” Actions ─────────────────────────
+  bot.action("BANK_ADD", async (ctx) => {
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    user.onboardingStep = "bankAdding";
     await user.save();
     return ctx.reply(
       user.language === "am"
-        ? "አንድ እና ስምንት ዓመት ወይም ከዚያ በላይ ነህ? `yes` ወይም `no` ብቻ ይላኩ።"
-        : "Are you 18 or older? Reply with `yes` or `no`."
+        ? "እባክዎ አሁን በቅጥ `BankName,AccountNumber` መሆኑን ይጻፉ።"
+        : "Please type your bank entry now in the format `BankName,AccountNumber`."
+    );
+  });
+
+  bot.action("BANK_REPLACE", async (ctx) => {
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    // Delete last entry
+    user.bankDetails.pop();
+    user.onboardingStep = "bankReplacing";
+    await user.save();
+    return ctx.reply(
+      user.language === "am"
+        ? "የባንኩ መጨመሪያ መዝገብ ተሰርዟል። እባክዎ አዲስ መጨመሪያ በ `BankName,AccountNumber` ቅጥ ይዘግቡ።"
+        : "Your last bank entry was removed. Please type a new entry in `BankName,AccountNumber` format."
+    );
+  });
+
+  bot.action("BANK_DONE", async (ctx) => {
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    if (user.bankDetails.length === 0) {
+      return ctx.reply(
+        user.language === "am"
+          ? "እባክዎ ቢያንስ አንድ የባንክ ዝርዝር ያስገቡ። (በ BankName,AccountNumber ቅጥ ተጠቀም)"
+          : "You must enter at least one bank detail. (Use the format BankName,AccountNumber)"
+      );
+    }
+    user.onboardingStep = "terms";
+    await user.save();
+    return ctx.reply(
+      user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
+      Markup.inlineKeyboard([
+        [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)],
+        [buildButton(TEXT.reviewPoliciesBtn, "TC_REVIEW", user.language, false)]
+      ])
+    );
+  });
+
+  // ─── TERMS & CONDITIONS Actions ────────────────────────────────────
+  bot.action("TC_AGREE", async (ctx) => {
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    user.onboardingStep = "age";
+    await user.save();
+    return ctx.reply(
+      user.language === "am" ? TEXT.askAge.am : TEXT.askAge.en,
+      Markup.inlineKeyboard([
+        [
+          buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, false),
+          buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, false)
+        ]
+      ])
     );
   });
 
   bot.action("TC_DISAGREE", async (ctx) => {
     await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Remain on T&C step; re-prompt with a “Review T&C?” option
+    user.onboardingStep = "termsReview";
+    await user.save();
     return ctx.reply(
-      user.language === "am"
-        ? "ህጎቹን ለመታወቅ እና ለመረጋገጥ አሳሳቢ ነው። መመሪያውን መልሰው ማንኛውንም መረጃ ለማየት “yes” ብለው ሊደግፉ ይችላሉ።"
-        : "It’s important to read and agree to the Terms & Conditions. If you’d like to review them again, reply “yes”."
+      user.language === "am" ? TEXT.termsNeedAgree.am : TEXT.termsNeedAgree.en,
+      Markup.inlineKeyboard([
+        [buildButton(TEXT.termsYesBtn, "TC_REVIEW", user.language, false)]
+      ])
     );
   });
 
-  //
-  // ─── ACTION HANDLERS FOR FINAL PROFILE BUTTONS ─────────────────────────────
-  //
-  bot.action("POST_TASK", async (ctx) => {
+  bot.action("TC_REVIEW", async (ctx) => {
     await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
-    if (!user || user.onboardingStep !== "completed") {
-      return ctx.reply("Please complete your profile first by clicking /start.");
-    }
-    // TODO: Hand off to “post a task” workflow (next big section)
-    return ctx.reply("⭐ Post-a-Task flow is not implemented yet.");
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    // Re-send full T&C
+    return ctx.reply(
+      user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
+      Markup.inlineKeyboard([
+        [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)],
+        [buildButton(TEXT.reviewPoliciesBtn, "TC_REVIEW", user.language, false)]
+      ])
+    );
   });
 
-  bot.action("FIND_TASK", async (ctx) => {
+  // ─── AGE VERIFICATION Actions ────────────────────────────────────
+  bot.action("AGE_YES", async (ctx) => {
     await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
-    if (!user || user.onboardingStep !== "completed") {
-      return ctx.reply("Please complete your profile first by clicking /start.");
-    }
-    // TODO: Hand off to “find a task” workflow (filter & display tasks)
-    return ctx.reply("🔍 Find-Task flow is not implemented yet.");
-  });
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-  bot.action("EDIT_PROFILE", async (ctx) => {
-    await ctx.answerCbQuery();
-    const telegramId = ctx.from.id;
-    let user = await User.findOne({ telegramId });
-    if (!user || user.onboardingStep !== "completed") {
-      return ctx.reply("Please complete your profile first by clicking /start.");
-    }
-    // TODO: Send the profile post back with “Edit” sub-buttons
-    return ctx.reply("✏️ Edit-Profile flow is not implemented yet.");
-  });
+    // Complete onboarding
+    user.onboardingStep = "completed";
+    await user.save();
 
-  //
-  // ─── LAUNCH THE BOT ─────────────────────────────────────────────────────────
-  //
-  bot
-    .launch()
-    .then(() => {
-      console.log("🤖 Bot is up and running");
-    })
-    .catch((err) => {
-      console.error("⚠️ Failed to launch bot:", err);
+    // Build profile post
+    const banksList = user.bankDetails
+      .map((b) => `${b.bankName} (${b.accountNumber})`)
+      .join(", ") || "N/A";
+    const langLabel = user.language === "am" ? "አማርኛ" : "English";
+    const registeredAt = user.createdAt.toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa" });
+
+    const profileLinesEn = [
+      "🎉 Congratulations! Here is your Taskifii profile:",
+      `• Full Name: ${user.fullName}`,
+      `• Phone: ${user.phone}`,
+      `• Email: ${user.email}`,
+      `• Username: @${user.username}`,
+      `• Banks: ${banksList}`,
+      `• Language: ${langLabel}`,
+      `• Registered: ${registeredAt}`,
+      `🔹 Total earned (as Task-Doer): ${user.stats.totalEarned.toFixed(2)} birr`,
+      `🔹 Total spent (as Task-Creator): ${user.stats.totalSpent.toFixed(2)} birr`,
+      `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★   (${user.stats.ratingCount} ratings)`
+    ];
+
+    const profileLinesAm = [
+      "🎉 እንኳን ደስ አለዎት! ይህ የዎት Taskifii ፕሮፋይል ነው፦",
+      `• ሙሉ ስም: ${user.fullName}`,
+      `• ስልክ: ${user.phone}`,
+      `• ኢሜይል: ${user.email}`,
+      `• ተጠቃሚ ስም: @${user.username}`,
+      `• ባንኮች: ${banksList}`,
+      `• ቋንቋ: ${langLabel}`,
+      `• ተመዝግቦበት ቀን: ${registeredAt}`,
+      `🔹 እስካሁን የተቀበሉት (በተግዳሮት ተሳታፊ): ${user.stats.totalEarned.toFixed(2)} ብር`,
+      `🔹 እስካሁን ያከፈሉት (እንደ ተግዳሮት ፍጻሜ): ${user.stats.totalSpent.toFixed(2)} ብር`,
+      `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★   (${user.stats.ratingCount} ግምገማዎች)`
+    ];
+
+    const profileText = user.language === "am" ? profileLinesAm.join("\n") : profileLinesEn.join("\n");
+
+    // 1) Send profile post to user with three buttons
+    await ctx.reply(
+      profileText,
+      Markup.inlineKeyboard([
+        [buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language)],
+        [buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language)],
+        [buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language)]
+      ])
+    );
+
+    // 2) Send same profile + stats to admin channel
+    const ADMIN_CHANNEL = "-1002310380363";
+    const placeholderHistory = "(No past tasks or violations yet. This section will show full activity in future updates.)";
+
+    const adminLinesEn = [
+      "📋 **Profile Post for Approval**",
+      `• Full Name: ${user.fullName}`,
+      `• Phone: ${user.phone}`,
+      `• Email: ${user.email}`,
+      `• Username: @${user.username}`,
+      `• Banks: ${banksList}`,
+      `• Language: ${langLabel}`,
+      `• Registered: ${registeredAt}`,
+      "",
+      "---",
+      "**Past Activity / History:**",
+      placeholderHistory,
+      "",
+      "**Admin Actions:**"
+    ];
+
+    const adminLinesAm = [
+      "📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ**",
+      `• ሙሉ ስም: ${user.fullName}`,
+      `• ስልክ: ${user.phone}`,
+      `• ኢሜይል: ${user.email}`,
+      `• ተጠቃሚ ስም: @${user.username}`,
+      `• ባንኮች: ${banksList}`,
+      `• ቋንቋ: ${langLabel}`,
+      `• ተመዝግቦበት ቀን: ${registeredAt}`,
+      "",
+      "---",
+      "**የታሪክ እና ታሪክ ጥቆማ 👉**",
+      placeholderHistory,
+      "",
+      "**የአስተዳደር እርምጃዎች:**"
+    ];
+
+    const adminText = user.language === "am" ? adminLinesAm.join("\n") : adminLinesEn.join("\n");
+
+    const adminButtons = Markup.inlineKeyboard([
+      [
+        Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
+        Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
+      ],
+      [
+        Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
+        Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
+      ]
+    ]);
+
+    await ctx.telegram.sendMessage(ADMIN_CHANNEL, adminText, {
+      parse_mode: "Markdown",
+      ...adminButtons
     });
 
-  // Graceful shutdown
-  process.once("SIGINT", () => bot.stop("SIGINT"));
-  process.once("SIGTERM", () => bot.stop("SIGTERM"));
-}
+    return;
+  });
 
-//
-// ─── HTTP SERVER ──────────────────────────────────────────────────────────────
-// Bind a simple “OK” listener on process.env.PORT so Render’s free Web Service stays alive.
-//
-function startHttpServer() {
-  const port = process.env.PORT || 3000;
-  http
-    .createServer((req, res) => {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("OK");
-    })
-    .listen(port, () => {
-      console.log(`🌐 HTTP server listening on port ${port}`);
-    });
+  bot.action("AGE_NO", async (ctx) => {
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    await User.deleteOne({ telegramId: tgId });
+    return ctx.reply(
+      user.language === "am" ? TEXT.ageError.am : TEXT.ageError.en
+    );
+  });
+
+  // ─────────── POST_TASK, FIND_TASK, EDIT_PROFILE placeholders ───────────
+  // (Not implemented here; would be next steps.)
+  bot.action("POST_TASK", (ctx) => ctx.answerCbQuery());
+  bot.action("FIND_TASK", (ctx) => ctx.answerCbQuery());
+  bot.action("EDIT_PROFILE", (ctx) => ctx.answerCbQuery());
+
+  // ─────────── Admin Actions (Ban/Unban/Contact/Review) placeholders ────
+  bot.action(/ADMIN_BAN_.+/, (ctx) => ctx.answerCbQuery());
+  bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
+  bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
+  bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
+
+  // ─────────── Start Bot ───────────
+  bot.launch().then(() => {
+    console.log("🤖 Bot is up and running");
+  });
 }
