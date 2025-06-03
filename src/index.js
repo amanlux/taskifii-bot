@@ -48,16 +48,11 @@ function startBot() {
     let user = await User.findOne({ telegramId });
 
     if (!user) {
-      // 2) If none, create a new User with default onboardingStep = "language"
       user = new User({
         telegramId,
         username: tgUsername,
-        fullName: "",
-        phone: "",
-        email: "",
-        bankDetails: [],
-        language: "",
         onboardingStep: "language",
+        // (don’t include fullName, phone, email, or language here)
       });
       await user.save();
     }
