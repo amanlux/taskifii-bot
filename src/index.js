@@ -1,18 +1,13 @@
 // src/index.js
 
 /**
- * Taskifii Bot: Onboarding Flow Implementation (Updated Schema & Reset Logic)
+ * Taskifii Bot: Onboarding Flow Implementation (Allow language = null)
  *
- * This file implements the onboarding flow exactly as specified, with two fixes:
- * 1. username, phone, and email are no longer required at creation (default to null).
- * 2. /start now resets any existing user record so you can retest from scratch.
- *
- * Steps:
- *  1. /start → reset or create user → language selection
- *  2. “Setup Profile” → full name → phone → email → Telegram username → banking → T&C → age verification
- *  3. Final profile post with stats + admin channel post
- *
- * All prompts, button labels, validations, and behaviors match the document precisely.
+ * We fix the “language: `null` is not a valid enum” error by permitting `null` in the enum.
+ * The rest of the onboarding flow remains exactly the same:
+ *  1. /start resets or creates a user record (language starts as null)
+ *  2. Language selection → Setup Profile → Full Name → Phone → Email → Username → Bank → T&C → Age
+ *  3. Final profile post (user + admin channel)
  */
 
 const { Telegraf, Markup } = require("telegraf");
@@ -30,7 +25,7 @@ if (!process.env.MONGODB_URI) {
 
 mongoose
   .connect(process.env.MONGODB_URI, {
-    // useNewUrlParser/useUnifiedTopology are no-ops in newer drivers
+    // (useNewUrlParser and useUnifiedTopology are no‐ops in newer versions)
   })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
@@ -42,14 +37,15 @@ mongoose
   });
 
 // ------------------------------------
-//  Mongoose Schemas & Models (username/phone/email optional)
+//  Mongoose Schemas & Models
+//    – Allow language = null by adding `null` into the enum array
 // ------------------------------------
 const Schema = mongoose.Schema;
 
 const userSchema = new Schema({
   telegramId:     { type: Number, unique: true, required: true },
-  onboardingStep: { type: String, required: true }, // e.g. "language", "setupProfile", ...
-  language:       { type: String, enum: ["en", "am"], default: null },
+  onboardingStep: { type: String, required: true }, // e.g. "language", "setupProfile", etc.
+  language:       { type: String, enum: ["en", "am", null], default: null },
   fullName:       { type: String, default: null },
   phone:          { type: String, unique: true, sparse: true, default: null },
   email:          { type: String, unique: true, sparse: true, default: null },
@@ -803,7 +799,7 @@ function startBot() {
   });
 
   // ─────────── POST_TASK, FIND_TASK, EDIT_PROFILE placeholders ───────────
-  // (Not implemented here; would be next steps.)
+  // (Not implemented here; these are next steps.)
   bot.action("POST_TASK", (ctx) => ctx.answerCbQuery());
   bot.action("FIND_TASK", (ctx) => ctx.answerCbQuery());
   bot.action("EDIT_PROFILE", (ctx) => ctx.answerCbQuery());
