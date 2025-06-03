@@ -28,14 +28,17 @@ const StatsSchema = new Schema({
 
 const UserSchema = new Schema(
   {
-    telegramId: { type: Number, required: true, unique: true },
-    username: { type: String, required: true, unique: true },
-    fullName: { type: String, required: true },
-    phone: { type: String, required: true, unique: true },
-    email: { type: String, required: true, unique: true },
+    telegramId:  { type: Number, required: true, unique: true },
+    username:    { type: String, required: true, unique: true },
+
+    // Now optional until the user actually provides these
+    fullName:    { type: String, default: "" },
+    phone:       { type: String, default: "", unique: true },
+    email:       { type: String, default: "", unique: true },
     bankDetails: { type: [BankSchema], default: [] },
-    language: { type: String, enum: ["en", "am"], required: true },
-    // NEW: track which question the user is on
+
+    language:    { type: String, enum: ["en", "am"], default: "" },
+
     onboardingStep: {
       type: String,
       enum: [
@@ -54,7 +57,7 @@ const UserSchema = new Schema(
     stats: { type: StatsSchema, default: () => ({}) },
   },
   {
-    timestamps: true,
+    timestamps: true, // auto‐adds createdAt and updatedAt
   }
 );
 
