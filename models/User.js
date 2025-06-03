@@ -35,10 +35,26 @@ const UserSchema = new Schema(
     email: { type: String, required: true, unique: true },
     bankDetails: { type: [BankSchema], default: [] },
     language: { type: String, enum: ["en", "am"], required: true },
+    // NEW: track which question the user is on
+    onboardingStep: {
+      type: String,
+      enum: [
+        "language",
+        "fullName",
+        "phone",
+        "email",
+        "usernameConfirm",
+        "bankEntry",
+        "ageVerify",
+        "completed"
+      ],
+      default: "language"
+    },
+
     stats: { type: StatsSchema, default: () => ({}) },
   },
   {
-    timestamps: true, // auto‐adds createdAt and updatedAt
+    timestamps: true,
   }
 );
 
