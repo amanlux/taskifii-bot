@@ -14,6 +14,19 @@ if (!process.env.MONGODB_URI) {
   process.exit(1);
 }
 
+// src/index.js
+
+// …existing imports…
+const mongoose = require("mongoose");
+const { Telegraf } = require("telegraf");
+
+// **Add these two lines** so Mongoose registers our models:
+const User = require("../models/User");
+const Task = require("../models/Task");
+
+// …rest of the file…
+
+
 // 2. Connect to MongoDB Atlas
 mongoose
   .connect(process.env.MONGODB_URI, {
