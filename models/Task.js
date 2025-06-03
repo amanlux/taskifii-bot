@@ -3,57 +3,76 @@
 const mongoose = require("mongoose");
 const { Schema } = mongoose;
 
-// We’ll capture:
-// - creator: ObjectId ref to User
-// - description: String (required)
-// - relatedFile: String (URL or file ID) or null
-// - fields: [String] (array of hashtags or field names)
-// - skillLevel: String enum ["Beginner", "Intermediate", "Professional"]
-// - paymentFee: Number (Birr)
-// - timeToComplete: Number (hours)
-// - revisionTime: Number (hours)
-// - latePenalty: Number (Birr/hour)
-// - expiry: Date (when “Apply” expires)
-// - exchangeStrategy: String enum ["100%", "30:40:30", "50:50"]
-// - status: String enum ["Open", "Taken", "Canceled", "Completed"]
-// - applicants: [ { user: ObjectId, coverText: String, file: String, status: "Pending"|"Accepted"|"Declined" } ]
-// - acceptedDoer: ObjectId ref to User (nullable until accepted)
-// - stages: subdoc array tracking multi‐stage progress and payments
-// - createdAt, updatedAt
-
+/**
+ * ApplicantSchema
+ *  - user   : ObjectId (ref "User", required)
+ *  - coverText: String (required)
+ *  - file   : String (URL or file ID; optional)
+ *  - status : String (enum ["Pending","Accepted","Declined"], default "Pending")
+ */
 const ApplicantSchema = new Schema({
-  user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  user:      { type: Schema.Types.ObjectId, ref: "User", required: true },
   coverText: { type: String, required: true },
-  file: { type: String, default: null },
-  status: { type: String, enum: ["Pending", "Accepted", "Declined"], default: "Pending" },
+  file:      { type: String, default: null },
+  status:    { type: String, enum: ["Pending", "Accepted", "Declined"], default: "Pending" },
 });
 
+/**
+ * StageSchema
+ *  - stageNum : Number (e.g. 1,2,3; required)
+ *  - percent  : Number (e.g. 30 for 30%; required)
+ *  - delivered: Boolean (default false)
+ *  - paid     : Boolean (default false)
+ *  - deliveredAt: Date (optional)
+ *  - paidAt   : Date (optional)
+ */
 const StageSchema = new Schema({
-  stageNum: { type: Number, required: true }, // e.g., 1, 2, 3
-  percent: { type: Number, required: true }, // e.g., 30 for first stage
-  delivered: { type: Boolean, default: false },
-  paid: { type: Boolean, default: false },
+  stageNum:    { type: Number, required: true },
+  percent:     { type: Number, required: true },
+  delivered:   { type: Boolean, default: false },
+  paid:        { type: Boolean, default: false },
   deliveredAt: { type: Date },
-  paidAt: { type: Date },
+  paidAt:      { type: Date },
 });
 
+/**
+ * TaskSchema
+ *
+ * Fields:
+ *  - creator         : ObjectId (ref "User", required)
+ *  - description     : String (required, min 20, max 1250)
+ *  - relatedFile     : String (URL or file ID; optional)
+ *  - fields          : [String] (hashtags or field names; default [])
+ *  - skillLevel      : String (enum ["Beginner","Intermediate","Professional"], required)
+ *  - paymentFee      : Number (in birr; required)
+ *  - timeToComplete  : Number (hours; required)
+ *  - revisionTime    : Number (hours; required)
+ *  - latePenalty     : Number (birr/hour; required)
+ *  - expiry          : Date (when the “Apply” expires; required)
+ *  - exchangeStrategy: String (enum ["100%","30:40:30","50:50"], required)
+ *  - status          : String (enum ["Open","Taken","Canceled","Completed"], default "Open")
+ *  - applicants      : [ApplicantSchema] (default [])
+ *  - acceptedDoer    : ObjectId (ref "User"; default null)
+ *  - stages          : [StageSchema] (default [])
+ *  - createdAt, updatedAt (timestamps)
+ */
 const TaskSchema = new Schema(
   {
-    creator: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    description: { type: String, required: true, minlength: 20, maxlength: 1250 },
-    relatedFile: { type: String, default: null }, // could store a file ID or URL
-    fields: { type: [String], default: [] }, // e.g. ["#design", "#writing"]
-    skillLevel: { type: String, enum: ["Beginner", "Intermediate", "Professional"], required: true },
-    paymentFee: { type: Number, required: true },
-    timeToComplete: { type: Number, required: true },
-    revisionTime: { type: Number, required: true },
-    latePenalty: { type: Number, required: true },
-    expiry: { type: Date, required: true },
+    creator:          { type: Schema.Types.ObjectId, ref: "User", required: true },
+    description:      { type: String, required: true, minlength: 20, maxlength: 1250 },
+    relatedFile:      { type: String, default: null },
+    fields:           { type: [String], default: [] },
+    skillLevel:       { type: String, enum: ["Beginner", "Intermediate", "Professional"], required: true },
+    paymentFee:       { type: Number, required: true },
+    timeToComplete:   { type: Number, required: true },   // in hours
+    revisionTime:     { type: Number, required: true },   // in hours
+    latePenalty:      { type: Number, required: true },   // birr/hour
+    expiry:           { type: Date, required: true },
     exchangeStrategy: { type: String, enum: ["100%", "30:40:30", "50:50"], required: true },
-    status: { type: String, enum: ["Open", "Taken", "Canceled", "Completed"], default: "Open" },
-    applicants: { type: [ApplicantSchema], default: [] },
-    acceptedDoer: { type: Schema.Types.ObjectId, ref: "User", default: null },
-    stages: { type: [StageSchema], default: [] },
+    status:           { type: String, enum: ["Open", "Taken", "Canceled", "Completed"], default: "Open" },
+    applicants:       { type: [ApplicantSchema], default: [] },
+    acceptedDoer:     { type: Schema.Types.ObjectId, ref: "User", default: null },
+    stages:           { type: [StageSchema], default: [] },
   },
   {
     timestamps: true,
