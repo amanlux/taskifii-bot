@@ -38,8 +38,52 @@ function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
 
   // Basic /start handler
-  bot.start((ctx) => {
-    ctx.reply("Hello, Taskifii bot here! (DB is connected)");
+
+
+  bot.start(async (ctx) => {
+    const telegramId = ctx.from.id;
+    const tgUsername = ctx.from.username || "";
+
+    // 1) Look for an existing User
+    let user = await User.findOne({ telegramId });
+
+    if (!user) {
+      // 2) If none, create a new User with default onboardingStep = "language"
+      user = new User({
+        telegramId,
+        username: tgUsername,
+        fullName: "",
+        phone: "",
+        email: "",
+        bankDetails: [],
+        language: "",
+        onboardingStep: "language",
+      });
+      await user.save();
+    }
+
+    // 3) Based on onboardingStep, send the appropriate prompt
+    switch (user.onboardingStep) {
+      case "language":
+        return ctx.reply(
+          "Please choose your language / እባክዎን ቋንቋዎን ይምረጡ:\n1. English (reply with en)\n2. አማርኛ (reply with am)"
+        );
+      case "fullName":
+        return ctx.reply("What is your full name? (minimum 3 characters)");
+      case "phone":
+        return ctx.reply("Please enter your phone number (digits only, e.g. 0912345678).");
+      case "email":
+        return ctx.reply("Please enter your email address.");
+      case "usernameConfirm":
+        return ctx.reply(`Your Telegram username is @${tgUsername}. Reply "yes" to confirm or send a different username.`);
+      case "bankEntry":
+        return ctx.reply("Enter your bank details as `BankName,AccountNumber`. Type `done` when finished.");
+      case "ageVerify":
+        return ctx.reply("Are you 18 or older? Reply with `yes` or `no`.");
+      default:
+        // If onboardingStep is "completed", or anything else, show the final profile
+        return ctx.reply("You have already completed onboarding.");
+    }
   });
 
   // Launch and log when ready
