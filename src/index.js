@@ -4,6 +4,9 @@ const http = require("http");
 const mongoose = require("mongoose");
 const { Telegraf } = require("telegraf");
 
+const User = require("../models/User");
+const Task = require("../models/Task");
+
 // 1. Validate environment variables
 if (!process.env.BOT_TOKEN) {
   console.error("Error: BOT_TOKEN is not set in environment variables.");
@@ -14,30 +17,16 @@ if (!process.env.MONGODB_URI) {
   process.exit(1);
 }
 
-// src/index.js
-
-// …existing imports…
-const mongoose = require("mongoose");
-const { Telegraf } = require("telegraf");
-
-// **Add these two lines** so Mongoose registers our models:
-const User = require("../models/User");
-const Task = require("../models/Task");
-
-// …rest of the file…
-
-
 // 2. Connect to MongoDB Atlas
 mongoose
   .connect(process.env.MONGODB_URI, {
-    // The options below are no longer needed in Mongoose 6+, but leaving them doesn’t hurt:
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
-    startBot(); // Only launch bot once DB is connected
-    startHttpServer(); // Also start HTTP server
+    startBot();
+    startHttpServer();
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
@@ -63,18 +52,17 @@ function startBot() {
       console.error("⚠️ Failed to launch bot:", err);
     });
 
-  // Graceful shutdown
   process.once("SIGINT", () => bot.stop("SIGINT"));
   process.once("SIGTERM", () => bot.stop("SIGTERM"));
 }
 
-// 4. Start a minimal HTTP server so Render sees a port binding
+// 4. Start a minimal HTTP server
 function startHttpServer() {
   const port = process.env.PORT || 3000;
   http
     .createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("OK"); // Respond with “OK” to any HTTP request
+      res.end("OK");
     })
     .listen(port, () => {
       console.log(`🌐 HTTP server listening on port ${port}`);
