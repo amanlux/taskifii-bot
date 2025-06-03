@@ -37,7 +37,8 @@ const UserSchema = new Schema(
     email:       { type: String, default: "", unique: true },
     bankDetails: { type: [BankSchema], default: [] },
 
-    language:    { type: String, enum: ["en", "am"], default: "" },
+    language: { type: String, enum: ["en", "am"] },
+
 
     onboardingStep: {
       type: String,
