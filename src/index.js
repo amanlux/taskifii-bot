@@ -1,17 +1,14 @@
 // src/index.js
 
 /**
- * Taskifii Bot: Onboarding Flow (Updated Button Logic & Validations)
+ * Taskifii Bot: Onboarding Flow (All Changes Integrated)
  *
- * Changes included:
- * 1. Every inline button now highlights when clicked and disables all buttons in that keyboard.
- * 2. Phone number must be between 5 and 14 digits.
- * 3. Fixed Amharic text for age inquiry (proper Amharic button labels).
- * 4. Removed the “Review Bot Policies” button entirely.
- * 5. As soon as the user adds the 10th bank detail, the bot automatically proceeds to Terms & Conditions.
- *
- * Full onboarding sequence remains:
- *  /start → language → Setup Profile → full name → phone → email → username → banks → T&C → age → final profile post
+ * - Button highlighting: only the clicked button gets a checkmark; neighbors are disabled but not highlighted.
+ * - When a user types a new Telegram username, the “Yes, keep it” button is disabled but still visible.
+ * - Phone validation now requires 5–14 digits.
+ * - Amharic text for the age inquiry uses correct Amharic button labels.
+ * - “Review Bot Policies” button is removed.
+ * - After the 10th bank detail, the bot automatically proceeds to Terms & Conditions.
  */
 
 const { Telegraf, Markup } = require("telegraf");
@@ -198,7 +195,6 @@ const TEXT = {
 // ------------------------------------
 function buildButton(textObj, callbackData, lang, highlighted = false) {
   if (highlighted) {
-    // disabled callbackData so it won't match any active action
     return Markup.button.callback(`✔ ${textObj[lang]}`, `_DISABLED_${callbackData}`);
   }
   return Markup.button.callback(textObj[lang], callbackData);
@@ -215,7 +211,7 @@ function startBot() {
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
 
-    // If user exists, reset all fields so we start from scratch
+    // If user exists, reset all fields
     if (user) {
       user.language = null;
       user.fullName = null;
@@ -259,11 +255,13 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight the “English” button and disable both buttons
+    // Highlight “English”; disable both
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "en", true),
-         buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "en", true)]
+        [
+          Markup.button.callback("✔ English", `_DISABLED_LANG_EN`),
+          Markup.button.callback("አማርኛ", `_DISABLED_LANG_AM`)
+        ]
       ]
     });
 
@@ -274,9 +272,7 @@ function startBot() {
     // Prompt Setup Profile
     return ctx.reply(
       "Language set to English.",
-      Markup.inlineKeyboard([
-        [buildButton(TEXT.setupProfileBtn, "DO_SETUP", "en", false)]
-      ])
+      Markup.inlineKeyboard([[buildButton(TEXT.setupProfileBtn, "DO_SETUP", "en", false)]])
     );
   });
 
@@ -286,11 +282,13 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("አስቸጋሪ ስሕተት። /start ይደግፉ.");
 
-    // Highlight the “Amharic” button and disable both
+    // Highlight “Amharic”; disable both
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "am", true),
-         buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "am", true)]
+        [
+          Markup.button.callback("English", `_DISABLED_LANG_EN`),
+          Markup.button.callback("✔ አማርኛ", `_DISABLED_LANG_AM`)
+        ]
       ]
     });
 
@@ -301,9 +299,7 @@ function startBot() {
     // Prompt Setup Profile
     return ctx.reply(
       "ቋንቋው ወደ አማርኛ ተቀይሯል።",
-      Markup.inlineKeyboard([
-        [buildButton(TEXT.setupProfileBtn, "DO_SETUP", "am", false)]
-      ])
+      Markup.inlineKeyboard([[buildButton(TEXT.setupProfileBtn, "DO_SETUP", "am", false)]])
     );
   });
 
@@ -314,18 +310,14 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “Setup Profile” and disable it
+    // Highlight “Setup Profile”; disable it
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [buildButton(TEXT.setupProfileBtn, "DO_SETUP", user.language, true)]
-      ]
+      inline_keyboard: [[buildButton(TEXT.setupProfileBtn, "DO_SETUP", user.language, true)]]
     });
 
     user.onboardingStep = "fullName";
     await user.save();
-    return ctx.reply(
-      user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en
-    );
+    return ctx.reply(user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en);
   });
 
   // ─────────── Catch Disabled Buttons ───────────
@@ -345,20 +337,16 @@ function startBot() {
           user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en
         );
       }
-      // Append count suffix if duplicate
       const countSame = await User.countDocuments({ fullName: text });
       user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
 
       user.onboardingStep = "phone";
       await user.save();
-      return ctx.reply(
-        user.language === "am" ? TEXT.askPhone.am : TEXT.askPhone.en
-      );
+      return ctx.reply(user.language === "am" ? TEXT.askPhone.am : TEXT.askPhone.en);
     }
 
     // ─── PHONE STEP ────────────────────────────
     if (user.onboardingStep === "phone") {
-      // 5–14 digits, optional leading “+”
       const phoneRegex = /^\+?\d{5,14}$/;
       if (!phoneRegex.test(text)) {
         return ctx.reply(
@@ -374,9 +362,7 @@ function startBot() {
       user.phone = text;
       user.onboardingStep = "email";
       await user.save();
-      return ctx.reply(
-        user.language === "am" ? TEXT.askEmail.am : TEXT.askEmail.en
-      );
+      return ctx.reply(user.language === "am" ? TEXT.askEmail.am : TEXT.askEmail.en);
     }
 
     // ─── EMAIL STEP ────────────────────────────
@@ -397,19 +383,17 @@ function startBot() {
       user.onboardingStep = "username";
       await user.save();
 
-      // Prompt for Telegram username with single button
+      // Prompt for Telegram username
       const currentHandle = ctx.from.username || "";
-      const promptText = (user.language === "am")
+      const promptText = user.language === "am"
         ? TEXT.askUsername.am.replace("%USERNAME%", currentHandle || "<none>")
         : TEXT.askUsername.en.replace("%USERNAME%", currentHandle || "<none>");
       return ctx.reply(
         promptText,
-        Markup.inlineKeyboard([
-          [Markup.button.callback(
-            user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
-            "USERNAME_KEEP"
-          )]
-        ])
+        Markup.inlineKeyboard([[Markup.button.callback(
+          user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+          "USERNAME_KEEP"
+        )]])
       );
     }
 
@@ -428,12 +412,30 @@ function startBot() {
           user.language === "am" ? TEXT.usernameErrorTaken.am : TEXT.usernameErrorTaken.en
         );
       }
+
+      // Disable the “Yes, keep it” button from the previous message
+      try {
+        await ctx.telegram.editMessageReplyMarkup(
+          ctx.chat.id,
+          ctx.message.message_id - 1,
+          null,
+          {
+            inline_keyboard: [[
+              Markup.button.callback(
+                user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+                `_DISABLED_USERNAME_KEEP`
+              )
+            ]]
+          }
+        );
+      } catch (err) {
+        // Editing might fail if the message is too old; ignore errors
+      }
+
       user.username = reply;
       user.onboardingStep = "bankFirst";
       await user.save();
-      return ctx.reply(
-        user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en
-      );
+      return ctx.reply(user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
     }
 
     // ─── FIRST BANK ENTRY ───────────────────────
@@ -448,14 +450,11 @@ function startBot() {
       user.bankDetails.push({ bankName, accountNumber: acctNum });
       await user.save();
 
-      // If reached 10, auto-proceed to T&C
+      // If reached 10, auto‐proceed to T&C
       if (user.bankDetails.length >= 10) {
         user.onboardingStep = "terms";
         await user.save();
-        // Inform user and immediately send T&C
-        await ctx.reply(
-          user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en
-        );
+        await ctx.reply(user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en);
         return ctx.reply(
           user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
           Markup.inlineKeyboard([
@@ -465,18 +464,16 @@ function startBot() {
         );
       }
 
-      // Otherwise, show “Add / Replace / Done” buttons
+      // Otherwise show “Add / Replace / Done” buttons
       user.onboardingStep = "bankMulti";
       await user.save();
       return ctx.reply(
         user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
-            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
-            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
-          ]
-        ])
+        Markup.inlineKeyboard([[
+          Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
+          Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
+          Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
+        ]])
       );
     }
 
@@ -495,10 +492,7 @@ function startBot() {
       if (user.bankDetails.length >= 10) {
         user.onboardingStep = "terms";
         await user.save();
-        // Inform and send T&C
-        await ctx.reply(
-          user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en
-        );
+        await ctx.reply(user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en);
         return ctx.reply(
           user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
           Markup.inlineKeyboard([
@@ -512,13 +506,11 @@ function startBot() {
       await user.save();
       return ctx.reply(
         user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
-            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
-            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
-          ]
-        ])
+        Markup.inlineKeyboard([[
+          Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
+          Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
+          Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
+        ]])
       );
     }
 
@@ -530,7 +522,6 @@ function startBot() {
           user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en
         );
       }
-      // Remove last and push new
       user.bankDetails.pop();
       const [bankName, acctNum] = text.split(",").map((s) => s.trim());
       user.bankDetails.push({ bankName, accountNumber: acctNum });
@@ -539,9 +530,7 @@ function startBot() {
       if (user.bankDetails.length >= 10) {
         user.onboardingStep = "terms";
         await user.save();
-        await ctx.reply(
-          user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en
-        );
+        await ctx.reply(user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en);
         return ctx.reply(
           user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
           Markup.inlineKeyboard([
@@ -555,19 +544,16 @@ function startBot() {
       await user.save();
       return ctx.reply(
         user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
-            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
-            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
-          ]
-        ])
+        Markup.inlineKeyboard([[
+          Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
+          Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
+          Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
+        ]])
       );
     }
 
     // ─── TERMS REVIEW (if user clicked “Disagree” and chooses to review) ─────
     if (user.onboardingStep === "termsReview") {
-      // Re‐send T&C
       return ctx.reply(
         user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
         Markup.inlineKeyboard([
@@ -585,11 +571,14 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight the “Yes, keep it” button and disable it
+    // Highlight “Yes, keep it”; disable it
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [buildButton({ en: "Yes, keep it", am: "አዎን፣ ይቀበሉ" }, "USERNAME_KEEP", user.language, true)]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(
+          user.language === "am" ? "✔ አዎን፣ ይቀበሉ" : "✔ Yes, keep it",
+          `_DISABLED_USERNAME_KEEP`
+        )
+      ]]
     });
 
     const handle = ctx.from.username || "";
@@ -604,27 +593,32 @@ function startBot() {
     user.username = handle;
     user.onboardingStep = "bankFirst";
     await user.save();
-    return ctx.reply(
-      user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en
-    );
+    return ctx.reply(user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
   });
 
-  // ─── BANK “Add” Action ───────────────────────────────────
+  // ─── BANK “Add” Action ───────────────────────────
   bot.action("BANK_ADD", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “Add” and disable all three
+    // Highlight “Add”; disable “Replace” & “Done”
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [
-          buildButton({ en: "Add", am: "ጨምር" }, "BANK_ADD", user.language, true),
-          buildButton({ en: "Replace", am: "ቀይር" }, "BANK_REPLACE", user.language, true),
-          buildButton({ en: "Done", am: "ተጠናቋል" }, "BANK_DONE", user.language, true)
-        ]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(
+          user.language === "am" ? "✔ ጨምር" : "✔ Add",
+          `_DISABLED_BANK_ADD`
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "ቀይር" : "Replace",
+          `_DISABLED_BANK_REPLACE`
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "ተጠናቋል" : "Done",
+          `_DISABLED_BANK_DONE`
+        )
+      ]]
     });
 
     user.onboardingStep = "bankAdding";
@@ -636,25 +630,31 @@ function startBot() {
     );
   });
 
-  // ─── BANK “Replace” Action ───────────────────────────────────
+  // ─── BANK “Replace” Action ───────────────────────────
   bot.action("BANK_REPLACE", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “Replace” and disable all three
+    // Highlight “Replace”; disable “Add” & “Done”
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [
-          buildButton({ en: "Add", am: "ጨምር" }, "BANK_ADD", user.language, true),
-          buildButton({ en: "Replace", am: "ቀይር" }, "BANK_REPLACE", user.language, true),
-          buildButton({ en: "Done", am: "ተጠናቋል" }, "BANK_DONE", user.language, true)
-        ]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(
+          user.language === "am" ? "ጨምር" : "Add",
+          `_DISABLED_BANK_ADD`
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "✔ ቀይር" : "✔ Replace",
+          `_DISABLED_BANK_REPLACE`
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "ተጠናቋል" : "Done",
+          `_DISABLED_BANK_DONE`
+        )
+      ]]
     });
 
-    // Remove last entry
     user.bankDetails.pop();
     user.onboardingStep = "bankReplacing";
     await user.save();
@@ -665,22 +665,29 @@ function startBot() {
     );
   });
 
-  // ─── BANK “Done” Action ───────────────────────────────────
+  // ─── BANK “Done” Action ───────────────────────────
   bot.action("BANK_DONE", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “Done” and disable all three
+    // Highlight “Done”; disable “Add” & “Replace”
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [
-          buildButton({ en: "Add", am: "ጨምር" }, "BANK_ADD", user.language, true),
-          buildButton({ en: "Replace", am: "ቀይር" }, "BANK_REPLACE", user.language, true),
-          buildButton({ en: "Done", am: "ተጠናቋል" }, "BANK_DONE", user.language, true)
-        ]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(
+          user.language === "am" ? "ጨምር" : "Add",
+          `_DISABLED_BANK_ADD`
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "ቀይር" : "Replace",
+          `_DISABLED_BANK_REPLACE`
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "✔ ተጠናቋል" : "✔ Done",
+          `_DISABLED_BANK_DONE`
+        )
+      ]]
     });
 
     if (user.bankDetails.length === 0) {
@@ -690,6 +697,7 @@ function startBot() {
           : "You must enter at least one bank detail. (Use the format BankName,AccountNumber)"
       );
     }
+
     user.onboardingStep = "terms";
     await user.save();
     return ctx.reply(
@@ -708,11 +716,11 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “Agree” and disable both buttons
+    // Highlight “Agree”; disable “Disagree”
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, true)],
-        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, true)]
+        [Markup.button.callback(`✔ ${TEXT.agreeBtn[user.language]}`, `_DISABLED_TC_AGREE`)],
+        [Markup.button.callback(`${TEXT.disagreeBtn[user.language]}`, `_DISABLED_TC_DISAGREE`)]
       ]
     });
 
@@ -720,12 +728,10 @@ function startBot() {
     await user.save();
     return ctx.reply(
       user.language === "am" ? TEXT.askAge.am : TEXT.askAge.en,
-      Markup.inlineKeyboard([
-        [
-          buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, false),
-          buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, false)
-        ]
-      ])
+      Markup.inlineKeyboard([[
+        buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, false),
+        buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, false)
+      ]])
     );
   });
 
@@ -735,11 +741,11 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “Disagree” and disable both
+    // Highlight “Disagree”; disable “Agree”
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, true)],
-        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, true)]
+        [Markup.button.callback(`${TEXT.agreeBtn[user.language]}`, `_DISABLED_TC_AGREE`)],
+        [Markup.button.callback(`✔ ${TEXT.disagreeBtn[user.language]}`, `_DISABLED_TC_DISAGREE`)]
       ]
     });
 
@@ -761,18 +767,18 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “Yes I am” and disable both
+    // Highlight “Yes I am”; disable “No I’m not”
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, true),
-         buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, true)]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(`✔ ${TEXT.ageYesBtn[user.language]}`, `_DISABLED_AGE_YES`),
+        Markup.button.callback(`${TEXT.ageNoBtn[user.language]}`, `_DISABLED_AGE_NO`)
+      ]]
     });
 
     user.onboardingStep = "completed";
     await user.save();
 
-    // Build the final profile post
+    // Build final profile post
     const banksList = user.bankDetails
       .map((b) => `${b.bankName} (${b.accountNumber})`)
       .join(", ") || "N/A";
@@ -884,19 +890,17 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “No I’m not” and disable both
+    // Highlight “No I’m not”; disable “Yes I am”
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, true),
-         buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, true)]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(`${TEXT.ageYesBtn[user.language]}`, `_DISABLED_AGE_YES`),
+        Markup.button.callback(`✔ ${TEXT.ageNoBtn[user.language]}`, `_DISABLED_AGE_NO`)
+      ]]
     });
 
     // Delete user record
     await User.deleteOne({ telegramId: tgId });
-    return ctx.reply(
-      user.language === "am" ? TEXT.ageError.am : TEXT.ageError.en
-    );
+    return ctx.reply(user.language === "am" ? TEXT.ageError.am : TEXT.ageError.en);
   });
 
   // ─────────── Placeholder Actions ───────────
