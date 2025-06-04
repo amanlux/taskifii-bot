@@ -1,19 +1,23 @@
 // src/index.js
 
 /**
- * Taskifii Bot: Onboarding Flow Implementation (Allow language = null)
+ * Taskifii Bot: Onboarding Flow (Updated Button Logic & Validations)
  *
- * We fix the “language: `null` is not a valid enum” error by permitting `null` in the enum.
- * The rest of the onboarding flow remains exactly the same:
- *  1. /start resets or creates a user record (language starts as null)
- *  2. Language selection → Setup Profile → Full Name → Phone → Email → Username → Bank → T&C → Age
- *  3. Final profile post (user + admin channel)
+ * Changes included:
+ * 1. Every inline button now highlights when clicked and disables all buttons in that keyboard.
+ * 2. Phone number must be between 5 and 14 digits.
+ * 3. Fixed Amharic text for age inquiry (proper Amharic button labels).
+ * 4. Removed the “Review Bot Policies” button entirely.
+ * 5. As soon as the user adds the 10th bank detail, the bot automatically proceeds to Terms & Conditions.
+ *
+ * Full onboarding sequence remains:
+ *  /start → language → Setup Profile → full name → phone → email → username → banks → T&C → age → final profile post
  */
 
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
 
-// Load environment variables
+// Ensure environment variables are set
 if (!process.env.BOT_TOKEN) {
   console.error("Error: BOT_TOKEN is not set.");
   process.exit(1);
@@ -23,10 +27,9 @@ if (!process.env.MONGODB_URI) {
   process.exit(1);
 }
 
+// Connect to MongoDB Atlas
 mongoose
-  .connect(process.env.MONGODB_URI, {
-    // (useNewUrlParser and useUnifiedTopology are no‐ops in newer versions)
-  })
+  .connect(process.env.MONGODB_URI, {})
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     startBot();
@@ -37,14 +40,14 @@ mongoose
   });
 
 // ------------------------------------
-//  Mongoose Schemas & Models
-//    – Allow language = null by adding `null` into the enum array
+//  Mongoose Schema & Model
+//    - language: allow null in enum
 // ------------------------------------
 const Schema = mongoose.Schema;
 
 const userSchema = new Schema({
   telegramId:     { type: Number, unique: true, required: true },
-  onboardingStep: { type: String, required: true }, // e.g. "language", "setupProfile", etc.
+  onboardingStep: { type: String, required: true }, // "language", "fullName", etc.
   language:       { type: String, enum: ["en", "am", null], default: null },
   fullName:       { type: String, default: null },
   phone:          { type: String, unique: true, sparse: true, default: null },
@@ -64,6 +67,7 @@ const userSchema = new Schema({
   },
   createdAt:      { type: Date, default: Date.now }
 });
+
 const User = mongoose.model("User", userSchema);
 
 // ------------------------------------
@@ -73,10 +77,6 @@ const TEXT = {
   chooseLanguage: {
     en: "Choose your language!",
     am: "ቋንቋ ይምረጡ!"
-  },
-  setupProfilePrompt: {
-    en: "Please set up your profile to start using Taskifii!",
-    am: "Taskifii መጠቀም ለመጀመር ፕሮፋይልዎን ያቀናብሩ!"
   },
   setupProfileBtn: {
     en: "Setup Profile",
@@ -91,12 +91,12 @@ const TEXT = {
     am: "ሙሉ ስም አንስተው 3 ቁምፊ መሆን አለበት። ድጋፍ ይሁን።"
   },
   askPhone: {
-    en: "What is your phone number? (digits only, max 14)",
-    am: "የስልክ ቁጥርዎን ያስገቡ። (ቁጥሮች ብቻ፣ ከፍተኛው 14 ቁጥር)"
+    en: "What is your phone number? (digits only, 5–14 digits)",
+    am: "የስልክ ቁጥርዎን ያስገቡ። (ቁጥሮች ብቻ፣ 5–14 ቁጥር)"
   },
   phoneErrorFormat: {
-    en: "Please enter a valid phone number!",
-    am: "እባክዎ የትክክለኛ የስልክ ቁጥር ያስገቡ!"
+    en: "Please enter a valid phone number (5–14 digits)!",
+    am: "እባክዎ ትክክለኛ የስልክ ቁጥር ያስገቡ (5–14 ቁጥሮች)!"
   },
   phoneErrorTaken: {
     en: "Sorry, this phone number is already taken! Please enter another phone number!",
@@ -107,8 +107,8 @@ const TEXT = {
     am: "የኢሜይል አድራሻዎን ያስገቡ።"
   },
   emailErrorFormat: {
-    en: "Please enter a proper Gmail/email address!",
-    am: "እባክዎ ትክክለኛ የኢሜይል አድራሻ ያገልግሉ!"
+    en: "Please enter a proper email address!",
+    am: "እባክዎ ትክክለኛ የኢሜይል አድራሻ ያስገቡ!"
   },
   emailErrorTaken: {
     en: "Sorry, this email address is already taken! Please enter another email address!",
@@ -139,8 +139,8 @@ const TEXT = {
     am: "ትክክለኛ የባንክ ዝርዝር በ `BankName,AccountNumber` ቅጥ ያስገቡ!"
   },
   bankReachedTen: {
-    en: "You have reached 10 bank entries. Moving on to Terms & Conditions.",
-    am: "ወደ 10 ባንኮች ደረሱ። ወደ መመሪያ እና ሁኔታዎች ይቀይራሉ።"
+    en: "You have reached 10 bank entries. Moving on to Terms & Conditions...",
+    am: "ወደ 10 ባንኮች ደረሱ። ወደ መመሪያ እና ሁኔታዎች ይቀይራሉ..."
   },
   askTerms: {
     en: `Please read and agree to these Terms & Conditions before proceeding:
@@ -174,21 +174,9 @@ const TEXT = {
     en: "Disagree",
     am: "አልተፈቀደም"
   },
-  reviewPoliciesBtn: {
-    en: "Review Bot Policies",
-    am: "የቦት ፖሊሲዎች ዳግመኛ ማንበብ"
-  },
-  termsNeedAgree: {
-    en: "It’s important to understand and agree to the Terms & Conditions. If you want to review the Bot’s policies again, click ‘Yes’.",
-    am: "ይህን መመሪያና ሁኔታዎች ማሰራመድ አስፈላጊ ነው። የቦት ፖሊሲዎችን ዳግመኛ ለማንበብ ‘Yes’ ይጫኑ።"
-  },
-  termsYesBtn: {
-    en: "Yes",
-    am: "አዎን"
-  },
   askAge: {
     en: "Are you 18 or older? Click ‘Yes I am’ or ‘No I’m not.’ (Ethiopian law prohibits under-18 employment.)",
-    am: "18 ወይም ከዚህ በላይ ነህ? ‘Yes I am’ ወይም ‘No I’m not’ ይጫኑ። (የኢትዮጵያ ህግ ከ18 በታች ስራ የማድረግ አደንች አይፈቀድም።)"
+    am: "18 ወይም ከዚህ በላይ ነህ? ‘አዎን ነኝ’ ወይም ‘አይደለም ተብሎ አይቻልም’ ይጫኑ። (የኢትዮጵያ ህግ ከ18 በታች ስራ የማድረግ አደንች አይፈቀድም።)"
   },
   ageYesBtn: {
     en: "Yes I am",
@@ -206,10 +194,11 @@ const TEXT = {
 
 // ------------------------------------
 //  Helper: buildButton
+//    - If highlighted=true, prefix with ✔ and set callbackData to a no-op
 // ------------------------------------
 function buildButton(textObj, callbackData, lang, highlighted = false) {
-  // If highlighted, prefix with ✔ and use a no-op callbackData
   if (highlighted) {
+    // disabled callbackData so it won't match any active action
     return Markup.button.callback(`✔ ${textObj[lang]}`, `_DISABLED_${callbackData}`);
   }
   return Markup.button.callback(textObj[lang], callbackData);
@@ -226,7 +215,7 @@ function startBot() {
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
 
-    // If user already exists, reset their record so onboarding can start from scratch
+    // If user exists, reset all fields so we start from scratch
     if (user) {
       user.language = null;
       user.fullName = null;
@@ -251,7 +240,7 @@ function startBot() {
       await user.save();
     }
 
-    // Send language selection
+    // Send language selection with two buttons
     return ctx.reply(
       `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
       Markup.inlineKeyboard([
@@ -263,17 +252,26 @@ function startBot() {
     );
   });
 
-  // ─────────── Language Selection Actions ───────────
+  // ─────────── Language Selection ───────────
   bot.action("LANG_EN", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
+    // Highlight the “English” button and disable both buttons
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "en", true),
+         buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "en", true)]
+      ]
+    });
+
     user.language = "en";
     user.onboardingStep = "setupProfile";
     await user.save();
 
+    // Prompt Setup Profile
     return ctx.reply(
       "Language set to English.",
       Markup.inlineKeyboard([
@@ -288,10 +286,19 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("አስቸጋሪ ስሕተት። /start ይደግፉ.");
 
+    // Highlight the “Amharic” button and disable both
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "am", true),
+         buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "am", true)]
+      ]
+    });
+
     user.language = "am";
     user.onboardingStep = "setupProfile";
     await user.save();
 
+    // Prompt Setup Profile
     return ctx.reply(
       "ቋንቋው ወደ አማርኛ ተቀይሯል።",
       Markup.inlineKeyboard([
@@ -300,16 +307,22 @@ function startBot() {
     );
   });
 
-  // ─────────── “Setup Profile” Action ───────────
+  // ─────────── “Setup Profile” ───────────
   bot.action("DO_SETUP", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
+    // Highlight “Setup Profile” and disable it
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton(TEXT.setupProfileBtn, "DO_SETUP", user.language, true)]
+      ]
+    });
+
     user.onboardingStep = "fullName";
     await user.save();
-
     return ctx.reply(
       user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en
     );
@@ -318,7 +331,7 @@ function startBot() {
   // ─────────── Catch Disabled Buttons ───────────
   bot.action(/_DISABLED_.+/, (ctx) => ctx.answerCbQuery());
 
-  // ─────────── Text Handler for Onboarding Steps ───────────
+  // ─────────── Text Handler (Full Name, Phone, Email, Username, Banks) ───────────
   bot.on("text", async (ctx) => {
     const tgId = ctx.from.id;
     const text = ctx.message.text.trim();
@@ -332,7 +345,7 @@ function startBot() {
           user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en
         );
       }
-      // Count duplicates
+      // Append count suffix if duplicate
       const countSame = await User.countDocuments({ fullName: text });
       user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
 
@@ -345,7 +358,8 @@ function startBot() {
 
     // ─── PHONE STEP ────────────────────────────
     if (user.onboardingStep === "phone") {
-      const phoneRegex = /^\+?\d{1,14}$/;
+      // 5–14 digits, optional leading “+”
+      const phoneRegex = /^\+?\d{5,14}$/;
       if (!phoneRegex.test(text)) {
         return ctx.reply(
           user.language === "am" ? TEXT.phoneErrorFormat.am : TEXT.phoneErrorFormat.en
@@ -383,38 +397,37 @@ function startBot() {
       user.onboardingStep = "username";
       await user.save();
 
-      // Prompt shows current username
+      // Prompt for Telegram username with single button
       const currentHandle = ctx.from.username || "";
       const promptText = (user.language === "am")
         ? TEXT.askUsername.am.replace("%USERNAME%", currentHandle || "<none>")
         : TEXT.askUsername.en.replace("%USERNAME%", currentHandle || "<none>");
-      return ctx.reply(promptText, Markup.inlineKeyboard([
-        [Markup.button.callback(
-          user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
-          "USERNAME_KEEP"
-        )]
-      ]));
+      return ctx.reply(
+        promptText,
+        Markup.inlineKeyboard([
+          [Markup.button.callback(
+            user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+            "USERNAME_KEEP"
+          )]
+        ])
+      );
     }
 
-    // ─── USERNAME STEP ─────────────────────────
+    // ─── USERNAME STEP (typed override) ─────────────────────────
     if (user.onboardingStep === "username") {
-      // If user typed text instead of clicking “Yes, keep it”
       const reply = text;
-      // Validate new handle
       const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
       if (!userHandleRegex.test(reply)) {
         return ctx.reply(
           user.language === "am" ? TEXT.usernameErrorGeneral.am : TEXT.usernameErrorGeneral.en
         );
       }
-      // Check taken
       const existingUser = await User.findOne({ username: reply });
       if (existingUser) {
         return ctx.reply(
           user.language === "am" ? TEXT.usernameErrorTaken.am : TEXT.usernameErrorTaken.en
         );
       }
-      // Save new handle
       user.username = reply;
       user.onboardingStep = "bankFirst";
       await user.save();
@@ -425,35 +438,6 @@ function startBot() {
 
     // ─── FIRST BANK ENTRY ───────────────────────
     if (user.onboardingStep === "bankFirst") {
-      // Expect first entry in format BankName,AccountNumber
-      const bankRegex = /^[A-Za-z ]+,\d+$/;
-      if (!bankRegex.test(text)) {
-        return ctx.reply(
-          user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en
-        );
-      }
-      // Save first entry
-      const [bankName, acctNum] = text.split(",").map((s) => s.trim());
-      user.bankDetails.push({ bankName, accountNumber: acctNum });
-      user.onboardingStep = "bankMulti"; // Now allow buttons
-      await user.save();
-
-      // Reply with message + show buttons
-      return ctx.reply(
-        user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
-            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
-            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
-          ]
-        ])
-      );
-    }
-
-    // ─── MULTI BANK ENTRY (text input after clicking Add/Replace) ─────────────
-    if (user.onboardingStep === "bankAdding") {
-      // Coming from clicking "Add"
       const bankRegex = /^[A-Za-z ]+,\d+$/;
       if (!bankRegex.test(text)) {
         return ctx.reply(
@@ -464,16 +448,24 @@ function startBot() {
       user.bankDetails.push({ bankName, accountNumber: acctNum });
       await user.save();
 
-      // Check if we have reached 10
+      // If reached 10, auto-proceed to T&C
       if (user.bankDetails.length >= 10) {
         user.onboardingStep = "terms";
         await user.save();
-        return ctx.reply(
+        // Inform user and immediately send T&C
+        await ctx.reply(
           user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en
+        );
+        return ctx.reply(
+          user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
+          Markup.inlineKeyboard([
+            [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
+            [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
+          ])
         );
       }
 
-      // Otherwise, prompt with buttons again
+      // Otherwise, show “Add / Replace / Done” buttons
       user.onboardingStep = "bankMulti";
       await user.save();
       return ctx.reply(
@@ -488,22 +480,34 @@ function startBot() {
       );
     }
 
-    if (user.onboardingStep === "bankReplacing") {
-      // Coming from clicking "Replace"
+    // ─── MULTI BANK ENTRY (after clicking Add) ─────────────────
+    if (user.onboardingStep === "bankAdding") {
       const bankRegex = /^[A-Za-z ]+,\d+$/;
       if (!bankRegex.test(text)) {
         return ctx.reply(
           user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en
         );
       }
-      // Delete most recent
-      user.bankDetails.pop();
-      // Save new
       const [bankName, acctNum] = text.split(",").map((s) => s.trim());
       user.bankDetails.push({ bankName, accountNumber: acctNum });
       await user.save();
 
-      // Still fewer than 10? Redisplay buttons
+      if (user.bankDetails.length >= 10) {
+        user.onboardingStep = "terms";
+        await user.save();
+        // Inform and send T&C
+        await ctx.reply(
+          user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en
+        );
+        return ctx.reply(
+          user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
+          Markup.inlineKeyboard([
+            [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
+            [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
+          ])
+        );
+      }
+
       user.onboardingStep = "bankMulti";
       await user.save();
       return ctx.reply(
@@ -518,17 +522,57 @@ function startBot() {
       );
     }
 
-    // ─── TERMS & CONDITIONS – TEXT RESPONSE FOR “Yes” AFTER “Disagree” ─────────
+    // ─── MULTI BANK ENTRY (after clicking Replace) ─────────────────
+    if (user.onboardingStep === "bankReplacing") {
+      const bankRegex = /^[A-Za-z ]+,\d+$/;
+      if (!bankRegex.test(text)) {
+        return ctx.reply(
+          user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en
+        );
+      }
+      // Remove last and push new
+      user.bankDetails.pop();
+      const [bankName, acctNum] = text.split(",").map((s) => s.trim());
+      user.bankDetails.push({ bankName, accountNumber: acctNum });
+      await user.save();
+
+      if (user.bankDetails.length >= 10) {
+        user.onboardingStep = "terms";
+        await user.save();
+        await ctx.reply(
+          user.language === "am" ? TEXT.bankReachedTen.am : TEXT.bankReachedTen.en
+        );
+        return ctx.reply(
+          user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
+          Markup.inlineKeyboard([
+            [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
+            [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
+          ])
+        );
+      }
+
+      user.onboardingStep = "bankMulti";
+      await user.save();
+      return ctx.reply(
+        user.language === "am" ? TEXT.bankAddedPrompt.am : TEXT.bankAddedPrompt.en,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback(user.language === "am" ? "ጨምር" : "Add", "BANK_ADD"),
+            Markup.button.callback(user.language === "am" ? "ቀይር" : "Replace", "BANK_REPLACE"),
+            Markup.button.callback(user.language === "am" ? "ተጠናቋል" : "Done", "BANK_DONE")
+          ]
+        ])
+      );
+    }
+
+    // ─── TERMS REVIEW (if user clicked “Disagree” and chooses to review) ─────
     if (user.onboardingStep === "termsReview") {
-      // Re-send full T&C
+      // Re‐send T&C
       return ctx.reply(
         user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
         Markup.inlineKeyboard([
-          [
-            buildButton(TEXT.agreeBtn, "TC_AGREE", user.language),
-            buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language),
-            buildButton(TEXT.reviewPoliciesBtn, "TC_REVIEW", user.language)
-          ]
+          [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
+          [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
         ])
       );
     }
@@ -540,6 +584,13 @@ function startBot() {
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    // Highlight the “Yes, keep it” button and disable it
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton({ en: "Yes, keep it", am: "አዎን፣ ይቀበሉ" }, "USERNAME_KEEP", user.language, true)]
+      ]
+    });
 
     const handle = ctx.from.username || "";
     if (!handle) {
@@ -558,12 +609,23 @@ function startBot() {
     );
   });
 
-  // ─── BANK “Add” / “Replace” / “Done” Actions ─────────────────────────
+  // ─── BANK “Add” Action ───────────────────────────────────
   bot.action("BANK_ADD", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    // Highlight “Add” and disable all three
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          buildButton({ en: "Add", am: "ጨምር" }, "BANK_ADD", user.language, true),
+          buildButton({ en: "Replace", am: "ቀይር" }, "BANK_REPLACE", user.language, true),
+          buildButton({ en: "Done", am: "ተጠናቋል" }, "BANK_DONE", user.language, true)
+        ]
+      ]
+    });
 
     user.onboardingStep = "bankAdding";
     await user.save();
@@ -574,13 +636,25 @@ function startBot() {
     );
   });
 
+  // ─── BANK “Replace” Action ───────────────────────────────────
   bot.action("BANK_REPLACE", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Delete last entry
+    // Highlight “Replace” and disable all three
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          buildButton({ en: "Add", am: "ጨምር" }, "BANK_ADD", user.language, true),
+          buildButton({ en: "Replace", am: "ቀይር" }, "BANK_REPLACE", user.language, true),
+          buildButton({ en: "Done", am: "ተጠናቋል" }, "BANK_DONE", user.language, true)
+        ]
+      ]
+    });
+
+    // Remove last entry
     user.bankDetails.pop();
     user.onboardingStep = "bankReplacing";
     await user.save();
@@ -591,11 +665,23 @@ function startBot() {
     );
   });
 
+  // ─── BANK “Done” Action ───────────────────────────────────
   bot.action("BANK_DONE", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    // Highlight “Done” and disable all three
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          buildButton({ en: "Add", am: "ጨምር" }, "BANK_ADD", user.language, true),
+          buildButton({ en: "Replace", am: "ቀይር" }, "BANK_REPLACE", user.language, true),
+          buildButton({ en: "Done", am: "ተጠናቋል" }, "BANK_DONE", user.language, true)
+        ]
+      ]
+    });
 
     if (user.bankDetails.length === 0) {
       return ctx.reply(
@@ -610,8 +696,7 @@ function startBot() {
       user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
       Markup.inlineKeyboard([
         [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
-        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)],
-        [buildButton(TEXT.reviewPoliciesBtn, "TC_REVIEW", user.language, false)]
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
       ])
     );
   });
@@ -622,6 +707,14 @@ function startBot() {
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
+
+    // Highlight “Agree” and disable both buttons
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, true)],
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, true)]
+      ]
+    });
 
     user.onboardingStep = "age";
     await user.save();
@@ -642,29 +735,21 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
+    // Highlight “Disagree” and disable both
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, true)],
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, true)]
+      ]
+    });
+
     user.onboardingStep = "termsReview";
     await user.save();
-    return ctx.reply(
-      user.language === "am" ? TEXT.termsNeedAgree.am : TEXT.termsNeedAgree.en,
-      Markup.inlineKeyboard([
-        [buildButton(TEXT.termsYesBtn, "TC_REVIEW", user.language, false)]
-      ])
-    );
-  });
-
-  bot.action("TC_REVIEW", async (ctx) => {
-    await ctx.answerCbQuery();
-    const tgId = ctx.from.id;
-    const user = await User.findOne({ telegramId: tgId });
-    if (!user) return ctx.reply("Unexpected error. Please /start again.");
-
-    // Re-send full T&C
     return ctx.reply(
       user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
       Markup.inlineKeyboard([
         [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
-        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)],
-        [buildButton(TEXT.reviewPoliciesBtn, "TC_REVIEW", user.language, false)]
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
       ])
     );
   });
@@ -676,11 +761,18 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Complete onboarding
+    // Highlight “Yes I am” and disable both
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, true),
+         buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, true)]
+      ]
+    });
+
     user.onboardingStep = "completed";
     await user.save();
 
-    // Build profile post
+    // Build the final profile post
     const banksList = user.bankDetails
       .map((b) => `${b.bankName} (${b.accountNumber})`)
       .join(", ") || "N/A";
@@ -717,7 +809,7 @@ function startBot() {
 
     const profileText = user.language === "am" ? profileLinesAm.join("\n") : profileLinesEn.join("\n");
 
-    // 1) Send profile post to user with three buttons
+    // 1) Send profile to user with placeholder buttons
     await ctx.reply(
       profileText,
       Markup.inlineKeyboard([
@@ -727,7 +819,7 @@ function startBot() {
       ])
     );
 
-    // 2) Send same profile + stats to admin channel
+    // 2) Send to Admin Channel
     const ADMIN_CHANNEL = "-1002310380363";
     const placeholderHistory = "(No past tasks or violations yet. This section will show full activity in future updates.)";
 
@@ -792,25 +884,31 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
+    // Highlight “No I’m not” and disable both
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, true),
+         buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, true)]
+      ]
+    });
+
+    // Delete user record
     await User.deleteOne({ telegramId: tgId });
     return ctx.reply(
       user.language === "am" ? TEXT.ageError.am : TEXT.ageError.en
     );
   });
 
-  // ─────────── POST_TASK, FIND_TASK, EDIT_PROFILE placeholders ───────────
-  // (Not implemented here; these are next steps.)
+  // ─────────── Placeholder Actions ───────────
   bot.action("POST_TASK", (ctx) => ctx.answerCbQuery());
   bot.action("FIND_TASK", (ctx) => ctx.answerCbQuery());
   bot.action("EDIT_PROFILE", (ctx) => ctx.answerCbQuery());
-
-  // ─────────── Admin Actions (Ban/Unban/Contact/Review) placeholders ────
   bot.action(/ADMIN_BAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
 
-  // ─────────── Start Bot ───────────
+  // ─────────── Launch Bot ───────────
   bot.launch().then(() => {
     console.log("🤖 Bot is up and running");
   });
