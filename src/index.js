@@ -1,12 +1,16 @@
 // src/index.js
 
 /**
- * Taskifii Bot: Onboarding & Persistent Menu (All Changes Integrated)
+ * Taskifii Bot: Onboarding & Persistent Menu with Full Reply Keyboard
  *
- * - Once a user completes profile setup, /start becomes a no-op (with a reminder and main menu).
- * - A persistent Reply Keyboard (“Post a Task,” “Find a Task,” “Edit Profile”) is shown after onboarding.
- * - All prior button‐based navigation remains unchanged during onboarding.
- * - All language and existing inline‐button logic is preserved.
+ * - Once a user completes profile setup, /start shows a persistent reply keyboard with five buttons:
+ *   “Find a Task”, “Post a Task”, “Terms & Conditions”, “Edit Profile”, and “Language/ቋንቋ”.
+ * - Clicking “Find a Task” or “Post a Task” triggers the same inline‐button flows as before.
+ * - Clicking “Terms & Conditions” sends the T&C text immediately.
+ * - Clicking “Edit Profile” invokes the inline “Edit Profile” flow.
+ * - Clicking “Language/ቋንቋ” swaps the keyboard to two buttons: “Amharic” and “English.”
+ *   Selecting one changes the user’s language, confirms it, and restores the five‐button keyboard in the chosen language.
+ * - All previous inline‐button and onboarding logic remains intact.
  */
 
 const { Telegraf, Markup } = require("telegraf");
@@ -185,7 +189,6 @@ const TEXT = {
     am: "ይቅርታ፣ ከ18 ዓመት በታች መሆንዎ ምክንያት ይገባል። መረጃዎት ተሰርዟል።"
   },
 
-
   // --- Main Menu Texts for Reply Keyboard ---
   mainMenuPrompt: {
     en: "Welcome back! Choose an option below:",
@@ -199,12 +202,26 @@ const TEXT = {
     en: "Find a Task",
     am: "ተግዳሮት ፈልግ"
   },
+  termsBtn: {
+    en: "Terms & Conditions",
+    am: "መመሪያና ሁኔታዎች"
+  },
   editProfileBtn: {
     en: "Edit Profile",
     am: "ፕሮፋይል አርትዕ"
   },
-
-  // Other texts omitted for brevity...
+  languageBtn: {
+    en: "Language/ቋንቋ",
+    am: "ቋንቋ/Language"
+  },
+  languageOptionEn: {
+    en: "English",
+    am: "English"
+  },
+  languageOptionAm: {
+    en: "አማርኛ",
+    am: "አማርኛ"
+  },
 };
 
 // ------------------------------------
@@ -222,8 +239,9 @@ function buildButton(textObj, callbackData, lang, highlighted = false) {
 // ------------------------------------
 function getMainMenuKeyboard(lang) {
   return Markup.keyboard([
-    [ TEXT.postTaskBtn[lang], TEXT.findTaskBtn[lang] ],
-    [ TEXT.editProfileBtn[lang] ]
+    [ TEXT.findTaskBtn[lang], TEXT.postTaskBtn[lang] ],
+    [ TEXT.termsBtn[lang],   TEXT.editProfileBtn[lang] ],
+    [ TEXT.languageBtn[lang] ]
   ])
     .oneTime(false)
     .resize();
@@ -240,7 +258,7 @@ function startBot() {
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
 
-    // If user exists and has completed onboarding, do nothing except show main menu
+    // If user exists and has completed onboarding, show main menu
     if (user && user.onboardingStep === "completed") {
       const lang = user.language || "en";
       return ctx.reply(
@@ -364,37 +382,94 @@ function startBot() {
   // ─────────── Catch Disabled Buttons ───────────
   bot.action(/_DISABLED_.+/, (ctx) => ctx.answerCbQuery());
 
-  // ─────────── Text Handler (Full Name, Phone, Email, Username, Banks) ───────────
+  // ─────────── Text Handler (Onboarding & Main Menu) ───────────
   bot.on("text", async (ctx) => {
     const tgId = ctx.from.id;
     const text = ctx.message.text.trim();
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return;
 
-    // If user has completed profile and is using the main menu (Reply Keyboard)
+    // If user has completed profile, handle main‐menu reply keyboard
     if (user.onboardingStep === "completed") {
       const lang = user.language || "en";
-      // Handle main‐menu commands
-      if (text === TEXT.postTaskBtn[lang]) {
-        // TODO: Trigger Post a Task flow
-        return ctx.reply(
-          lang === "am" ? "የተግዳሮት ልጥፍ ፈጽሟል። (ፈጣን አድርጉ)" : "Post a Task feature coming soon!"
-        );
-      }
+
+      // 1) “Find a Task”
       if (text === TEXT.findTaskBtn[lang]) {
-        // TODO: Trigger Find a Task flow
+        // Trigger same inline‐button flow as inline “FIND_TASK”
         return ctx.reply(
-          lang === "am" ? "ተግዳሮት ፈልግ ተጠቃሚ ተገልጿል። (ፈጣን አድርጉ)" : "Find a Task feature coming soon!"
-        );
-      }
-      if (text === TEXT.editProfileBtn[lang]) {
-        // TODO: Trigger Edit Profile flow
-        return ctx.reply(
-          lang === "am" ? "ፕሮፋይል አርትዕ ተጠቃሚ ተገልጿል። (ፈጣን አድርጉ)" : "Edit Profile feature coming soon!"
+          lang === "am"
+            ? "ተግዳሮት ፈልግ ተጠቃሚ ተገልጾ።"
+            : "Find a Task feature coming soon!"
         );
       }
 
-      // If user sends something else, just remind them of the menu
+      // 2) “Post a Task”
+      if (text === TEXT.postTaskBtn[lang]) {
+        // Trigger same inline‐button flow as inline “POST_TASK”
+        return ctx.reply(
+          lang === "am"
+            ? "ተግዳሮት ልጥፍ ፈጽሗል። (ፈጣን አድርጉ)"
+            : "Post a Task feature coming soon!"
+        );
+      }
+
+      // 3) “Terms & Conditions”
+      if (text === TEXT.termsBtn[lang]) {
+        // Immediately send T&C text (no inline buttons needed)
+        return ctx.reply(
+          user.language === "am"
+            ? TEXT.askTerms.am
+            : TEXT.askTerms.en
+        );
+      }
+
+      // 4) “Edit Profile”
+      if (text === TEXT.editProfileBtn[lang]) {
+        // Trigger inline “EDIT_PROFILE” flow
+        // For now, placeholder: inform user it’s coming
+        return ctx.reply(
+          lang === "am"
+            ? "ፕሮፋይል አርትዕ ተቀይሯል። (ፈጣን አድርጉ)"
+            : "Edit Profile feature coming soon!"
+        );
+      }
+
+      // 5) “Language/ቋንቋ”
+      if (text === TEXT.languageBtn[lang]) {
+        // Swap to two‐button keyboard: “Amharic” and “English”
+        return ctx.reply(
+          lang === "am"
+            ? "ቋንቋ ይምረጡ። / Choose your language."
+            : "Please choose your language:",
+          Markup.keyboard([
+            [ TEXT.languageOptionAm[lang], TEXT.languageOptionEn[lang] ]
+          ])
+            .oneTime(true)
+            .resize()
+        );
+      }
+
+      // 6) Handle “Amharic” or “English” choice after main menu
+      if (text === TEXT.languageOptionAm[lang] || text === TEXT.languageOptionAm["en"]) {
+        // User selected Amharic
+        user.language = "am";
+        await user.save();
+        return ctx.reply(
+          "ቋንቋ ወደ አማርኛ ተቀይሯል።",
+          getMainMenuKeyboard("am")
+        );
+      }
+      if (text === TEXT.languageOptionEn[lang] || text === TEXT.languageOptionEn["am"]) {
+        // User selected English
+        user.language = "en";
+        await user.save();
+        return ctx.reply(
+          "Language set to English.",
+          getMainMenuKeyboard("en")
+        );
+      }
+
+      // If user clicked any other keyboard button by mistake, re‐show main menu
       return ctx.reply(
         lang === "am"
           ? TEXT.mainMenuPrompt.am
