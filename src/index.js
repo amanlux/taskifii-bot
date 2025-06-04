@@ -1,14 +1,12 @@
 // src/index.js
 
 /**
- * Taskifii Bot: Onboarding Flow (All Changes Integrated)
+ * Taskifii Bot: Onboarding & Persistent Menu (All Changes Integrated)
  *
- * - Button highlighting: only the clicked button gets a checkmark; neighbors are disabled but not highlighted.
- * - When a user types a new Telegram username, the “Yes, keep it” button is disabled but still visible.
- * - Phone validation now requires 5–14 digits.
- * - Amharic text for the age inquiry uses correct Amharic button labels.
- * - “Review Bot Policies” button is removed.
- * - After the 10th bank detail, the bot automatically proceeds to Terms & Conditions.
+ * - Once a user completes profile setup, /start becomes a no-op (with a reminder and main menu).
+ * - A persistent Reply Keyboard (“Post a Task,” “Find a Task,” “Edit Profile”) is shown after onboarding.
+ * - All prior button‐based navigation remains unchanged during onboarding.
+ * - All language and existing inline‐button logic is preserved.
  */
 
 const { Telegraf, Markup } = require("telegraf");
@@ -38,13 +36,12 @@ mongoose
 
 // ------------------------------------
 //  Mongoose Schema & Model
-//    - language: allow null in enum
 // ------------------------------------
 const Schema = mongoose.Schema;
 
 const userSchema = new Schema({
   telegramId:     { type: Number, unique: true, required: true },
-  onboardingStep: { type: String, required: true }, // "language", "fullName", etc.
+  onboardingStep: { type: String, required: true }, // "language", "fullName", ..., "completed"
   language:       { type: String, enum: ["en", "am", null], default: null },
   fullName:       { type: String, default: null },
   phone:          { type: String, unique: true, sparse: true, default: null },
@@ -97,7 +94,7 @@ const TEXT = {
   },
   phoneErrorTaken: {
     en: "Sorry, this phone number is already taken! Please enter another phone number!",
-    am: "ይቅርታ፣ ይህ ስልክ ቁጥር አስተጋባቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ ስልክ ቁጥር ያስገቡ!"
+    am: "ይቅርታ፣ ይህ ስልክ ቁጥር አስተጋቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ ስልክ ቁጥር ያስገቡ!"
   },
   askEmail: {
     en: "What is your email address?",
@@ -137,7 +134,7 @@ const TEXT = {
   },
   bankReachedTen: {
     en: "You have reached 10 bank entries. Moving on to Terms & Conditions...",
-    am: "ወደ 10 ባንኮች ደረሱ። ወደ መመሪያ እና ሁኔታዎች ይቀይራሉ..."
+    am: "ወደ 10 ባንኮች ደረሱ። ወደ መመሪያና ሁኔታዎች ይቀይራሉ..."
   },
   askTerms: {
     en: `Please read and agree to these Terms & Conditions before proceeding:
@@ -161,7 +158,7 @@ const TEXT = {
 (7) ተጠቃሚዎች ሁሉ Telegram ፖሊሲዎችን መጠቀም አለባቸው፤ ስፓም፣ ፊሽን፣ ሌሎችን ማቆም ወዘተ የተደረገ ተግባር ከሆነ ከሰረዝ.
 (8) ሁሉም ክፍያዎች ውጪ ከBot ይፈጸማሉ፤ Taskifii Bot ገንዘብ አልተያዘም አይወሰድም.
 (9) የግምገማዎችን መደብደብ መልስ በማድረግ (ለምሳሌ ውሸት ግምገማዎች ማስገባት) በግብይት ተከታትሎ እንቅስቃሴን ማሳያ ነው.
-(10) በመቀጠል ያላንተ እነዚህን መመሪያዎች አግኝተሃልና ተቀበልናል ትባላላችሁ.”`
+(10) በመቀጠል ያላንተ እነዚህን መመሪያዎች አግኝተሃልና ተቀበልናል ትባላላችሁ.`
   },
   agreeBtn: {
     en: "Agree",
@@ -186,18 +183,50 @@ const TEXT = {
   ageError: {
     en: "Sorry, you must be 18 or older to use Taskifii. Your data has been removed.",
     am: "ይቅርታ፣ ከ18 ዓመት በታች መሆንዎ ምክንያት ይገባል። መረጃዎት ተሰርዟል።"
-  }
+  },
+
+
+  // --- Main Menu Texts for Reply Keyboard ---
+  mainMenuPrompt: {
+    en: "Welcome back! Choose an option below:",
+    am: "እንኳን ደግሞ በደህና መጡ! ከዚህ በታች አማራጮችን ይምረጡ።"
+  },
+  postTaskBtn: {
+    en: "Post a Task",
+    am: "ተግዳሮት ልጥፍ"
+  },
+  findTaskBtn: {
+    en: "Find a Task",
+    am: "ተግዳሮት ፈልግ"
+  },
+  editProfileBtn: {
+    en: "Edit Profile",
+    am: "ፕሮፋይል አርትዕ"
+  },
+
+  // Other texts omitted for brevity...
 };
 
 // ------------------------------------
 //  Helper: buildButton
-//    - If highlighted=true, prefix with ✔ and set callbackData to a no-op
 // ------------------------------------
 function buildButton(textObj, callbackData, lang, highlighted = false) {
   if (highlighted) {
     return Markup.button.callback(`✔ ${textObj[lang]}`, `_DISABLED_${callbackData}`);
   }
   return Markup.button.callback(textObj[lang], callbackData);
+}
+
+// ------------------------------------
+//  Helper: Main Menu Reply Keyboard
+// ------------------------------------
+function getMainMenuKeyboard(lang) {
+  return Markup.keyboard([
+    [ TEXT.postTaskBtn[lang], TEXT.findTaskBtn[lang] ],
+    [ TEXT.editProfileBtn[lang] ]
+  ])
+    .oneTime(false)
+    .resize();
 }
 
 // ------------------------------------
@@ -211,8 +240,20 @@ function startBot() {
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
 
-    // If user exists, reset all fields
+    // If user exists and has completed onboarding, do nothing except show main menu
+    if (user && user.onboardingStep === "completed") {
+      const lang = user.language || "en";
+      return ctx.reply(
+        lang === "am"
+          ? TEXT.mainMenuPrompt.am
+          : TEXT.mainMenuPrompt.en,
+        getMainMenuKeyboard(lang)
+      );
+    }
+
+    // Otherwise, reset or create new user and start onboarding
     if (user) {
+      // Reset all profile fields for re‐onboarding
       user.language = null;
       user.fullName = null;
       user.phone = null;
@@ -236,13 +277,13 @@ function startBot() {
       await user.save();
     }
 
-    // Send language selection with two buttons
+    // Send language selection with two inline buttons
     return ctx.reply(
       `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
       Markup.inlineKeyboard([
         [
-          buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "en", false),
-          buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "en", false)
+          Markup.button.callback("English", "LANG_EN"),
+          Markup.button.callback("አማርኛ", "LANG_AM")
         ]
       ])
     );
@@ -255,7 +296,7 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight “English”; disable both
+    // Highlight “English”; disable “Amharic”
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [
@@ -282,7 +323,7 @@ function startBot() {
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("አስቸጋሪ ስሕተት። /start ይደግፉ.");
 
-    // Highlight “Amharic”; disable both
+    // Highlight “Amharic”; disable “English”
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [
@@ -329,6 +370,38 @@ function startBot() {
     const text = ctx.message.text.trim();
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return;
+
+    // If user has completed profile and is using the main menu (Reply Keyboard)
+    if (user.onboardingStep === "completed") {
+      const lang = user.language || "en";
+      // Handle main‐menu commands
+      if (text === TEXT.postTaskBtn[lang]) {
+        // TODO: Trigger Post a Task flow
+        return ctx.reply(
+          lang === "am" ? "የተግዳሮት ልጥፍ ፈጽሟል። (ፈጣን አድርጉ)" : "Post a Task feature coming soon!"
+        );
+      }
+      if (text === TEXT.findTaskBtn[lang]) {
+        // TODO: Trigger Find a Task flow
+        return ctx.reply(
+          lang === "am" ? "ተግዳሮት ፈልግ ተጠቃሚ ተገልጿል። (ፈጣን አድርጉ)" : "Find a Task feature coming soon!"
+        );
+      }
+      if (text === TEXT.editProfileBtn[lang]) {
+        // TODO: Trigger Edit Profile flow
+        return ctx.reply(
+          lang === "am" ? "ፕሮፋይል አርትዕ ተጠቃሚ ተገልጿል። (ፈጣን አድርጉ)" : "Edit Profile feature coming soon!"
+        );
+      }
+
+      // If user sends something else, just remind them of the menu
+      return ctx.reply(
+        lang === "am"
+          ? TEXT.mainMenuPrompt.am
+          : TEXT.mainMenuPrompt.en,
+        getMainMenuKeyboard(lang)
+      );
+    }
 
     // ─── FULL NAME STEP ─────────────────────────
     if (user.onboardingStep === "fullName") {
@@ -562,6 +635,8 @@ function startBot() {
         ])
       );
     }
+
+    // If none of the above matched, do nothing (fallback)
   });
 
   // ─── USERNAME “Yes, keep it” Action ─────────────────────────────────
@@ -815,20 +890,15 @@ function startBot() {
 
     const profileText = user.language === "am" ? profileLinesAm.join("\n") : profileLinesEn.join("\n");
 
-    // 1) Send profile to user with placeholder buttons
+    // 1) Send profile to user with persistent main‐menu (Reply Keyboard)
     await ctx.reply(
       profileText,
-      Markup.inlineKeyboard([
-        [buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language)],
-        [buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language)],
-        [buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language)]
-      ])
+      getMainMenuKeyboard(user.language)
     );
 
     // 2) Send to Admin Channel
     const ADMIN_CHANNEL = "-1002310380363";
-    const placeholderHistory = "(No past tasks or violations yet. This section will show full activity in future updates.)";
-
+    const placeholderHistory = "(No past tasks or violations yet.)";
     const adminLinesEn = [
       "📋 **Profile Post for Approval**",
       `• Full Name: ${user.fullName}`,
@@ -845,7 +915,6 @@ function startBot() {
       "",
       "**Admin Actions:**"
     ];
-
     const adminLinesAm = [
       "📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ**",
       `• ሙሉ ስም: ${user.fullName}`,
@@ -862,9 +931,7 @@ function startBot() {
       "",
       "**የአስተዳደር እርምጃዎች:**"
     ];
-
     const adminText = user.language === "am" ? adminLinesAm.join("\n") : adminLinesEn.join("\n");
-
     const adminButtons = Markup.inlineKeyboard([
       [
         Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
@@ -898,7 +965,7 @@ function startBot() {
       ]]
     });
 
-    // Delete user record
+    // Delete user record and inform them
     await User.deleteOne({ telegramId: tgId });
     return ctx.reply(user.language === "am" ? TEXT.ageError.am : TEXT.ageError.en);
   });
