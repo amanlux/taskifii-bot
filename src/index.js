@@ -958,10 +958,11 @@ function startBot() {
     const profileText = user.language === "am" ? profileLinesAm.join("\n") : profileLinesEn.join("\n");
 
     // 1) Send profile to user with persistent main‐menu (Reply Keyboard)
-    await ctx.reply(
+     await ctx.reply(
       profileText,
       getMainMenuKeyboard(user.language)
     );
+
 
     // 2) Send to Admin Channel
     const ADMIN_CHANNEL = "-1002310380363";
@@ -1075,36 +1076,32 @@ function startBot() {
     };
   }
 
-  // 1) Triggered when user sends “Post a Task” from reply keyboard
-  bot.hears((text, ctx) => {
-    const tgId = ctx.from.id;
-    const userLang = postSessions[tgId]?.language || "en"; // fallback
-    // If user.onboardingStep === "completed" AND text matches “Post a Task” in their language
-    return text === TEXT.postTaskBtn[userLang];
-  }, async (ctx) => {
-    const tgId = ctx.from.id;
-    const user = await User.findOne({ telegramId: tgId });
-    if (!user || user.onboardingStep !== "completed") {
+  // 1) Triggered when user clicks “Post a Task” from the reply keyboard
+  bot.hears(
+    // Predicate: check DB for user.onboardingStep === "completed", then match text
+    async (ctx) => {
+      const tgId = ctx.from.id;
+      const incoming = ctx.message.text;
+      const user = await User.findOne({ telegramId: tgId });
+      if (!user || user.onboardingStep !== "completed") return false;
+      return incoming === TEXT.postTaskBtn[user.language];
+    },
+    // Handler: initialize post-a-task session and prompt for description
+    async (ctx) => {
+      const tgId = ctx.from.id;
+      const user = await User.findOne({ telegramId: tgId }); // now guaranteed to exist & be completed
+      initPostSession(tgId);
+      postSessions[tgId].language = user.language;
+      user.onboardingStep = "postingDescription";
+      await user.save();
+
       return ctx.reply(
-        user?.language === "am"
-          ? "እባክዎ በየማክቲቭ ሂደት መመዝገብ ይጀምሩ ( /start )።"
-          : "Please complete onboarding first by typing /start."
+        user.language === "am"
+          ? "ወደ ተግዳሮትዎ መግለጫ ያስገቡ። (አንስተው 20 ቁምፊ መሆኑንና 1250 ቁምፊን እስከሚያህል ያስገቡ)።"
+          : "Write the task description. (Be very specific; must be 20–1250 characters.)"
       );
     }
-
-    // Initialize post session
-    initPostSession(tgId);
-    postSessions[tgId].language = user.language;
-    user.onboardingStep = "postingDescription";
-    await user.save();
-
-    // Ask for Task Description (≥20 chars, ≤1250)
-    return ctx.reply(
-      user.language === "am"
-        ? "ወደ ተግዳሮትዎ መግለጫ ያስገቡ። (አንስተው 20 ቁምፊ መሆኑንና 1250 ቁምፊን እስከሚያህል ያስገቡ)።"
-        : "Write the task description. (Be very specific; must be 20–1250 characters.)"
-    );
-  });
+  );
 
   // 2) Collect Task Description
   bot.on("text", async (ctx) => {
