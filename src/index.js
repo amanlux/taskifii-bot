@@ -207,46 +207,31 @@ function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
 
   // ─────────── /start Handler ───────────
-  bot.start(async (ctx) => {
-    const tgId = ctx.from.id;
-    let user = await User.findOne({ telegramId: tgId });
+ // ─────────── /start Handler ───────────
+bot.start(async (ctx) => {
+  const tgId = ctx.from.id;
 
-    // If user exists, reset all fields
-    if (user) {
-      user.language = null;
-      user.fullName = null;
-      user.phone = null;
-      user.email = null;
-      user.username = null;
-      user.bankDetails = [];
-      user.stats = {
-        totalEarned: 0,
-        totalSpent: 0,
-        averageRating: 0,
-        ratingCount: 0
-      };
-      user.onboardingStep = "language";
-      user.createdAt = Date.now();
-      await user.save();
-    } else {
-      user = new User({
-        telegramId: tgId,
-        onboardingStep: "language"
-      });
-      await user.save();
-    }
+  // Remove any existing record so we never store { username: null }
+  await User.deleteOne({ telegramId: tgId });
 
-    // Send language selection with two buttons
-    return ctx.reply(
-      `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
-      Markup.inlineKeyboard([
-        [
-          buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "en", false),
-          buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "en", false)
-        ]
-      ])
-    );
+  // Create a fresh user
+  const user = new User({
+    telegramId:     tgId,
+    onboardingStep: "language"
   });
+  await user.save();
+
+  // Prompt for language selection
+  return ctx.reply(
+    `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
+    Markup.inlineKeyboard([
+      [
+        buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", user.language),
+        buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", user.language)
+      ]
+    ])
+  );
+});
 
   // ─────────── Language Selection ───────────
   bot.action("LANG_EN", async (ctx) => {
