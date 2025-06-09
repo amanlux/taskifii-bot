@@ -10,6 +10,7 @@
  * - “Review Bot Policies” button is removed.
  * - After the 10th bank detail, the bot automatically proceeds to Terms & Conditions.
  */
+require('dotenv').config();
 
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
