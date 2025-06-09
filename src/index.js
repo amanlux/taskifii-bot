@@ -812,8 +812,9 @@ function startBot() {
   const app = express();
   app.use(express.json());
 
-  // Let Telegraf handle incoming updates and auto-reply
-  app.post(`/telegram/${process.env.BOT_TOKEN}`, bot.webhookCallback());
+  // Mount Telegraf's webhook callback
+  const hookPath = `/telegram/${process.env.BOT_TOKEN}`;
+  app.post(hookPath, bot.webhookCallback());
 
   // Health check for Render
   app.get("/", (_req, res) => res.send("OK"));
@@ -822,12 +823,11 @@ function startBot() {
   app.listen(PORT, async () => {
     console.log(`✅ Express listening on port ${PORT}`);
 
-    // Register the webhook URL with Telegram
-    const hookPath = `/telegram/${process.env.BOT_TOKEN}`;
-    const url = `${process.env.RENDER_EXTERNAL_URL}${hookPath}`;
+    // Remove any old webhook, then register ours
+    const externalUrl = process.env.RENDER_EXTERNAL_URL.replace(/\/$/, "");
+    const url = `${externalUrl}${hookPath}`;
+    await bot.telegram.deleteWebhook();
     await bot.telegram.setWebhook(url);
     console.log(`🤖 Webhook set to ${url}`);
   });
 }
-
-
