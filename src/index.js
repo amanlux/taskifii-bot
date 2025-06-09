@@ -809,25 +809,30 @@ function startBot() {
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
 
     // ─── Express + Webhook Setup ───
+   // ─── Express + Webhook Setup ───
   const app = express();
   app.use(express.json());
 
-  // Mount Telegraf's webhook callback
+  // Mount Telegraf's webhook callback (auto-200/500)
   const hookPath = `/telegram/${process.env.BOT_TOKEN}`;
   app.post(hookPath, bot.webhookCallback());
 
-  // Health check for Render
+  // Health-check for Render
   app.get("/", (_req, res) => res.send("OK"));
 
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, async () => {
     console.log(`✅ Express listening on port ${PORT}`);
 
-    // Remove any old webhook, then register ours
-    const externalUrl = process.env.RENDER_EXTERNAL_URL.replace(/\/$/, "");
-    const url = `${externalUrl}${hookPath}`;
+    // Clean up any stale webhook, then register ours
+    const externalBase = process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, "");
+    const url = `${externalBase}${hookPath}`;
     await bot.telegram.deleteWebhook();
     await bot.telegram.setWebhook(url);
     console.log(`🤖 Webhook set to ${url}`);
+
+    // Dump Telegram’s webhook info so we can see pending updates
+    const info = await bot.telegram.getWebhookInfo();
+    console.log("📡 WebhookInfo:", info);
   });
 }
