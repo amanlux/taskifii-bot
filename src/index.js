@@ -10,6 +10,7 @@
  * 
  * All prompts, button labels, validations, and behaviors match the document precisely.
  */
+const express = require("express");
 
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
@@ -811,4 +812,15 @@ function startBot() {
   bot.launch().then(() => {
     console.log("🤖 Bot is up and running");
   });
+  // ─── Health-check server for Render ───
+  const app = express();
+  const PORT = process.env.PORT || 3000;
+
+  // A simple endpoint so Render sees the port open
+  app.get("/", (_req, res) => res.send("OK"));
+
+  app.listen(PORT, () =>
+    console.log(`✅ Express server listening on port ${PORT}`)
+);
+
 }
