@@ -811,9 +811,13 @@ function startBot() {
     // ─── Express + Webhook Setup ───
   const app = express();
   app.use(express.json());
+  
 
   // Telegram will POST updates here
   const hookPath = `/telegram/${process.env.BOT_TOKEN}`;
+  // right after `app.use(express.json());`
+  app.post(hookPath, bot.webhookCallback());
+
   app.post(hookPath, (req, res) => {
     bot.handleUpdate(req.body, res)
       .then(() => res.sendStatus(200))
