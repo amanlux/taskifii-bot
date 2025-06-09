@@ -25,17 +25,7 @@ if (!process.env.MONGODB_URI) {
   process.exit(1);
 }
 
-// Connect to MongoDB Atlas
-mongoose
-  .connect(process.env.MONGODB_URI, {autoIndex: true })
-  .then(() => {
-    console.log("✅ Connected to MongoDB Atlas");
-    startBot();
-  })
-  .catch((err) => {
-    console.error("❌ MongoDB connection error:", err);
-    process.exit(1);
-  });
+
 
 // ------------------------------------
 //  Mongoose Schema & Model
