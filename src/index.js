@@ -808,19 +808,31 @@ function startBot() {
   bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
 
-  // ─────────── Start Bot ───────────
-  bot.launch().then(() => {
-    console.log("🤖 Bot is up and running");
-  });
-  // ─── Health-check server for Render ───
+    // ─── Express + Webhook Setup ───
   const app = express();
+  app.use(express.json());
+
+  // Telegram will POST updates here
+  const hookPath = `/telegram/${process.env.BOT_TOKEN}`;
+  app.post(hookPath, (req, res) => {
+    bot.handleUpdate(req.body, res)
+      .then(() => res.sendStatus(200))
+      .catch((err) => {
+        console.error("❌ Webhook error:", err);
+        res.sendStatus(500);
+      });
+  });
+
+  // Health check
   const PORT = process.env.PORT || 3000;
-
-  // A simple endpoint so Render sees the port open
   app.get("/", (_req, res) => res.send("OK"));
+  app.listen(PORT, async () => {
+    console.log(`✅ Express listening on ${PORT}`);
 
-  app.listen(PORT, () =>
-    console.log(`✅ Express server listening on port ${PORT}`)
-);
-
+    // Tell Telegram where to send webhooks
+    const url = `${process.env.RENDER_EXTERNAL_URL}${hookPath}`;
+    await bot.telegram.setWebhook(url);
+    console.log(`🤖 Webhook set to ${url}`);
+  });
 }
+
