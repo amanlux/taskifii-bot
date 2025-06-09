@@ -27,7 +27,7 @@ if (!process.env.MONGODB_URI) {
 
 // Connect to MongoDB Atlas
 mongoose
-  .connect(process.env.MONGODB_URI, {})
+  .connect(process.env.MONGODB_URI, {autoIndex: true })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     startBot();
@@ -65,6 +65,8 @@ const userSchema = new Schema({
   },
   createdAt:      { type: Date, default: Date.now }
 });
+// right after your `const userSchema = new Schema({ … });`
+userSchema.index({ username: 1 }, { unique: true, sparse: true });
 
 const User = mongoose.model("User", userSchema);
 
@@ -218,7 +220,7 @@ function startBot() {
       user.fullName = null;
       user.phone = null;
       user.email = null;
-      user.username = null;
+      
       user.bankDetails = [];
       user.stats = {
         totalEarned: 0,
