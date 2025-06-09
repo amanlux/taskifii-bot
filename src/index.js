@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
-const User = require("./User");
+const User = require("../User");
 
 // Validate environment variables
 if (!process.env.BOT_TOKEN) {
@@ -154,10 +154,10 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {
   console.log(`✅ Express listening on port ${PORT}`);
 
-  // Remove stale webhook, then set ours
-  const externalBase = process.env.RENDER_EXTERNAL_URL.replace(/\/+$/, "");
-
+  // Ensure RENDER_EXTERNAL_URL is defined and strip trailing slashes
+  const externalBase = (process.env.RENDER_EXTERNAL_URL || "").replace(/\/+$/, "");
   const url = `${externalBase}${hookPath}`;
+
   await bot.telegram.deleteWebhook();
   await bot.telegram.setWebhook(url);
   console.log(`🤖 Webhook set to ${url}`);
