@@ -3,7 +3,8 @@ require("dotenv").config();
 const express = require("express");
 const { Telegraf, Markup } = require("telegraf");
 const mongoose = require("mongoose");
-const User = require("../User");
+// Ensure User.js is in the same directory as index.js
+const User = require("./User");
 
 // Validate environment variables
 if (!process.env.BOT_TOKEN) {
