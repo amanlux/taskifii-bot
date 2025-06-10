@@ -1293,6 +1293,22 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   if (!draft || !draft.fields.length) {
     return ctx.reply("Select at least one field before proceeding.");
   }
+  if (ctx.session.taskFlow?.isEdit) {
+    // Confirmation branch for editing fields:
+    await ctx.reply("✅ Fields updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  // Initial flow: proceed to skillLevel
   ctx.session.taskFlow.step = "skillLevel";
   return ctx.reply(
     "Choose skill level:",
@@ -1310,9 +1326,27 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   if (!draft) return ctx.reply("Draft expired.");
   draft.skillLevel = lvl;
   await draft.save();
+
+  if (ctx.session.taskFlow?.isEdit) {
+    // Confirmation branch for edit:
+    await ctx.reply("✅ Skill level updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  // Initial flow: proceed to paymentFee
   ctx.session.taskFlow.step = "paymentFee";
   return ctx.reply("How much is the payment fee amount (in birr)?");
 });
+
 
 async function handlePaymentFee(ctx, draft) {
   const text = ctx.message.text?.trim();
@@ -1544,33 +1578,29 @@ bot.action("EDIT_fields", async (ctx) => {
   if (!draft) {
     return ctx.reply("❌ Draft expired. Please click Post a Task again.");
   }
-  // Reset fields
+  // Reset fields or allow modifying; simplest: clear existing selections:
   draft.fields = [];
   await draft.save();
-  // Set session to capture fields selection
   ctx.session.taskFlow = {
     step: "fields",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  // Begin fields selection at page 0
   return askFieldsPage(ctx, 0);
 });
+
 bot.action("EDIT_skillLevel", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
-  }
+  if (!draft) return ctx.reply("❌ Draft expired. Please click Post a Task again.");
   ctx.session.taskFlow = {
     step: "skillLevel",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  // Prompt same as initial:
   return ctx.reply(
-    "Choose the new skill level required:",
+    "Choose the new skill level:",
     Markup.inlineKeyboard([
       [Markup.button.callback("Beginner", "TASK_SKILL_Beginner")],
       [Markup.button.callback("Intermediate", "TASK_SKILL_Intermediate")],
@@ -1578,6 +1608,7 @@ bot.action("EDIT_skillLevel", async (ctx) => {
     ])
   );
 });
+
 bot.action("EDIT_paymentFee", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
