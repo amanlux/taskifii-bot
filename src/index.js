@@ -12,9 +12,10 @@
  */
 require('dotenv').config();
 
-const { Telegraf, Markup } = require("telegraf");
+const { Telegraf, Markup, session } = require("telegraf");
 const mongoose = require("mongoose");
-
+const Task = require("./models/Task");
+const User = require("./models/User");
 // Ensure environment variables are set
 if (!process.env.BOT_TOKEN) {
   console.error("Error: BOT_TOKEN is not set.");
@@ -66,6 +67,34 @@ userSchema.index({ email:    1 }, { unique: true, sparse: true });
 userSchema.index({ phone:    1 }, { unique: true, sparse: true });
 
 const User = mongoose.model("User", userSchema);
+
+const TaskDraft = require("./models/TaskDraft");
+
+
+// ------------------------------------
+//  TaskDraft Schema & Model: for in-progress task creation
+// ------------------------------------
+const { Schema: MongooseSchema } = mongoose;
+const taskDraftSchema = new MongooseSchema({
+  creatorTelegramId:    { type: Number, required: true, index: true },
+  // store each field as we collect them:
+  description:          { type: String, default: null },
+  relatedFile:          {
+    // we'll store file identifiers for telegram (file_id) so we can forward later
+    fileId:             { type: String, default: null },
+    fileType:           { type: String, default: null } // e.g. "photo", "document", etc.
+  },
+  fields:               { type: [String], default: [] },   // e.g. ["Software Development", ...]
+  skillLevel:           { type: String, default: null },   // "Beginner", "Intermediate", "Professional"
+  paymentFee:           { type: Number, default: null },   // in Birr
+  timeToComplete:       { type: Number, default: null },   // hours
+  revisionTime:         { type: Number, default: null },   // hours
+  penaltyPerHour:       { type: Number, default: null },   // birr
+  expiryHours:          { type: Number, default: null },   // hours until offer expires
+  paymentStrategy:      { type: String, default: null },   // "100%", "30:40:30", etc.
+  createdAt:            { type: Date, default: Date.now }
+});
+const TaskDraft = mongoose.model("TaskDraft", taskDraftSchema);
 
 // ------------------------------------
 //  Localized Text Constants
@@ -189,6 +218,166 @@ const TEXT = {
   }
 };
 
+
+const ALL_FIELDS = [
+  "Software Development", "Data Science and Analytics", "Cybersecurity", "Cloud Computing",
+  "IT Support", "DevOps Engineering", "UI/UX Design", "Machine Learning and AI Development",
+  "Digital Marketing", "Content Writing/Copywriting","SEO Specialist",
+  "Social Media Management",
+  "Affiliate Marketing",
+  "Brand Management",
+  "PR and Communications",
+  "Email Marketing",
+  "Graphic Design",
+  "Video Editing",
+  "Motion Graphics",
+  "Animation",
+  "Product Design",
+  "Interior Design (Virtual Consultations)",
+  "Photography/Photo Editing",
+  "Technical Writing",
+  "Grant Writing",
+  "Ghostwriting",
+  "Editing and Proofreading",
+  "Transcription Services",
+  "Blogging",
+  "Copy Editing",
+  "Online Tutoring",
+  "Course Creation",
+  "Instructional Design",
+  "Language Teaching (e.g., ESL)",
+  "Educational Consulting",
+  "Customer Service Representative",
+  "Technical Support Specialist",
+  "Helpdesk Operations",
+  "Call Center Agent",
+  "Accounting",
+  "Bookkeeping",
+  "Financial Analysis",
+  "Tax Preparation",
+  "Business Consulting",
+  "Project Management",
+  "Virtual Assistant",
+  "Operations Management",
+  "Sales Representative",
+  "Account Management",
+  "Lead Generation Specialist",
+  "Client Relationship Manager",
+  "Telemedicine (Doctors, Therapists, Counselors)",
+  "Medical Transcription",
+  "Medical Coding and Billing",
+  "Nutrition Coaching",
+  "Health and Wellness Coaching",
+  "Recruitment and Talent Acquisition",
+  "HR Consulting",
+  "Employee Training and Development",
+  "Payroll Management",
+  "Legal Research",
+  "Paralegal Services",
+  "Contract Review",
+  "Legal Consulting",
+  "Voice Acting",
+  "Music Production",
+  "Video Game Testing",
+  "Content Creation (YouTube, TikTok, Podcasts)",
+  "Online Performing (Comedy, Drama, Music)",
+  "Market Research",
+  "Data Entry",
+  "Policy Research",
+  "Scientific Analysis",
+  "CAD Design",
+  "Remote Monitoring and Control",
+  "Systems Engineering",
+  "Process Engineering",
+  "Translation",
+  "Interpretation",
+  "Subtitling",
+  "Localization",
+  "Dropshipping",
+  "Amazon FBA",
+  "E-Commerce Store Management",
+  "Product Listing Optimization",
+  "Real Estate Marketing",
+  "Virtual Property Tours",
+  "Real Estate Consulting",
+  "Scheduling and Calendar Management",
+  "Document Management",
+  "Scientific Data Analysis",
+  "Academic Research",
+  "Environmental Monitoring",
+  "Online Surveys and Focus Groups",
+  "Personal Assistance",
+  "Event Planning",
+  "Online Moderation",
+  "Affiliate Marketing",
+ /* … include full list as in edit.docx */ 
+];
+const FIELDS_PER_PAGE = 10;
+
+function buildPreviewText(draft, user) {
+  const lines = [];
+  lines.push("*🚀 Task is open!*");
+  lines.push("");
+  lines.push(`*Description:* ${draft.description}`);
+  lines.push("");
+  if (draft.fields.length) {
+    const hashtags = draft.fields.map(f => `#${f.replace(/\s+/g, '')}`).join(" ");
+    lines.push(`*Fields:* ${hashtags}`);
+    lines.push("");
+  }
+  if (draft.skillLevel) {
+    let emoji = draft.skillLevel === "Beginner" ? "🟢" 
+              : draft.skillLevel === "Intermediate" ? "🟡" 
+              : "🔴";
+    lines.push(`*Skill Level Required:* ${emoji} ${draft.skillLevel}`);
+    lines.push("");
+  }
+  if (draft.paymentFee != null) {
+    lines.push(`*Payment Fee:* ${draft.paymentFee} birr`);
+    lines.push("");
+  }
+  if (draft.timeToComplete != null) {
+    lines.push(`*Time to Complete:* ${draft.timeToComplete} hour(s)`);
+    lines.push("");
+  }
+  if (draft.revisionTime != null) {
+    lines.push(`*Revision Time:* ${draft.revisionTime} hour(s)`);
+    lines.push("");
+  }
+  if (draft.penaltyPerHour != null) {
+    lines.push(`*Penalty per Hour (late):* ${draft.penaltyPerHour} birr`);
+    lines.push("");
+  }
+  if (draft.expiryHours != null) {
+    const now = new Date();
+    const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
+    const formatted = expiryDate.toLocaleString('en-US', {
+      timeZone: 'Africa/Addis_Ababa',
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true
+    }) + " EAT";
+    lines.push(`*Expiry:* ${formatted}`);
+    lines.push("");
+  }
+  if (draft.exchangeStrategy) {
+    // Format human-friendly
+    let desc = "";
+    if (draft.exchangeStrategy === "100%") {
+      desc = "100% deliver → 100% pay";
+    } else if (draft.exchangeStrategy === "30:40:30") {
+      desc = "30% deliver → 30% pay → 40% deliver → 40% pay → 30% deliver → 30% pay";
+    } else if (draft.exchangeStrategy === "50:50") {
+      desc = "50% deliver → 50% pay → 50% deliver → 50% pay";
+    }
+    lines.push(`*Exchange Strategy:* ${desc}`);
+    lines.push("");
+  }
+  // Optionally include user stats (earned/spent/avg rating) if desired:
+  // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
+  return lines.join("\n");
+}
+
+
 // ------------------------------------
 //  Helper: buildButton
 //    - If highlighted=true, prefix with ✔ and set callbackData to a no-op
@@ -227,6 +416,8 @@ mongoose
 // ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
+  const session = require('telegraf/session');
+  bot.use(session());
 
   // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
@@ -924,6 +1115,619 @@ function startBot() {
     await User.deleteOne({ telegramId: tgId });
     return ctx.reply(user.language === "am" ? TEXT.ageError.am : TEXT.ageError.en);
   });
+
+bot.action("POST_TASK", async (ctx) => {
+  await ctx.answerCbQuery();
+  // Disable the three buttons by editing reply markup:
+  try {
+    await ctx.editMessageReplyMarkup();
+  } catch (_) { /* ignore if cannot edit */ }
+
+  // Remove any existing draft for user
+  await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
+  const draft = await TaskDraft.create({ creatorTelegramId: ctx.from.id });
+
+  // Initialize session
+  ctx.session.taskFlow = { step: "...", draftId: draft._id.toString(), isEdit: true };
+
+  // Ask first: description
+  const prompt = ctx.from.language_code === "am" 
+    ? "የተግባሩን መግለጫ ያስገቡ። (አንስተው 20 ቁምፊ መሆን አለበት)" 
+    : "Write the task description (20–1250 chars).";
+  return ctx.reply(prompt);
+});
+bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
+  if (!ctx.session.taskFlow) return next();
+  const { step, draftId } = ctx.session.taskFlow;
+  if (!draftId) {
+    delete ctx.session.taskFlow;
+    return ctx.reply("Session expired. Please click Post a Task again.");
+  }
+  const draft = await TaskDraft.findById(draftId);
+  if (!draft) {
+    delete ctx.session.taskFlow;
+    return ctx.reply("Draft expired. Please click Post a Task again.");
+  }
+  switch(step) {
+    case "description":
+      return handleDescription(ctx, draft);
+    case "relatedFile":
+      return handleRelatedFile(ctx, draft);
+    case "paymentFee":
+      return handlePaymentFee(ctx, draft);
+    case "timeToComplete":
+      return handleTimeToComplete(ctx, draft);
+    case "revisionTime":
+      return handleRevisionTime(ctx, draft);
+    case "penaltyPerHour":
+      return handlePenaltyPerHour(ctx, draft);
+    case "expiryHours":
+      return handleExpiryHours(ctx, draft);
+    // steps driven by callbacks (fields, skill level, exchangeStrategy) are in bot.action
+    default:
+      delete ctx.session.taskFlow;
+      return ctx.reply("Unexpected error. Please start again.");
+  }
+});
+
+async function handleDescription(ctx, draft) {
+  const text = ctx.message.text?.trim();
+  if (!text || text.length < 20 || text.length > 1250) {
+    return ctx.reply("Sorry, Task Description must be 20–1250 characters. Try again.");
+  }
+  draft.description = text;
+  await draft.save();
+  // Check if this was triggered by an edit:
+  if (ctx.session.taskFlow?.isEdit) {
+    // Send confirmation + preview, then clear session
+    await ctx.reply("✅ Description updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  // Initial flow: proceed to next step
+  ctx.session.taskFlow.step = "relatedFile";
+  return ctx.reply(
+    "Send any related file (photo, document, etc.), or click Skip.",
+    Markup.inlineKeyboard([ Markup.button.callback("Skip", "TASK_SKIP_FILE") ])
+  );
+}
+
+bot.action("TASK_SKIP_FILE", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.editMessageReplyMarkup(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) return ctx.reply("Draft expired.");
+  ctx.session.taskFlow.step = "fields";
+  return askFieldsPage(ctx, 0);
+});
+
+async function handleRelatedFile(ctx, draft) {
+  let fileId, fileType;
+  if (ctx.message.photo) {
+    const photos = ctx.message.photo;
+    fileId = photos[photos.length-1].file_id; fileType="photo";
+  } else if (ctx.message.document) {
+    fileId=ctx.message.document.file_id; fileType="document";
+  } else if (ctx.message.video) {
+    fileId=ctx.message.video.file_id; fileType="video";
+  } else {
+    return ctx.reply("Send a valid file or click Skip.");
+  }
+  draft.relatedFile = { fileId, fileType };
+  await draft.save();
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply("✅ Related file updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  // Initial flow: proceed to fields
+  ctx.session.taskFlow.step = "fields";
+  return askFieldsPage(ctx, 0);
+}
+
+function askFieldsPage(ctx, page) {
+  const start = page * FIELDS_PER_PAGE;
+  const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
+  const keyboard = [];
+  for (let i = start; i < end; i++) {
+    const f = ALL_FIELDS[i];
+    keyboard.push([ Markup.button.callback(f, `TASK_FIELD_${i}`) ]);
+  }
+  const nav = [];
+  if (page > 0) nav.push(Markup.button.callback("⬅️ Prev", `TASK_FIELDS_PAGE_${page-1}`));
+  if (end < ALL_FIELDS.length) nav.push(Markup.button.callback("➡️ Next", `TASK_FIELDS_PAGE_${page+1}`));
+  if (nav.length) keyboard.push(nav);
+  // If user already has at least one:
+  // We’ll check in DB:
+  return ctx.reply(
+    "Select 1–10 fields:",
+    Markup.inlineKeyboard(keyboard)
+  );
+}
+
+bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const idx = parseInt(ctx.match[1]);
+  const field = ALL_FIELDS[idx];
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) return ctx.reply("Draft expired.");
+  if (!draft.fields.includes(field)) {
+    draft.fields.push(field);
+    await draft.save();
+  }
+  // If reached 10, proceed:
+  if (draft.fields.length >= 10) {
+    try { await ctx.deleteMessage(); } catch(_) {}
+    ctx.session.taskFlow.step = "skillLevel";
+    return ctx.reply(
+      "Choose skill level:",
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Beginner", "TASK_SKILL_Beginner")],
+        [Markup.button.callback("Intermediate", "TASK_SKILL_Intermediate")],
+        [Markup.button.callback("Professional", "TASK_SKILL_Professional")]
+      ])
+    );
+  }
+  // Otherwise, ask to add more or done:
+  try { await ctx.deleteMessage(); } catch(_) {}
+  // Show current selections and prompt:
+  const buttons = [
+    [Markup.button.callback("Add More", `TASK_FIELDS_PAGE_0`)],
+    [Markup.button.callback("Done", "TASK_FIELDS_DONE")]
+  ];
+  return ctx.reply(
+    `Selected: ${draft.fields.join(", ")}`,
+    Markup.inlineKeyboard(buttons)
+  );
+});
+
+bot.action(/TASK_FIELDS_PAGE_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch(_) {}
+  const page = parseInt(ctx.match[1]);
+  return askFieldsPage(ctx, page);
+});
+
+bot.action("TASK_FIELDS_DONE", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch(_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft || !draft.fields.length) {
+    return ctx.reply("Select at least one field before proceeding.");
+  }
+  ctx.session.taskFlow.step = "skillLevel";
+  return ctx.reply(
+    "Choose skill level:",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("Beginner", "TASK_SKILL_Beginner")],
+      [Markup.button.callback("Intermediate", "TASK_SKILL_Intermediate")],
+      [Markup.button.callback("Professional", "TASK_SKILL_Professional")]
+    ])
+  );
+});
+bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const lvl = ctx.match[1];
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) return ctx.reply("Draft expired.");
+  draft.skillLevel = lvl;
+  await draft.save();
+  ctx.session.taskFlow.step = "paymentFee";
+  return ctx.reply("How much is the payment fee amount (in birr)?");
+});
+
+async function handlePaymentFee(ctx, draft) {
+  const text = ctx.message.text?.trim();
+  if (!/^\d+$/.test(text)) {
+    return ctx.reply("Please enter digits only.");
+  }
+  const val = parseInt(text,10);
+  if (val < 50) {
+    return ctx.reply("Amount cannot be less than 50 birr.");
+  }
+  draft.paymentFee = val;
+  await draft.save();
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply("✅ Payment fee updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  ctx.session.taskFlow.step = "timeToComplete";
+  return ctx.reply("What’s the time required in hours to complete the task?");
+}
+
+async function handleTimeToComplete(ctx, draft) {
+  const text = ctx.message.text?.trim();
+  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  const hrs = parseInt(text,10);
+  if (hrs <=0 || hrs>120) {
+    return ctx.reply("Hours must be >0 and ≤120.");
+  }
+  draft.timeToComplete = hrs;
+  await draft.save();
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply("✅ Time to complete updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  ctx.session.taskFlow.step = "revisionTime";
+  return ctx.reply("How many hours for revision (≤ half of total)?");
+}
+
+async function handleRevisionTime(ctx, draft) {
+  const text = ctx.message.text?.trim();
+  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  const rev = parseInt(text,10);
+  if (rev < 0) return ctx.reply("Cannot be negative.");
+  if (draft.timeToComplete != null && rev > draft.timeToComplete/2) {
+    return ctx.reply("Revision time cannot exceed half of total time.");
+  }
+  draft.revisionTime = rev;
+  await draft.save();
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply("✅ Revision time updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  ctx.session.taskFlow.step = "penaltyPerHour";
+  return ctx.reply("Give birr amount deducted per hour if late (≤20% of fee).");
+}
+
+async function handlePenaltyPerHour(ctx, draft) {
+  const text = ctx.message.text?.trim();
+  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  const pen = parseInt(text,10);
+  if (pen < 0) return ctx.reply("Cannot be negative.");
+  if (draft.paymentFee != null && pen > 0.2 * draft.paymentFee) {
+    return ctx.reply("Cannot exceed 20% of payment fee.");
+  }
+  draft.penaltyPerHour = pen;
+  await draft.save();
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply("✅ Penalty per hour updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  ctx.session.taskFlow.step = "expiryHours";
+  return ctx.reply("In how many hours does the offer expire? (1–24)");
+}
+
+async function handleExpiryHours(ctx, draft) {
+  const text = ctx.message.text?.trim();
+  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  const hrs = parseInt(text,10);
+  if (hrs < 1 || hrs > 24) {
+    return ctx.reply("Expiry must be between 1 and 24 hours.");
+  }
+  draft.expiryHours = hrs;
+  await draft.save();
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply("✅ Expiry time updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback("Edit Task", "TASK_EDIT")],
+        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+  ctx.session.taskFlow.step = "exchangeStrategy";
+  return ctx.reply(
+    "Choose exchange strategy:",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("100%", "TASK_EX_100%")],
+      [Markup.button.callback("30:40:30", "TASK_EX_30:40:30")],
+      [Markup.button.callback("50:50", "TASK_EX_50:50")]
+    ])
+  );
+}
+
+bot.action(/TASK_EX_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const strat = ctx.match[1];
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) return ctx.reply("Draft expired.");
+  draft.exchangeStrategy = strat;
+  await draft.save();
+  // All data collected: send preview
+  try { await ctx.deleteMessage(); } catch(_) {}
+  // Build preview text
+  const preview = buildPreviewText(draft, /* optionally fetch User for stats */ await User.findOne({ telegramId: ctx.from.id }));
+  ctx.session.taskFlow = null; // clear flow
+  return ctx.reply(preview, Markup.inlineKeyboard([
+    [Markup.button.callback("Edit Task", "TASK_EDIT")],
+    [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+  ], { parse_mode: "Markdown" }));
+});
+bot.action("TASK_EDIT", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch(_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) return ctx.reply("Draft expired.");
+  // Show buttons for each detail
+  const buttons = [
+    [Markup.button.callback("Task Description", "EDIT_description")],
+    [Markup.button.callback("Related File", "EDIT_relatedFile")],
+    [Markup.button.callback("Fields", "EDIT_fields")],
+    [Markup.button.callback("Skill Level", "EDIT_skillLevel")],
+    [Markup.button.callback("Payment Fee", "EDIT_paymentFee")],
+    [Markup.button.callback("Time to Complete", "EDIT_timeToComplete")],
+    [Markup.button.callback("Revision Time", "EDIT_revisionTime")],
+    [Markup.button.callback("Penalty per Hour", "EDIT_penaltyPerHour")],
+    [Markup.button.callback("Expiry Offer Time", "EDIT_expiryHours")],
+    [Markup.button.callback("Exchange Strategy", "EDIT_exchangeStrategy")]
+  ];
+  return ctx.reply("Select detail to edit:", Markup.inlineKeyboard(buttons));
+});
+bot.action("EDIT_description", async (ctx) => {
+  await ctx.answerCbQuery();
+  // Remove the “Select detail to edit” message
+  try { await ctx.deleteMessage(); } catch (_) {}
+  // Fetch draft
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  // Set session to capture the next text reply as description
+  ctx.session.taskFlow = {
+    step: "description",
+    draftId: draft._id.toString()
+  };
+  // Prompt user
+  return ctx.reply("✏️ Write the new task description (20–1250 characters):");
+});
+
+bot.action("EDIT_relatedFile", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  // Set session to capture next file or Skip
+  ctx.session.taskFlow = {
+    step: "relatedFile",
+    draftId: draft._id.toString()
+  };
+  // Prompt with Skip button
+  return ctx.reply(
+    "📎 Send the new related file (photo, document, video, audio), or click Skip:",
+    Markup.inlineKeyboard([
+      Markup.button.callback("Skip", "TASK_SKIP_FILE")
+    ])
+  );
+});
+bot.action("EDIT_fields", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  // Reset fields
+  draft.fields = [];
+  await draft.save();
+  // Set session to capture fields selection
+  ctx.session.taskFlow = {
+    step: "fields",
+    draftId: draft._id.toString()
+  };
+  // Begin fields selection at page 0
+  return askFieldsPage(ctx, 0);
+});
+bot.action("EDIT_skillLevel", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  ctx.session.taskFlow = {
+    step: "skillLevel",
+    draftId: draft._id.toString()
+  };
+  // Prompt same as initial:
+  return ctx.reply(
+    "Choose the new skill level required:",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("Beginner", "TASK_SKILL_Beginner")],
+      [Markup.button.callback("Intermediate", "TASK_SKILL_Intermediate")],
+      [Markup.button.callback("Professional", "TASK_SKILL_Professional")]
+    ])
+  );
+});
+bot.action("EDIT_paymentFee", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  ctx.session.taskFlow = {
+    step: "paymentFee",
+    draftId: draft._id.toString()
+  };
+  return ctx.reply("Enter the new payment fee amount in birr (must be ≥50):");
+});
+bot.action("EDIT_timeToComplete", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  ctx.session.taskFlow = {
+    step: "timeToComplete",
+    draftId: draft._id.toString()
+  };
+  return ctx.reply("Enter the new time required in hours to complete the task (1–120):");
+});
+bot.action("EDIT_revisionTime", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  ctx.session.taskFlow = {
+    step: "revisionTime",
+    draftId: draft._id.toString()
+  };
+  return ctx.reply("Enter the new revision time in hours (≤ half of total time):");
+});
+bot.action("EDIT_penaltyPerHour", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  ctx.session.taskFlow = {
+    step: "penaltyPerHour",
+    draftId: draft._id.toString()
+  };
+  return ctx.reply("Enter the new birr amount deducted per hour if late (≤20% of payment fee):");
+});
+bot.action("EDIT_expiryHours", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  ctx.session.taskFlow = {
+    step: "expiryHours",
+    draftId: draft._id.toString()
+  };
+  return ctx.reply("Enter the new expiry time in hours (1–24):");
+});
+bot.action("EDIT_exchangeStrategy", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+  ctx.session.taskFlow = {
+    step: "exchangeStrategy",  // matches your middleware or pattern
+    draftId: draft._id.toString()
+  };
+  return ctx.reply(
+    "Choose the new payment-task exchange strategy:",
+    Markup.inlineKeyboard([
+      [Markup.button.callback("100%", "TASK_EX_100%")],
+      [Markup.button.callback("30:40:30", "TASK_EX_30:40:30")],
+      [Markup.button.callback("50:50", "TASK_EX_50:50")]
+    ])
+  );
+});
+
+bot.action("TASK_POST_CONFIRM", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch(_) {}
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) return ctx.reply("Draft expired.");
+  // Build Task document
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found.");
+  const now = new Date();
+  const expiryDate = new Date(now.getTime() + draft.expiryHours*3600*1000);
+  // Create Task in DB
+  const task = await Task.create({
+    creator: user._id,
+    description: draft.description,
+    relatedFile: draft.relatedFile?.fileId || null,
+    fields: draft.fields,
+    skillLevel: draft.skillLevel,
+    paymentFee: draft.paymentFee,
+    timeToComplete: draft.timeToComplete,
+    revisionTime: draft.revisionTime,
+    latePenalty: draft.penaltyPerHour,
+    expiry: expiryDate,
+    exchangeStrategy: draft.exchangeStrategy,
+    status: "Open",
+    applicants: [],
+    stages: []
+  });
+  // Post to channel
+  const channelId = process.env.CHANNEL_ID || "-1002254896955";
+  const preview = buildPreviewText(draft, user);
+  const sent = await ctx.telegram.sendMessage(channelId, preview, {
+    parse_mode: "Markdown",
+    reply_markup: Markup.inlineKeyboard([
+      [Markup.button.callback("Apply", `APPLY_${task._id}`)]
+    ])
+  });
+  // Save channel message id if needed:
+  task.channelMessageId = sent.message_id;
+  await task.save();
+
+  // Notify creator with Cancel Task button
+  await ctx.reply("✅ Your task is live!", Markup.inlineKeyboard([
+    [Markup.button.callback("Cancel Task", `CANCEL_${task._id}`)]
+  ]));
+  // Delete draft
+  await TaskDraft.findByIdAndDelete(draft._id);
+});
+
 
   // ─────────── Placeholder Actions ───────────
   bot.action("POST_TASK", (ctx) => ctx.answerCbQuery());
