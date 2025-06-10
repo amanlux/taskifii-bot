@@ -394,8 +394,9 @@ mongoose
 // ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
-  const session = require('telegraf/session');
+  const { session } = require('telegraf');
   bot.use(session());
+
 
   // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
