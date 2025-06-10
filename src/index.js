@@ -66,35 +66,13 @@ userSchema.index({ username: 1 }, { unique: true, sparse: true });
 userSchema.index({ email:    1 }, { unique: true, sparse: true });
 userSchema.index({ phone:    1 }, { unique: true, sparse: true });
 
-const User = mongoose.model("User", userSchema);
+
 
 const TaskDraft = require("./models/TaskDraft");
 
 
 // ------------------------------------
-//  TaskDraft Schema & Model: for in-progress task creation
-// ------------------------------------
-const { Schema: MongooseSchema } = mongoose;
-const taskDraftSchema = new MongooseSchema({
-  creatorTelegramId:    { type: Number, required: true, index: true },
-  // store each field as we collect them:
-  description:          { type: String, default: null },
-  relatedFile:          {
-    // we'll store file identifiers for telegram (file_id) so we can forward later
-    fileId:             { type: String, default: null },
-    fileType:           { type: String, default: null } // e.g. "photo", "document", etc.
-  },
-  fields:               { type: [String], default: [] },   // e.g. ["Software Development", ...]
-  skillLevel:           { type: String, default: null },   // "Beginner", "Intermediate", "Professional"
-  paymentFee:           { type: Number, default: null },   // in Birr
-  timeToComplete:       { type: Number, default: null },   // hours
-  revisionTime:         { type: Number, default: null },   // hours
-  penaltyPerHour:       { type: Number, default: null },   // birr
-  expiryHours:          { type: Number, default: null },   // hours until offer expires
-  paymentStrategy:      { type: String, default: null },   // "100%", "30:40:30", etc.
-  createdAt:            { type: Date, default: Date.now }
-});
-const TaskDraft = mongoose.model("TaskDraft", taskDraftSchema);
+
 
 // ------------------------------------
 //  Localized Text Constants
@@ -1128,7 +1106,9 @@ bot.action("POST_TASK", async (ctx) => {
   const draft = await TaskDraft.create({ creatorTelegramId: ctx.from.id });
 
   // Initialize session
-  ctx.session.taskFlow = { step: "...", draftId: draft._id.toString(), isEdit: true };
+  ctx.session.taskFlow = { step: "description", draftId: draft._id.toString() }; 
+// no isEdit, so initial flow proceeds through all steps
+
 
   // Ask first: description
   const prompt = ctx.from.language_code === "am" 
@@ -1529,7 +1509,8 @@ bot.action("EDIT_description", async (ctx) => {
   // Set session to capture the next text reply as description
   ctx.session.taskFlow = {
     step: "description",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   // Prompt user
   return ctx.reply("✏️ Write the new task description (20–1250 characters):");
@@ -1545,7 +1526,8 @@ bot.action("EDIT_relatedFile", async (ctx) => {
   // Set session to capture next file or Skip
   ctx.session.taskFlow = {
     step: "relatedFile",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   // Prompt with Skip button
   return ctx.reply(
@@ -1568,7 +1550,8 @@ bot.action("EDIT_fields", async (ctx) => {
   // Set session to capture fields selection
   ctx.session.taskFlow = {
     step: "fields",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   // Begin fields selection at page 0
   return askFieldsPage(ctx, 0);
@@ -1582,7 +1565,8 @@ bot.action("EDIT_skillLevel", async (ctx) => {
   }
   ctx.session.taskFlow = {
     step: "skillLevel",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   // Prompt same as initial:
   return ctx.reply(
@@ -1603,7 +1587,8 @@ bot.action("EDIT_paymentFee", async (ctx) => {
   }
   ctx.session.taskFlow = {
     step: "paymentFee",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   return ctx.reply("Enter the new payment fee amount in birr (must be ≥50):");
 });
@@ -1616,7 +1601,8 @@ bot.action("EDIT_timeToComplete", async (ctx) => {
   }
   ctx.session.taskFlow = {
     step: "timeToComplete",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   return ctx.reply("Enter the new time required in hours to complete the task (1–120):");
 });
@@ -1629,7 +1615,8 @@ bot.action("EDIT_revisionTime", async (ctx) => {
   }
   ctx.session.taskFlow = {
     step: "revisionTime",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   return ctx.reply("Enter the new revision time in hours (≤ half of total time):");
 });
@@ -1642,7 +1629,8 @@ bot.action("EDIT_penaltyPerHour", async (ctx) => {
   }
   ctx.session.taskFlow = {
     step: "penaltyPerHour",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   return ctx.reply("Enter the new birr amount deducted per hour if late (≤20% of payment fee):");
 });
@@ -1655,7 +1643,8 @@ bot.action("EDIT_expiryHours", async (ctx) => {
   }
   ctx.session.taskFlow = {
     step: "expiryHours",
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   return ctx.reply("Enter the new expiry time in hours (1–24):");
 });
@@ -1668,7 +1657,8 @@ bot.action("EDIT_exchangeStrategy", async (ctx) => {
   }
   ctx.session.taskFlow = {
     step: "exchangeStrategy",  // matches your middleware or pattern
-    draftId: draft._id.toString()
+    draftId: draft._id.toString(),
+    isEdit: true
   };
   return ctx.reply(
     "Choose the new payment-task exchange strategy:",
