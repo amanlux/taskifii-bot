@@ -31,6 +31,10 @@ if (!process.env.MONGODB_URI) {
 //  Mongoose Schema & Model
 //    - language: allow null in enum
 // ------------------------------------
+// ------------------------------------
+//  Mongoose Schema & Model
+//    - language: allow null in enum
+// ------------------------------------
 const Schema = mongoose.Schema;
 
 const userSchema = new Schema({
@@ -55,8 +59,11 @@ const userSchema = new Schema({
   },
   createdAt:      { type: Date, default: Date.now }
 });
-// right after your `const userSchema = new Schema({ … });`
+
+// Explicitly add sparse unique indexes for username, email, phone:
 userSchema.index({ username: 1 }, { unique: true, sparse: true });
+userSchema.index({ email:    1 }, { unique: true, sparse: true });
+userSchema.index({ phone:    1 }, { unique: true, sparse: true });
 
 const User = mongoose.model("User", userSchema);
 
