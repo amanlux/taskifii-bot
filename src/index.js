@@ -405,7 +405,7 @@ function startBot() {
 
     // If user exists, reset all fields
     if (user) {
-      user.language = null;
+      
       user.fullName = null;
       user.phone = null;
       user.email = null;
