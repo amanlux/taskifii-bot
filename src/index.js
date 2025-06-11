@@ -396,6 +396,31 @@ function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
   const { session } = require('telegraf');
   bot.use(session());
+  /**
+ * Build an inline keyboard with:
+ *  – ✅ prefix on the clicked button
+ *  – clicked button inert (no callback_data)
+ *  – other buttons keep their callback_data
+ */
+function buildMenu(ctx, buttons, clickedData) {
+  const lang = ctx.session.user?.language || "en";
+  return Markup.inlineKeyboard(
+    buttons.map(row =>
+      row.map(({ label, data, labelAm }) => {
+        const text = (lang === "am" && labelAm) ? labelAm : label;
+        if (data === clickedData) {
+          // highlighted & inert
+          return Markup.button.callback(`✅ ${text}`, undefined);
+        } else {
+          // still active
+          return Markup.button.callback(text, data);
+        }
+      })
+    )
+  );
+}
+
+  
 
 
   // ─────────── /start Handler ───────────
