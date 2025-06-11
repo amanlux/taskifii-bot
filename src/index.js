@@ -1095,28 +1095,35 @@ function startBot() {
     return ctx.reply(user.language === "am" ? TEXT.ageError.am : TEXT.ageError.en);
   });
 
+// ─────────── POST_TASK (start draft flow) ───────────
 bot.action("POST_TASK", async (ctx) => {
   await ctx.answerCbQuery();
-  // Disable the three buttons by editing reply markup:
-  try {
-    await ctx.editMessageReplyMarkup();
-  } catch (_) { /* ignore if cannot edit */ }
+  // remove the inline buttons so nothing is clickable
+  try { await ctx.editMessageReplyMarkup(); } catch (__) {}
 
-  // Remove any existing draft for user
+  // remove any existing draft, then create a new one
   await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
   const draft = await TaskDraft.create({ creatorTelegramId: ctx.from.id });
 
-  // Initialize session
-  ctx.session.taskFlow = { step: "description", draftId: draft._id.toString() }; 
-// no isEdit, so initial flow proceeds through all steps
+  // ❗️ Defensive init: if session middleware somehow didn't run,
+  // make sure ctx.session is at least an object.
+  if (!ctx.session) {
+    ctx.session = {};
+  }
 
+  // now it’s safe to set taskFlow
+  ctx.session.taskFlow = {
+    step:    "description",
+    draftId: draft._id.toString()
+  };
 
-  // Ask first: description
-  const prompt = ctx.from.language_code === "am" 
-    ? "የተግባሩን መግለጫ ያስገቡ። (አንስተው 20 ቁምፊ መሆን አለበት)" 
+  // ask for the first piece of data
+  const prompt = ctx.from.language_code === "am"
+    ? "የተግባሩን መግለጫ ያስገቡ። (አንስተው 20 ቁምፊ መሆን አለበት)"
     : "Write the task description (20–1250 chars).";
   return ctx.reply(prompt);
 });
+
 
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
