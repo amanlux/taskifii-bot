@@ -516,7 +516,11 @@ function startBot() {
   bot.action(/_DISABLED_.+/, (ctx) => ctx.answerCbQuery());
 
   // ─────────── Text Handler (Full Name, Phone, Email, Username, Banks) ───────────
-  bot.on("text", async (ctx) => {
+  bot.on("text", async (ctx, next) => {
+    // ─────────── If drafting a task, skip onboarding handler ───────────
+    if (ctx.session?.taskFlow) {
+      return next();
+    }
     const tgId = ctx.from.id;
     const text = ctx.message.text.trim();
     const user = await User.findOne({ telegramId: tgId });
