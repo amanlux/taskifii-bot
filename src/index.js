@@ -590,7 +590,7 @@ function startBot() {
     }
 
     // ─── USERNAME STEP (typed override) ─────────────────────────
-    if (user.onboardingStep === "username") {
+    if (user.onboardingStep === "usernameConfirm") {
       const reply = text;
       const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
       if (!userHandleRegex.test(reply)) {
