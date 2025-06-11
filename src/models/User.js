@@ -57,21 +57,25 @@ const UserSchema = new Schema(
     language: { type: String, enum: ["en", "am"] },
 
     // Track which onboarding question the user is on:
-    onboardingStep: {
-    type: String,
-    enum: [
-      "language",
-      "setupProfile",
-      "fullName",
-      "phone",
-      "email",
-      "usernameConfirm",
-      "bankEntry",
-      "ageVerify",
-      "completed"
-    ],
-    default: "language"
-  },
+  onboardingStep: {
+   type: String,
+   enum: [
+     "language",
+     "setupProfile",
+     "fullName",
+     "phone",
+     "email",
+     "usernameConfirm",
+   
+     "bankFirst",  // allow the value your code sets
+     "bankEntry",  // keep if you still reference it elsewhere
+     "ageVerify",
+     "completed"
+   ],
+   default: "language"
+ },
+
+
 
 
     stats: { type: StatsSchema, default: () => ({}) },
