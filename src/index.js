@@ -1117,6 +1117,42 @@ bot.action("POST_TASK", async (ctx) => {
     : "Write the task description (20–1250 chars).";
   return ctx.reply(prompt);
 });
+
+// ─────────── “Edit Task” Entry Point ───────────
+bot.action("TASK_EDIT", async (ctx) => {
+  await ctx.answerCbQuery();
+  try { await ctx.deleteMessage(); } catch (_) {}
+
+  // Fetch the draft you just created
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (!draft) {
+    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  }
+
+  // Mark that we’re in edit‐mode
+  ctx.session.taskFlow = {
+    isEdit: true,
+    draftId:  draft._id.toString(),
+    step:     null   // we’ll set this in the per‐field handlers
+  };
+
+  // Present the list of fields that can be edited
+  const buttons = [
+    [Markup.button.callback("✏️ Edit Description",   "EDIT_description")],
+    [Markup.button.callback("📎 Edit Related File",   "EDIT_relatedFile")],
+    [Markup.button.callback("🏷️ Edit Fields",         "EDIT_fields")],
+    [Markup.button.callback("🎯 Edit Skill Level",    "EDIT_skillLevel")],
+    [Markup.button.callback("💰 Edit Payment Fee",     "EDIT_paymentFee")],
+    [Markup.button.callback("⏳ Edit Time to Complete","EDIT_timeToComplete")],
+    [Markup.button.callback("🔄 Edit Revision Time",   "EDIT_revisionTime")],
+    [Markup.button.callback("⏱️ Edit Penalty per Hour","EDIT_penaltyPerHour")],
+    [Markup.button.callback("⌛ Edit Expiry Hours",     "EDIT_expiryHours")],
+    [Markup.button.callback("🔀 Edit Exchange Strat.", "EDIT_exchangeStrategy")]
+  ];
+  return ctx.reply("Select which piece of the task you’d like to edit:", Markup.inlineKeyboard(buttons));
+});
+
+
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   if (!ctx.session.taskFlow) return next();
   const { step, draftId } = ctx.session.taskFlow;
@@ -1752,7 +1788,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
 
 
   // ─────────── Placeholder Actions ───────────
-  bot.action("POST_TASK", (ctx) => ctx.answerCbQuery());
+  //bot.action("POST_TASK", (ctx) => ctx.answerCbQuery());
   bot.action("FIND_TASK", (ctx) => ctx.answerCbQuery());
   bot.action("EDIT_PROFILE", (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_BAN_.+/, (ctx) => ctx.answerCbQuery());
