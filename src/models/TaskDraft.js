@@ -10,14 +10,16 @@ const taskDraftSchema = new Schema({
     fileType:        { type: String, default: null }
   },
   fields:            { type: [String], default: [] },
-  skillLevel:        { type: String, enum: ["Beginner","Intermediate","Professional"], default: undefined },
+  skillLevel:        { type: String, enum: ["Beginner","Intermediate","Professional", null], default: null },
   paymentFee:        { type: Number, default: null },
   timeToComplete:    { type: Number, default: null },
   revisionTime:      { type: Number, default: null },
   penaltyPerHour:    { type: Number, default: null },
   expiryHours:       { type: Number, default: null },
-  exchangeStrategy:  { type: String, enum: ["100%","30:40:30","50:50"], default: undefined },
+  exchangeStrategy:  { type: String, enum: ["100%","30:40:30","50:50", null], default: null },
   createdAt:         { type: Date, default: Date.now }
 });
+
+
 
 module.exports = mongoose.model("TaskDraft", taskDraftSchema);
