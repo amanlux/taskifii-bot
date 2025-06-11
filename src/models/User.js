@@ -17,14 +17,17 @@ const UserSchema = new Schema({
       "phone",            // enter phone
       "email",            // enter email
       "usernameConfirm",  // click “Yes, keep it” or type new one
-      // your bank steps:
+      // bank‐details steps
       "bankFirst",        // first bank detail typed
-      "bankMulti",        // in “add/replace/done” phase
+      "bankMulti",        // in “Add/Replace/Done” phase
       "bankAdding",       // after clicking “Add”
       "bankReplacing",    // after clicking “Replace”
-      "termsReview",      // after clicking “Done”, review terms
-      "terms",            // accept terms
-      "ageVerify",        // enter age or verify
+      // terms & conditions
+      "termsReview",      // after clicking “Done”, review T&C
+      "terms",            // accept or reject T&C
+      // age verification
+      "age",              // click “Yes I am” or “No I’m not”
+      // final
       "completed"         // onboarding finished
     ],
     default: "language"
