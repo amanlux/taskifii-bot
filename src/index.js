@@ -572,7 +572,7 @@ function startBot() {
         );
       }
       user.email = text;
-      user.onboardingStep = "username";
+      user.onboardingStep = "usernameConfirm";
       await user.save();
 
       // Prompt for Telegram username
