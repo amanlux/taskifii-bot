@@ -1050,6 +1050,15 @@ function buildMenu(ctx, buttons, clickedData) {
     const profileText = user.language === "am" ? profileLinesAm.join("\n") : profileLinesEn.join("\n");
 
     // 1) Send profile to user with placeholder buttons
+    const menu = Markup.inlineKeyboard([
+    [ buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language) ],[buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language)],
+        [buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language)]
+      
+  
+    ]);
+    console.log("🔘 Sending main menu keyboard:", JSON.stringify(menu));
+    await ctx.reply(profileText, menu);
+
     await ctx.reply(
       profileText,
       Markup.inlineKeyboard([
@@ -1140,6 +1149,7 @@ function buildMenu(ctx, buttons, clickedData) {
 // ─────────── POST_TASK (start draft flow) ───────────
 bot.action("POST_TASK", async (ctx) => {
   // answer the click without removing the message
+  console.log("🔥 POST_TASK handler hit for", ctx.callbackQuery.data);
   await ctx.answerCbQuery();
   // highlight “Post a Task” and disable all three menu buttons
   const me   = await User.findOne({ telegramId: ctx.from.id });
