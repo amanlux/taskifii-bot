@@ -1146,30 +1146,22 @@ function buildMenu(ctx, buttons, clickedData) {
   });
 
 // ─────────── POST_TASK (start draft flow) ───────────
+// ─────────── POST_TASK (start draft flow) ───────────
 bot.action("POST_TASK", async (ctx) => {
-  // answer the click without removing the message
-  console.log("🔥 POST_TASK handler hit for", ctx.callbackQuery.data);
   await ctx.answerCbQuery();
-  // highlight “Post a Task” and disable all three menu buttons
-  const me   = await User.findOne({ telegramId: ctx.from.id });
-  const lang = me?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
 
- 
-  // send a fresh, disabled menu message with ✔️ on Post a Task
-  await ctx.telegram.editMessageReplyMarkup(
-  ctx.chat.id,
-  ctx.callbackQuery.message.message_id,
-  undefined,
-  Markup.inlineKeyboard([[
-    // ✔️ highlights the “Post a Task” button, all callbacks disabled
-    Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    undefined, { disabled: true }),
-    Markup.button.callback(       TEXT.findTaskBtn[lang],    undefined, { disabled: true }),
-    Markup.button.callback(       TEXT.editProfileBtn[lang], undefined, { disabled: true })
-  ]])
-);
-
-
-
+  // Edit the existing message to show disabled buttons with the Post Task button highlighted
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [
+        Markup.button.callback(`✔ ${TEXT.postTaskBtn[lang]}`, "_DISABLED_POST_TASK"),
+        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
+        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
+      ]
+    ]
+  });
 
   // remove any existing draft, then create a new one
   await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
@@ -1181,19 +1173,18 @@ bot.action("POST_TASK", async (ctx) => {
     ctx.session = {};
   }
 
-  // now it’s safe to set taskFlow
+  // now it's safe to set taskFlow
   ctx.session.taskFlow = {
     step:    "description",
     draftId: draft._id.toString()
   };
 
   // ask for the first piece of data
-  const prompt = ctx.from.language_code === "am"
+  const prompt = lang === "am"
     ? "የተግባሩን መግለጫ ያስገቡ። (አንስተው 20 ቁምፊ መሆን አለበት)"
     : "Write the task description (20–1250 chars).";
   return ctx.reply(prompt);
 });
-
 
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
