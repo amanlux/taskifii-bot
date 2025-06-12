@@ -1158,9 +1158,11 @@ bot.action("POST_TASK", async (ctx) => {
   // Edit the existing message to show disabled buttons with the Post Task button highlighted
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
-        [Markup.button.callback(`✔ ${TEXT.postTaskBtn[lang]}`, "_DISABLED_POST_TASK")],
-        [Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK")],
-        [Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")]
+      [
+        Markup.button.callback(`✔ ${TEXT.postTaskBtn[lang]}`, "_DISABLED_POST_TASK"),
+        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
+        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
+      ]
     ]
   });
 
