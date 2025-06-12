@@ -1057,16 +1057,7 @@ function buildMenu(ctx, buttons, clickedData) {
   
     ]);
     console.log("🔘 Sending main menu keyboard:", JSON.stringify(menu));
-    await ctx.reply(profileText, menu);
-
-    await ctx.reply(
-      profileText,
-      Markup.inlineKeyboard([
-        [buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language)],
-        [buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language)],
-        [buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language)]
-      ])
-    );
+    
 
     // 2) Send to Admin Channel
     const ADMIN_CHANNEL = "-1002310380363";
@@ -1155,17 +1146,17 @@ bot.action("POST_TASK", async (ctx) => {
   const me   = await User.findOne({ telegramId: ctx.from.id });
   const lang = me?.language || "en";
 
-  // explicitly target the original message so the keyboard is replaced, not removed
-  await ctx.telegram.editMessageReplyMarkup(
-    ctx.chat.id,
-    ctx.callbackQuery.message.message_id,
-    undefined,
+ 
+  // send a fresh, disabled menu message with ✔️ on Post a Task
+  await ctx.reply(
+    " ",  // a blank or single-space placeholder so it doesn’t clutter
     Markup.inlineKeyboard([[
       Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    "POST_TASK",    { disabled: true }),
       Markup.button.callback(       TEXT.findTaskBtn[lang],    "FIND_TASK",    { disabled: true }),
       Markup.button.callback(       TEXT.editProfileBtn[lang], "EDIT_PROFILE", { disabled: true })
     ]])
   );
+
 
   // remove any existing draft, then create a new one
   await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
