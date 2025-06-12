@@ -1051,11 +1051,12 @@ function buildMenu(ctx, buttons, clickedData) {
 
     // 1) Send profile to user with placeholder buttons
     const menu = Markup.inlineKeyboard([
-    [ buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language) ],[buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language)],
-        [buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language)]
-      
+    [ buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language) ],
+    [ buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language) ],
+    [ buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language) ]
+  ]);  
   
-    ]);
+    
     await ctx.reply(profileText, menu);
     
 
