@@ -1161,11 +1161,13 @@ bot.action("POST_TASK", async (ctx) => {
   ctx.callbackQuery.message.message_id,
   undefined,
   Markup.inlineKeyboard([[
-    Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    "POST_TASK",    { disabled: true }),
-    Markup.button.callback(       TEXT.findTaskBtn[lang],    "FIND_TASK",    { disabled: true }),
-    Markup.button.callback(       TEXT.editProfileBtn[lang], "EDIT_PROFILE", { disabled: true })
+    // ✔️ highlights the “Post a Task” button, all callbacks disabled
+    Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    undefined, { disabled: true }),
+    Markup.button.callback(       TEXT.findTaskBtn[lang],    undefined, { disabled: true }),
+    Markup.button.callback(       TEXT.editProfileBtn[lang], undefined, { disabled: true })
   ]])
 );
+
 
 
 
