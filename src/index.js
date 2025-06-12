@@ -1051,10 +1051,12 @@ function buildMenu(ctx, buttons, clickedData) {
 
     // 1) Send profile to user with placeholder buttons
     const menu = Markup.inlineKeyboard([
-    [ buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language) ],
-    [ buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language) ],
-    [ buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language) ]
-  ]);  
+    [ 
+        buildButton({ en: "Post a Task", am: "ተግዳሮት ልጥፍ" }, "POST_TASK", user.language),
+        buildButton({ en: "Find a Task", am: "ተግዳሮት ፈልግ" }, "FIND_TASK", user.language),
+        buildButton({ en: "Edit Profile", am: "ፕሮፋይል አርትዕ" }, "EDIT_PROFILE", user.language)
+    ]
+    ]); 
   
     
     await ctx.reply(profileText, menu);
@@ -1156,11 +1158,9 @@ bot.action("POST_TASK", async (ctx) => {
   // Edit the existing message to show disabled buttons with the Post Task button highlighted
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
-      [
-        Markup.button.callback(`✔ ${TEXT.postTaskBtn[lang]}`, "_DISABLED_POST_TASK"),
-        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
-        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
-      ]
+        [Markup.button.callback(`✔ ${TEXT.postTaskBtn[lang]}`, "_DISABLED_POST_TASK")],
+        [Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK")],
+        [Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")]
     ]
   });
 
