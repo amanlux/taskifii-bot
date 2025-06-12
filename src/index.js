@@ -193,7 +193,20 @@ const TEXT = {
   ageError: {
     en: "Sorry, you must be 18 or older to use Taskifii. Your data has been removed.",
     am: "ይቅርታ፣ ከ18 ዓመት በታች መሆንዎ ምክንያት ይገባል። መረጃዎት ተሰርዟል።"
-  }
+  },
+  postTaskBtn: {
+  en: "Post a Task",
+  am: "ተግዳሮት ልጥፍ"
+  },
+  findTaskBtn: {
+    en: "Find a Task",
+    am: "ተግዳሮት ፈልግ"
+  },
+  editProfileBtn: {
+    en: "Edit Profile",
+    am: "ፕሮፋይል አርትዕ"
+  },
+
 };
 
 
