@@ -206,6 +206,10 @@ const TEXT = {
     en: "Edit Profile",
     am: "ፕሮፋይል አርትዕ"
   },
+   descriptionPrompt: {
+    en: "Write the task description (20–1250 chars).",
+    am: "የተግባሩን መግለጫ ያስገቡ። (20–1250 ቁምፊ)"
+  },
 
 };
 
@@ -1182,12 +1186,12 @@ bot.action("POST_TASK", async (ctx) => {
     draftId: draft._id.toString()
   };
 
-  // ask for the first piece of data
-  const prompt = lang === "am"
-    ? "የተግባሩን መግለጫ ያስገቡ። (አንስተው 20 ቁምፊ መሆን አለበት)"
-    : "Write the task description (20–1250 chars).";
+  
+  // instead of manually branching on `lang`, just:
+  const prompt = TEXT.descriptionPrompt[lang];
   return ctx.reply(prompt);
-});
+
+  });
 
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
