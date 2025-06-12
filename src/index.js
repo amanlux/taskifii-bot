@@ -1112,15 +1112,15 @@ function buildMenu(ctx, buttons, clickedData) {
 
     
 
-      // 1) Send profile back to user
-  await ctx.reply(profileText, menu);
+      
+  
 
   // 2) Then send it up to your admin channel
   await ctx.telegram.sendMessage(
-    ADMIN_CHANNEL,
-    adminText,
-    { parse_mode: "Markdown", reply_markup: adminButtons }
-  );
+  ADMIN_CHANNEL,
+  adminText,
+  adminButtons   // ← pass the Markup object itself
+);
 
   return;
 
@@ -1156,14 +1156,17 @@ bot.action("POST_TASK", async (ctx) => {
 
  
   // send a fresh, disabled menu message with ✔️ on Post a Task
-  await ctx.reply(
-   "Select your next action:",  // a blank or single-space placeholder so it doesn’t clutter
-    Markup.inlineKeyboard([[
-      Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    "POST_TASK",    { disabled: true }),
-      Markup.button.callback(       TEXT.findTaskBtn[lang],    "FIND_TASK",    { disabled: true }),
-      Markup.button.callback(       TEXT.editProfileBtn[lang], "EDIT_PROFILE", { disabled: true })
-    ]])
-  );
+  await ctx.telegram.editMessageReplyMarkup(
+  ctx.chat.id,
+  ctx.callbackQuery.message.message_id,
+  undefined,
+  Markup.inlineKeyboard([[
+    Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    "POST_TASK",    { disabled: true }),
+    Markup.button.callback(       TEXT.findTaskBtn[lang],    "FIND_TASK",    { disabled: true }),
+    Markup.button.callback(       TEXT.editProfileBtn[lang], "EDIT_PROFILE", { disabled: true })
+  ]])
+);
+
 
 
   // remove any existing draft, then create a new one
