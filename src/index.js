@@ -1126,9 +1126,18 @@ function buildMenu(ctx, buttons, clickedData) {
 
 // ─────────── POST_TASK (start draft flow) ───────────
 bot.action("POST_TASK", async (ctx) => {
+  // answer the click without removing the message
   await ctx.answerCbQuery();
-  // remove the inline buttons so nothing is clickable
-  try { await ctx.editMessageReplyMarkup(); } catch (__) {}
+  // highlight “Post a Task” and disable all three menu buttons
+  const lang = ctx.session.user.language;
+  await ctx.editMessageReplyMarkup(
+    Markup.inlineKeyboard([[
+      Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`, "POST_TASK",    { disabled: true }),
+      Markup.button.callback(       TEXT.findTaskBtn[lang],  "FIND_TASK",    { disabled: true }),
+      Markup.button.callback(       TEXT.editProfileBtn[lang], "EDIT_PROFILE", { disabled: true })
+    ]])
+  );
+
 
   // remove any existing draft, then create a new one
   await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
