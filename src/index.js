@@ -1056,7 +1056,7 @@ function buildMenu(ctx, buttons, clickedData) {
       
   
     ]);
-    console.log("🔘 Sending main menu keyboard:", JSON.stringify(menu));
+    await ctx.reply(profileText, menu);
     
 
     // 2) Send to Admin Channel
@@ -1110,10 +1110,7 @@ function buildMenu(ctx, buttons, clickedData) {
       ]
     ]);
 
-    await ctx.telegram.sendMessage(ADMIN_CHANNEL, adminText, {
-      parse_mode: "Markdown",
-      ...adminButtons
-    });
+    
 
     return;
   });
