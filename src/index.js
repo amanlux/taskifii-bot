@@ -1142,14 +1142,13 @@ bot.action("POST_TASK", async (ctx) => {
   // answer the click without removing the message
   await ctx.answerCbQuery();
   // highlight “Post a Task” and disable all three menu buttons
-  // load the user’s language from the database instead of session.user
   const me   = await User.findOne({ telegramId: ctx.from.id });
   const lang = me?.language || "en";
 
   await ctx.editMessageReplyMarkup(
     Markup.inlineKeyboard([[
-      Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`, "POST_TASK",    { disabled: true }),
-      Markup.button.callback(       TEXT.findTaskBtn[lang],  "FIND_TASK",    { disabled: true }),
+      Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    "POST_TASK",    { disabled: true }),
+      Markup.button.callback(       TEXT.findTaskBtn[lang],    "FIND_TASK",    { disabled: true }),
       Markup.button.callback(       TEXT.editProfileBtn[lang], "EDIT_PROFILE", { disabled: true })
     ]])
   );
@@ -1281,7 +1280,7 @@ async function handleDescription(ctx, draft) {
 
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
-  try { await ctx.editMessageReplyMarkup(); } catch (_) {}
+  //try { await ctx.editMessageReplyMarkup(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) return ctx.reply("Draft expired.");
   ctx.session.taskFlow.step = "fields";
