@@ -210,6 +210,18 @@ const TEXT = {
     en: "Write the task description (20–1250 chars).",
     am: "የተግባሩን መግለጫ ያስገቡ። (20–1250 ቁምፊ)"
   },
+  descriptionError: {
+    en: "Sorry, Task Description must be 20–1250 characters. Try again.",
+    am: "ይቅርታ፣ የተግባሩ መግለጫ 20–1250 ቁምፊ መሆን አለበት። እንደገና ይሞክሩ።"
+  },
+  relatedFilePrompt: {
+    en: "Send any related file (photo, document, etc.), or click Skip.",
+    am: "ማንኛውንም ተያያዥ ፋይል (ፎቶ፣ ሰነድ፣ ቪዲዮ ወዘተ) ይላኩ፣ ወይም “Skip” ይጫኑ።"
+  },
+  relatedFileError: {
+    en: "Send a valid file (photo, document, etc.) or click Skip.",
+    am: "ትክክለኛ ፋይል (ፎቶ፣ ሰነድ፣ ቪዲዮ ወዘተ) ይላኩ ወይም “Skip” ይጫኑ።"
+  },
 
 };
 
@@ -1265,8 +1277,10 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
 async function handleDescription(ctx, draft) {
   const text = ctx.message.text?.trim();
   if (!text || text.length < 20 || text.length > 1250) {
-    return ctx.reply("Sorry, Task Description must be 20–1250 characters. Try again.");
+  const lang = ctx.session.user.language;
+  return ctx.reply(TEXT.descriptionError[lang]);
   }
+
   draft.description = text;
   await draft.save();
   // Check if this was triggered by an edit:
@@ -1288,49 +1302,86 @@ async function handleDescription(ctx, draft) {
   // Initial flow: proceed to next step
   ctx.session.taskFlow.step = "relatedFile";
   return ctx.reply(
-    "Send any related file (photo, document, etc.), or click Skip.",
-    Markup.inlineKeyboard([ Markup.button.callback("Skip", "TASK_SKIP_FILE") ])
+    TEXT.relatedFilePrompt[lang],
+    Markup.inlineKeyboard([ Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE") ])
   );
 }
 
 bot.action("TASK_SKIP_FILE", async (ctx) => {
-  await ctx.answerCbQuery();
-  //try { await ctx.editMessageReplyMarkup(); } catch (_) {}
-  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) return ctx.reply("Draft expired.");
-  ctx.session.taskFlow.step = "fields";
-  return askFieldsPage(ctx, 0);
+    await ctx.answerCbQuery();
+    const lang = ctx.session.user.language;
+
+    // 1) Disable & highlight the Skip button on the same message:
+    await ctx.editMessageReplyMarkup(
+      Markup.inlineKeyboard([[
+        Markup.button.callback(`✔️ ${TEXT.skipBtn[lang]}`, undefined, { disabled: true })
+      ]])
+    );
+
+    // 2) Move on:
+    ctx.session.taskFlow.step = "fields";
+    return askFieldsPage(ctx, 0);
+
 });
 
 async function handleRelatedFile(ctx, draft) {
   let fileId, fileType;
+
+  // 1) Figure out what kind of file was sent
   if (ctx.message.photo) {
     const photos = ctx.message.photo;
-    fileId = photos[photos.length-1].file_id; fileType="photo";
+    fileId   = photos[photos.length - 1].file_id;
+    fileType = "photo";
   } else if (ctx.message.document) {
-    fileId=ctx.message.document.file_id; fileType="document";
+    fileId   = ctx.message.document.file_id;
+    fileType = "document";
   } else if (ctx.message.video) {
-    fileId=ctx.message.video.file_id; fileType="video";
+    fileId   = ctx.message.video.file_id;
+    fileType = "video";
   } else {
-    return ctx.reply("Send a valid file or click Skip.");
+    // 2) Invalid input: show localized error
+    const lang = ctx.session.user.language;
+    return ctx.reply(TEXT.relatedFileError[lang]);
   }
+
+  // 3) Save the file info on the draft
   draft.relatedFile = { fileId, fileType };
   await draft.save();
+
+  const lang = ctx.session.user.language;
+
+  // 4) Disable (but don’t highlight) the Skip button on the original prompt
+  try {
+    await ctx.editMessageReplyMarkup(
+      Markup.inlineKeyboard([
+        [ Markup.button.callback(TEXT.skipBtn[lang], undefined, { disabled: true }) ]
+      ])
+    );
+  } catch (_) {
+    // If the prompt is too old to edit, we’ll just continue
+  }
+
+  // 5) If this flow was an edit of an existing task, send the updated preview
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply("✅ Related file updated.");
+
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
+    const user         = await User.findOne({ telegramId: ctx.from.id });
+
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
-      ], { parse_mode: "Markdown" })
+        [ Markup.button.callback("Edit Task", "TASK_EDIT") ],
+        [ Markup.button.callback("Post Task", "TASK_POST_CONFIRM") ]
+      ]),
+      { parse_mode: "Markdown" }
     );
+
     ctx.session.taskFlow = null;
     return;
   }
-  // Initial flow: proceed to fields
+
+  // 6) Otherwise, proceed to the next step in the new-task flow
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 }
