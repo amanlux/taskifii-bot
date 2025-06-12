@@ -1145,14 +1145,17 @@ bot.action("POST_TASK", async (ctx) => {
   const me   = await User.findOne({ telegramId: ctx.from.id });
   const lang = me?.language || "en";
 
-  await ctx.editMessageReplyMarkup(
+  // explicitly target the original message so the keyboard is replaced, not removed
+  await ctx.telegram.editMessageReplyMarkup(
+    ctx.chat.id,
+    ctx.callbackQuery.message.message_id,
+    undefined,
     Markup.inlineKeyboard([[
       Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    "POST_TASK",    { disabled: true }),
       Markup.button.callback(       TEXT.findTaskBtn[lang],    "FIND_TASK",    { disabled: true }),
       Markup.button.callback(       TEXT.editProfileBtn[lang], "EDIT_PROFILE", { disabled: true })
     ]])
   );
-
 
   // remove any existing draft, then create a new one
   await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
