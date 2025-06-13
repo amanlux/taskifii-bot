@@ -222,6 +222,10 @@ const TEXT = {
     en: "Send a valid file (photo, document, etc.) or click Skip.",
     am: "ትክክለኛ ፋይል (ፎቶ፣ ሰነድ፣ ቪዲዮ ወዘተ) ይላኩ ወይም “Skip” ይጫኑ።"
   },
+   skipBtn: {
+    en: "Skip",
+    am: "ዝለል"
+  },
 
 };
 
@@ -1169,42 +1173,39 @@ function buildMenu(ctx, buttons, clickedData) {
 bot.action("POST_TASK", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
+  if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Edit the existing message to show disabled buttons with the Post Task button highlighted
+  // Initialize session properly
+  ctx.session = ctx.session || {};
+  ctx.session.user = {  // Store essential user data
+    telegramId: user.telegramId,
+    language: user.language || "en"  // Default to English if not set
+  };
+
+  // Edit the existing message to show disabled buttons
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
       [
-        Markup.button.callback(`✔ ${TEXT.postTaskBtn[lang]}`, "_DISABLED_POST_TASK"),
-        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
-        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
+        Markup.button.callback(`✔ ${TEXT.postTaskBtn[ctx.session.user.language]}`, "_DISABLED_POST_TASK"),
+        Markup.button.callback(TEXT.findTaskBtn[ctx.session.user.language], "_DISABLED_FIND_TASK"),
+        Markup.button.callback(TEXT.editProfileBtn[ctx.session.user.language], "_DISABLED_EDIT_PROFILE")
       ]
     ]
   });
 
-  // remove any existing draft, then create a new one
+  // Remove any existing draft and create new one
   await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
   const draft = await TaskDraft.create({ creatorTelegramId: ctx.from.id });
 
-  // ❗️ Defensive init: if session middleware somehow didn't run,
-  // make sure ctx.session is at least an object.
-  if (!ctx.session) {
-    ctx.session = {};
-  }
-
-  // now it's safe to set taskFlow
+  // Initialize task flow with user data
   ctx.session.taskFlow = {
-    step:    "description",
+    step: "description",
     draftId: draft._id.toString()
   };
 
-  
-  // instead of manually branching on `lang`, just:
-  const prompt = TEXT.descriptionPrompt[lang];
+  const prompt = TEXT.descriptionPrompt[ctx.session.user.language];
   return ctx.reply(prompt);
-
-  });
-
+});
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
@@ -1276,16 +1277,16 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
 
 async function handleDescription(ctx, draft) {
   const text = ctx.message.text?.trim();
+  const lang = ctx.session?.user?.language || "en";  // Safe language access
+
   if (!text || text.length < 20 || text.length > 1250) {
-  const lang = ctx.session.user.language;
-  return ctx.reply(TEXT.descriptionError[lang]);
+    return ctx.reply(TEXT.descriptionError[lang]);
   }
 
   draft.description = text;
   await draft.save();
-  // Check if this was triggered by an edit:
+
   if (ctx.session.taskFlow?.isEdit) {
-    // Send confirmation + preview, then clear session
     await ctx.reply("✅ Description updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
@@ -1299,14 +1300,15 @@ async function handleDescription(ctx, draft) {
     ctx.session.taskFlow = null;
     return;
   }
-  // Initial flow: proceed to next step
+
   ctx.session.taskFlow.step = "relatedFile";
   return ctx.reply(
     TEXT.relatedFilePrompt[lang],
-    Markup.inlineKeyboard([ Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE") ])
+    Markup.inlineKeyboard([
+      Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE")
+    ])
   );
 }
-
 bot.action("TASK_SKIP_FILE", async (ctx) => {
     await ctx.answerCbQuery();
     const lang = ctx.session.user.language;
@@ -1341,6 +1343,7 @@ async function handleRelatedFile(ctx, draft) {
   } else {
     // 2) Invalid input: show localized error
     const lang = ctx.session.user.language;
+    
     return ctx.reply(TEXT.relatedFileError[lang]);
   }
 
@@ -1513,6 +1516,7 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
 
 async function handlePaymentFee(ctx, draft) {
   const text = ctx.message.text?.trim();
+  const lang = ctx.session?.user?.language || "en";
   if (!/^\d+$/.test(text)) {
     return ctx.reply("Please enter digits only.");
   }
