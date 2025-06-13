@@ -1367,17 +1367,40 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
   const lang = ctx.session.user.language;
 
-  // Make the Skip button inert but still visible
-  await ctx.editMessageReplyMarkup(
-    Markup.inlineKeyboard([[
-      Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE", { disabled: true })
-    ]])
-  );
+  // Make the Skip button inert but still visible with checkmark
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
+      ]]
+    });
+  } catch (err) {
+    console.log("Couldn't edit message markup:", err.message);
+  }
+
+  if (ctx.session.taskFlow?.isEdit) {
+    const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+    if (draft) {
+      draft.relatedFile = null;
+      await draft.save();
+    }
+    await ctx.reply(lang === "am" ? "✅ Related file removed." : "✅ Related file removed.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
 
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
-
 async function handleRelatedFile(ctx, draft) {
   let fileId, fileType;
 
@@ -1401,36 +1424,33 @@ async function handleRelatedFile(ctx, draft) {
 
   const lang = ctx.session.user.language;
 
+  // Edit the message to show disabled Skip button
   try {
-    await ctx.editMessageReplyMarkup(
-      Markup.inlineKeyboard([
-        [Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP_FILE", { disabled: true })]
-      ])
-    );
-  } catch (_) {}
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
+      ]]
+    });
+  } catch (err) {
+    console.log("Couldn't edit message markup:", err.message);
+  }
 
-  
-  // 5) If this flow was an edit of an existing task, send the updated preview
+  // Rest of your existing handleRelatedFile logic...
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Related file updated.");
-
+    await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user         = await User.findOne({ telegramId: ctx.from.id });
-
+    const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [ Markup.button.callback("Edit Task", "TASK_EDIT") ],
-        [ Markup.button.callback("Post Task", "TASK_POST_CONFIRM") ]
-      ]),
-      { parse_mode: "Markdown" }
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
     );
-
     ctx.session.taskFlow = null;
     return;
   }
 
-  // 6) Otherwise, proceed to the next step in the new-task flow
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 }
