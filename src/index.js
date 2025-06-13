@@ -1428,7 +1428,10 @@ async function handleRelatedFile(ctx, draft) {
   try {
     // Find the message with the Skip button (should be the previous message)
     const messages = await ctx.telegram.getChatHistory(ctx.chat.id, 2);
-    const skipMessage = messages.find(m => m.reply_markup?.inline_keyboard?.[0]?.[0]?.text === TEXT.skipBtn[lang]);
+    const skipMessage = messages.find(m => 
+      m.reply_markup?.inline_keyboard?.[0]?.[0]?.text === TEXT.skipBtn[lang] ||
+      m.reply_markup?.inline_keyboard?.[0]?.[0]?.text === `✔ ${TEXT.skipBtn[lang]}`
+    );
     
     if (skipMessage) {
       await ctx.telegram.editMessageReplyMarkup(
