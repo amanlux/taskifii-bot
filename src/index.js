@@ -226,6 +226,50 @@ const TEXT = {
     en: "Skip",
     am: "ዝለል"
   },
+  fieldsIntro: {
+    en: "Select 1–10 fields:",
+    am: "1–10 መስኮች ይምረጡ:"
+  },
+  fieldsSelected: {
+    en: "Selected:",
+    am: "የተመረጡ:"
+  },
+  fieldsAddMore: {
+    en: "Add More",
+    am: "ተጨማሪ ጨምር"
+  },
+  fieldsDone: {
+    en: "Done",
+    am: "ተጠናቋል"
+  },
+   askSkillLevel: {
+    en: "Choose skill level:",
+    am: "የስልጠና ደረጃ ይምረጡ:"
+  },
+  skillLevelBeginner: {
+    en: "Beginner",
+    am: "ጀማሪ"
+  },
+  skillLevelIntermediate: {
+    en: "Intermediate",
+    am: "መካከለኛ"
+  },
+  skillLevelProfessional: {
+    en: "Professional",
+    am: "ሙያተኛ"
+  },
+  askPaymentFee: {
+    en: "How much is the payment fee amount (in birr)? (must be ≥50)",
+    am: "ክፍያው መጠን በብር ያስገቡ (ከ50 ብር አይነስ):"
+  },
+  paymentFeeErrorDigits: {
+    en: "Please enter digits only.",
+    am: "እባክዎ ቁጥሮች ብቻ ያስገቡ።"
+  },
+  paymentFeeErrorMin: {
+    en: "Amount cannot be less than 50 birr.",
+    am: "መጠኑ ከ50 ብር መብለጥ አይችልም።"
+  },
 
 };
 
@@ -452,7 +496,17 @@ function buildMenu(ctx, buttons, clickedData) {
     )
   );
 }
-
+function askSkillLevel(ctx) {
+  const lang = ctx.session.user.language;
+  return ctx.reply(
+    TEXT.askSkillLevel[lang],
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.skillLevelBeginner[lang], "TASK_SKILL_Beginner")],
+      [Markup.button.callback(TEXT.skillLevelIntermediate[lang], "TASK_SKILL_Intermediate")],
+      [Markup.button.callback(TEXT.skillLevelProfessional[lang], "TASK_SKILL_Professional")]
+    ])
+  );
+}
   
 
 
@@ -1310,60 +1364,52 @@ async function handleDescription(ctx, draft) {
   );
 }
 bot.action("TASK_SKIP_FILE", async (ctx) => {
-    await ctx.answerCbQuery();
-    const lang = ctx.session.user.language;
+  await ctx.answerCbQuery();
+  const lang = ctx.session.user.language;
 
-    // 1) Disable & highlight the Skip button on the same message:
-    await ctx.editMessageReplyMarkup(
-      Markup.inlineKeyboard([[
-        Markup.button.callback(`✔️ ${TEXT.skipBtn[lang]}`, undefined, { disabled: true })
-      ]])
-    );
+  // Make the Skip button inert but still visible
+  await ctx.editMessageReplyMarkup(
+    Markup.inlineKeyboard([[
+      Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE", { disabled: true })
+    ]])
+  );
 
-    // 2) Move on:
-    ctx.session.taskFlow.step = "fields";
-    return askFieldsPage(ctx, 0);
-
+  ctx.session.taskFlow.step = "fields";
+  return askFieldsPage(ctx, 0);
 });
 
 async function handleRelatedFile(ctx, draft) {
   let fileId, fileType;
 
-  // 1) Figure out what kind of file was sent
   if (ctx.message.photo) {
     const photos = ctx.message.photo;
-    fileId   = photos[photos.length - 1].file_id;
+    fileId = photos[photos.length - 1].file_id;
     fileType = "photo";
   } else if (ctx.message.document) {
-    fileId   = ctx.message.document.file_id;
+    fileId = ctx.message.document.file_id;
     fileType = "document";
   } else if (ctx.message.video) {
-    fileId   = ctx.message.video.file_id;
+    fileId = ctx.message.video.file_id;
     fileType = "video";
   } else {
-    // 2) Invalid input: show localized error
     const lang = ctx.session.user.language;
-    
     return ctx.reply(TEXT.relatedFileError[lang]);
   }
 
-  // 3) Save the file info on the draft
   draft.relatedFile = { fileId, fileType };
   await draft.save();
 
   const lang = ctx.session.user.language;
 
-  // 4) Disable (but don’t highlight) the Skip button on the original prompt
   try {
     await ctx.editMessageReplyMarkup(
       Markup.inlineKeyboard([
-        [ Markup.button.callback(TEXT.skipBtn[lang], undefined, { disabled: true }) ]
+        [Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP_FILE", { disabled: true })]
       ])
     );
-  } catch (_) {
-    // If the prompt is too old to edit, we’ll just continue
-  }
+  } catch (_) {}
 
+  
   // 5) If this flow was an edit of an existing task, send the updated preview
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply("✅ Related file updated.");
@@ -1403,10 +1449,12 @@ function askFieldsPage(ctx, page) {
   if (nav.length) keyboard.push(nav);
   // If user already has at least one:
   // We’ll check in DB:
+  const lang = ctx.session.user.language;
   return ctx.reply(
-    "Select 1–10 fields:",
+    TEXT.fieldsIntro[lang],
     Markup.inlineKeyboard(keyboard)
   );
+
 }
 
 bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
@@ -1454,63 +1502,92 @@ bot.action(/TASK_FIELDS_PAGE_(\d+)/, async (ctx) => {
 
 bot.action("TASK_FIELDS_DONE", async (ctx) => {
   await ctx.answerCbQuery();
-  try { await ctx.deleteMessage(); } catch(_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft || !draft.fields.length) {
-    return ctx.reply("Select at least one field before proceeding.");
+    const lang = ctx.session.user.language;
+    return ctx.reply(lang === "am" ? "ቢያንስ አንድ መስክ ይምረጡ" : "Select at least one field before proceeding.");
   }
+
+  const lang = ctx.session.user.language;
+  const selectedText = `${TEXT.fieldsSelected[lang]} ${draft.fields.join(", ")}`;
+  
+  // Edit the message to show the selections and disabled buttons
+  await ctx.editMessageText(
+    selectedText,
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback(TEXT.fieldsAddMore[lang], "_DISABLED_ADD_MORE", { disabled: true }),
+        Markup.button.callback(`✔ ${TEXT.fieldsDone[lang]}`, "_DISABLED_DONE", { disabled: true })
+      ]
+    ])
+  );
+
   if (ctx.session.taskFlow?.isEdit) {
-    // Confirmation branch for editing fields:
-    await ctx.reply("✅ Fields updated.");
+    await ctx.reply(lang === "am" ? "✅ መስኮች ተዘምነዋል" : "✅ Fields updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
     return;
   }
-  // Initial flow: proceed to skillLevel
+
   ctx.session.taskFlow.step = "skillLevel";
-  return ctx.reply(
-    "Choose skill level:",
-    Markup.inlineKeyboard([
-      [Markup.button.callback("Beginner", "TASK_SKILL_Beginner")],
-      [Markup.button.callback("Intermediate", "TASK_SKILL_Intermediate")],
-      [Markup.button.callback("Professional", "TASK_SKILL_Professional")]
-    ])
-  );
+  return askSkillLevel(ctx);
 });
 bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const lvl = ctx.match[1];
+  const lang = ctx.session.user.language;
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) return ctx.reply("Draft expired.");
+  if (!draft) return ctx.reply(lang === "am" ? "ረቂቁ ጊዜው አልፎታል" : "Draft expired.");
+
+  // Highlight selected button and disable all
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [Markup.button.callback(
+        lvl === "Beginner" ? `✔ ${TEXT.skillLevelBeginner[lang]}` : TEXT.skillLevelBeginner[lang],
+        "_DISABLED_SKILL_Beginner",
+        { disabled: true }
+      )],
+      [Markup.button.callback(
+        lvl === "Intermediate" ? `✔ ${TEXT.skillLevelIntermediate[lang]}` : TEXT.skillLevelIntermediate[lang],
+        "_DISABLED_SKILL_Intermediate",
+        { disabled: true }
+      )],
+      [Markup.button.callback(
+        lvl === "Professional" ? `✔ ${TEXT.skillLevelProfessional[lang]}` : TEXT.skillLevelProfessional[lang],
+        "_DISABLED_SKILL_Professional",
+        { disabled: true }
+      )]
+    ]
+  });
+
   draft.skillLevel = lvl;
   await draft.save();
 
   if (ctx.session.taskFlow?.isEdit) {
-    // Confirmation branch for edit:
-    await ctx.reply("✅ Skill level updated.");
+    await ctx.reply(lang === "am" ? "✅ የስልጠና ደረጃ ተዘምኗል" : "✅ Skill level updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
     return;
   }
-  // Initial flow: proceed to paymentFee
+
   ctx.session.taskFlow.step = "paymentFee";
-  return ctx.reply("How much is the payment fee amount (in birr)?");
+  return ctx.reply(lang === "am" ? "ክፍያው መጠን በብር ያስገቡ (ከ50 ብር አይነስ):" : "How much is the payment fee amount (in birr)? (must be ≥50)");
 });
 
 
@@ -1518,30 +1595,32 @@ async function handlePaymentFee(ctx, draft) {
   const text = ctx.message.text?.trim();
   const lang = ctx.session?.user?.language || "en";
   if (!/^\d+$/.test(text)) {
-    return ctx.reply("Please enter digits only.");
+    return ctx.reply(TEXT.paymentFeeErrorDigits[lang]);
   }
   const val = parseInt(text,10);
   if (val < 50) {
-    return ctx.reply("Amount cannot be less than 50 birr.");
+    return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
   }
   draft.paymentFee = val;
   await draft.save();
+  
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Payment fee updated.");
+    await ctx.reply(lang === "am" ? "✅ የክፍያ መጠን ተዘምኗል" : "✅ Payment fee updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
     return;
   }
+  
   ctx.session.taskFlow.step = "timeToComplete";
-  return ctx.reply("What’s the time required in hours to complete the task?");
+  return ctx.reply(lang === "am" ? "ተግዳሮቱን ለመጨረስ የሚወስደው ጊዜ በሰዓት ያስገቡ (1-120):" : "What's the time required in hours to complete the task? (1-120)");
 }
 
 async function handleTimeToComplete(ctx, draft) {
