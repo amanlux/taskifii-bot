@@ -1424,19 +1424,24 @@ async function handleRelatedFile(ctx, draft) {
 
   const lang = ctx.session.user.language;
 
-  // Edit the message to show disabled Skip button
+  // Try to find and edit the Skip button message
   try {
-    // Find the message with the Skip button (should be the previous message)
-    const messages = await ctx.telegram.getChatHistory(ctx.chat.id, 2);
+    // Get recent messages (we'll look for the one with the Skip button)
+    const messages = await ctx.telegram.callApi('getUpdates', {
+      offset: -5, // Get last 5 updates
+      limit: 5
+    });
+    
+    // Find the message with the Skip button
     const skipMessage = messages.find(m => 
-      m.reply_markup?.inline_keyboard?.[0]?.[0]?.text === TEXT.skipBtn[lang] ||
-      m.reply_markup?.inline_keyboard?.[0]?.[0]?.text === `✔ ${TEXT.skipBtn[lang]}`
+      m.message?.reply_markup?.inline_keyboard?.[0]?.[0]?.text === TEXT.skipBtn[lang] ||
+      m.message?.reply_markup?.inline_keyboard?.[0]?.[0]?.text === `✔ ${TEXT.skipBtn[lang]}`
     );
     
-    if (skipMessage) {
+    if (skipMessage?.message?.message_id) {
       await ctx.telegram.editMessageReplyMarkup(
         ctx.chat.id,
-        skipMessage.message_id,
+        skipMessage.message.message_id,
         null,
         {
           inline_keyboard: [[
