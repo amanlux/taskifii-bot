@@ -1415,46 +1415,38 @@ async function handleRelatedFile(ctx, draft) {
     fileId = ctx.message.video.file_id;
     fileType = "video";
   } else {
-    const lang = ctx.session.user.language;
+    const lang = ctx.session?.user?.language || "en";
     return ctx.reply(TEXT.relatedFileError[lang]);
   }
 
   draft.relatedFile = { fileId, fileType };
   await draft.save();
 
-  const lang = ctx.session.user.language;
+  const lang = ctx.session?.user?.language || "en";
 
-  // Try to find and edit the Skip button message
+  // Try to edit the previous message with Skip button
   try {
-    // Get recent messages (we'll look for the one with the Skip button)
-    const messages = await ctx.telegram.callApi('getUpdates', {
-      offset: -5, // Get last 5 updates
-      limit: 5
-    });
+    // Find the message ID of the Skip button message
+    // This assumes it's the message right before the file was sent
+    const messageId = ctx.message.message_id - 1;
     
-    // Find the message with the Skip button
-    const skipMessage = messages.find(m => 
-      m.message?.reply_markup?.inline_keyboard?.[0]?.[0]?.text === TEXT.skipBtn[lang] ||
-      m.message?.reply_markup?.inline_keyboard?.[0]?.[0]?.text === `✔ ${TEXT.skipBtn[lang]}`
+    await ctx.telegram.editMessageReplyMarkup(
+      ctx.chat.id,
+      messageId,
+      null,
+      {
+        inline_keyboard: [[
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
+        ]]
+      }
     );
-    
-    if (skipMessage?.message?.message_id) {
-      await ctx.telegram.editMessageReplyMarkup(
-        ctx.chat.id,
-        skipMessage.message.message_id,
-        null,
-        {
-          inline_keyboard: [[
-            Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
-          ]]
-        }
-      );
-    }
   } catch (err) {
     console.log("Couldn't edit Skip button message:", err.message);
+    // Continue even if we can't edit the Skip button
   }
 
-  if (ctx.session.taskFlow?.isEdit) {
+  // Rest of your function remains the same...
+  if (ctx.session?.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
