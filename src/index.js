@@ -1426,16 +1426,26 @@ async function handleRelatedFile(ctx, draft) {
 
   // Edit the message to show disabled Skip button
   try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
-      ]]
-    });
+    // Find the message with the Skip button (should be the previous message)
+    const messages = await ctx.telegram.getChatHistory(ctx.chat.id, 2);
+    const skipMessage = messages.find(m => m.reply_markup?.inline_keyboard?.[0]?.[0]?.text === TEXT.skipBtn[lang]);
+    
+    if (skipMessage) {
+      await ctx.telegram.editMessageReplyMarkup(
+        ctx.chat.id,
+        skipMessage.message_id,
+        null,
+        {
+          inline_keyboard: [[
+            Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
+          ]]
+        }
+      );
+    }
   } catch (err) {
-    console.log("Couldn't edit message markup:", err.message);
+    console.log("Couldn't edit Skip button message:", err.message);
   }
 
-  // Rest of your existing handleRelatedFile logic...
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
