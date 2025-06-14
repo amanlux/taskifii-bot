@@ -270,6 +270,71 @@ const TEXT = {
     en: "Amount cannot be less than 50 birr.",
     am: "መጠኑ ከ50 ብር መብለጥ አይችልም።"
   },
+  askTimeToComplete: {
+    en: "What's the time required in hours to complete the task? (1-120)",
+    am: "ተግዳሮቱን ለመጨረስ የሚወስደው ጊዜ በሰዓት ያስገቡ (1-120)"
+  },
+  timeToCompleteError: {
+    en: "Hours must be >0 and ≤120.",
+    am: "ሰዓቶቹ ከ0 በላይ እና ≤120 መሆን አለበት።"
+  },
+  
+  askRevisionTime: {
+    en: "How many hours for revision (≤ half of total)?",
+    am: "ለማሻሻል ስንት ሰዓት ይፈልጋሉ (≤ ከጠቅላላው ግማሽ)?"
+  },
+  revisionTimeError: {
+    en: "Cannot exceed half of total time.",
+    am: "ከጠቅላላው ጊዜ ግማሽ መብለጥ አይችልም።"
+  },
+  
+  askPenaltyPerHour: {
+    en: "Give birr amount deducted per hour if late (≤20% of fee).",
+    am: "በተዘገየ ሰዓት የሚቀነስ የብር መጠን ያስገቡ (≤20% ከክፍያው)"
+  },
+  penaltyPerHourError: {
+    en: "Cannot exceed 20% of payment fee.",
+    am: "ከ20% ከክፍያው መብለጥ አይችልም።"
+  },
+  
+  askExpiryHours: {
+    en: "In how many hours does the offer expire? (1–24)",
+    am: "እስከ ስንት ሰዓት ውስጥ አቅራቢያው ይቆማል? (1–24)"
+  },
+  expiryHoursError: {
+    en: "Expiry must be between 1 and 24 hours.",
+    am: "የማብቂያ ጊዜ በ1 እና 24 ሰዓታት መካከል መሆን አለበት።"
+  },
+  
+  askExchangeStrategy: {
+    en: "Choose exchange strategy:",
+    am: "የክፍያ-ተግዳሮት ልውውጥ ስልት ይምረጡ:"
+  },
+  exchangeStrategy100: {
+    en: "100%",
+    am: "100%"
+  },
+  exchangeStrategy304030: {
+    en: "30:40:30",
+    am: "30:40:30"
+  },
+  exchangeStrategy5050: {
+    en: "50:50",
+    am: "50:50"
+  },
+  exchangeStrategyDesc100: {
+    en: "100% deliver → 100% pay",
+    am: "100% አቅርብ → 100% ክፍል"
+  },
+  exchangeStrategyDesc304030: {
+    en: "30% deliver → 30% pay → 40% deliver → 40% pay → 30% deliver → 30% pay",
+    am: "30% አቅርብ → 30% ክፍል → 40% አቅርብ → 40% ክፍል → 30% አቅርብ → 30% ክፍል"
+  },
+  exchangeStrategyDesc5050: {
+    en: "50% deliver → 50% pay → 50% deliver → 50% pay",
+    am: "50% አቅርብ → 50% ክፍል → 50% አቅርብ → 50% ክፍል"
+  },
+  
 
 };
 
@@ -418,11 +483,11 @@ function buildPreviewText(draft, user) {
     // Format human-friendly
     let desc = "";
     if (draft.exchangeStrategy === "100%") {
-      desc = "100% deliver → 100% pay";
+      desc = TEXT.exchangeStrategyDesc100[lang];
     } else if (draft.exchangeStrategy === "30:40:30") {
-      desc = "30% deliver → 30% pay → 40% deliver → 40% pay → 30% deliver → 30% pay";
+      desc = TEXT.exchangeStrategyDesc304030[lang];
     } else if (draft.exchangeStrategy === "50:50") {
-      desc = "50% deliver → 50% pay → 50% deliver → 50% pay";
+      desc = TEXT.exchangeStrategyDesc5050[lang];
     }
     lines.push(`*Exchange Strategy:* ${desc}`);
     lines.push("");
@@ -1650,7 +1715,7 @@ async function handlePaymentFee(ctx, draft) {
   }
   
   ctx.session.taskFlow.step = "timeToComplete";
-  return ctx.reply(lang === "am" ? "ተግዳሮቱን ለመጨረስ የሚወስደው ጊዜ በሰዓት ያስገቡ (1-120):" : "What's the time required in hours to complete the task? (1-120)");
+  return ctx.reply(TEXT.askTimeToComplete[lang]);
 }
 
 async function handleTimeToComplete(ctx, draft) {
@@ -1658,7 +1723,7 @@ async function handleTimeToComplete(ctx, draft) {
   if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
   const hrs = parseInt(text,10);
   if (hrs <=0 || hrs>120) {
-    return ctx.reply("Hours must be >0 and ≤120.");
+    return ctx.reply(TEXT.timeToCompleteError[lang]);
   }
   draft.timeToComplete = hrs;
   await draft.save();
@@ -1677,7 +1742,7 @@ async function handleTimeToComplete(ctx, draft) {
     return;
   }
   ctx.session.taskFlow.step = "revisionTime";
-  return ctx.reply("How many hours for revision (≤ half of total)?");
+  return ctx.reply(TEXT.askRevisionTime[lang]);
 }
 
 async function handleRevisionTime(ctx, draft) {
@@ -1686,7 +1751,7 @@ async function handleRevisionTime(ctx, draft) {
   const rev = parseInt(text,10);
   if (rev < 0) return ctx.reply("Cannot be negative.");
   if (draft.timeToComplete != null && rev > draft.timeToComplete/2) {
-    return ctx.reply("Revision time cannot exceed half of total time.");
+    return ctx.reply(TEXT.revisionTimeError[lang]);
   }
   draft.revisionTime = rev;
   await draft.save();
@@ -1705,7 +1770,7 @@ async function handleRevisionTime(ctx, draft) {
     return;
   }
   ctx.session.taskFlow.step = "penaltyPerHour";
-  return ctx.reply("Give birr amount deducted per hour if late (≤20% of fee).");
+  return ctx.reply(TEXT.askPenaltyPerHour[lang]);
 }
 
 async function handlePenaltyPerHour(ctx, draft) {
@@ -1714,7 +1779,7 @@ async function handlePenaltyPerHour(ctx, draft) {
   const pen = parseInt(text,10);
   if (pen < 0) return ctx.reply("Cannot be negative.");
   if (draft.paymentFee != null && pen > 0.2 * draft.paymentFee) {
-    return ctx.reply("Cannot exceed 20% of payment fee.");
+    return ctx.reply(TEXT.penaltyPerHourError[lang]);
   }
   draft.penaltyPerHour = pen;
   await draft.save();
@@ -1733,7 +1798,7 @@ async function handlePenaltyPerHour(ctx, draft) {
     return;
   }
   ctx.session.taskFlow.step = "expiryHours";
-  return ctx.reply("In how many hours does the offer expire? (1–24)");
+  return ctx.reply(TEXT.askExpiryHours[lang]);
 }
 
 async function handleExpiryHours(ctx, draft) {
@@ -1741,7 +1806,7 @@ async function handleExpiryHours(ctx, draft) {
   if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
   const hrs = parseInt(text,10);
   if (hrs < 1 || hrs > 24) {
-    return ctx.reply("Expiry must be between 1 and 24 hours.");
+    return ctx.reply(TEXT.expiryHoursError[lang]);
   }
   draft.expiryHours = hrs;
   await draft.save();
@@ -1761,11 +1826,11 @@ async function handleExpiryHours(ctx, draft) {
   }
   ctx.session.taskFlow.step = "exchangeStrategy";
   return ctx.reply(
-    "Choose exchange strategy:",
+    TEXT.askExchangeStrategy[lang],
     Markup.inlineKeyboard([
-      [Markup.button.callback("100%", "TASK_EX_100%")],
-      [Markup.button.callback("30:40:30", "TASK_EX_30:40:30")],
-      [Markup.button.callback("50:50", "TASK_EX_50:50")]
+      [Markup.button.callback(TEXT.exchangeStrategy100[lang], "TASK_EX_100%")],
+      [Markup.button.callback(TEXT.exchangeStrategy304030[lang], "TASK_EX_30:40:30")],
+      [Markup.button.callback(TEXT.exchangeStrategy5050[lang], "TASK_EX_50:50")]
     ])
   );
 }
