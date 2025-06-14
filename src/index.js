@@ -334,6 +334,14 @@ const TEXT = {
     en: "50% deliver → 50% pay → 50% deliver → 50% pay",
     am: "50% አቅርብ → 50% ክፍል → 50% አቅርብ → 50% ክፍል"
   },
+  digitsOnlyError: {
+    en: "Please enter digits only.",
+    am: "እባክዎ ቁጥሮች ብቻ ያስገቡ።"
+  },
+  negativeError: {
+    en: "Cannot be negative.",
+    am: "አሉታዊ መሆን አይችልም።"
+  },
   
 
 };
@@ -1434,15 +1442,17 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
   const lang = ctx.session.user.language;
 
-  // Make the Skip button inert but still visible with checkmark
-  try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
-      ]]
-    });
-  } catch (err) {
-    console.log("Couldn't edit message markup:", err.message);
+  // Only edit the Skip button if we're not in edit mode
+  if (!ctx.session.taskFlow?.isEdit) {
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [[
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
+        ]]
+      });
+    } catch (err) {
+      console.log("Couldn't edit message markup:", err.message);
+    }
   }
 
   if (ctx.session.taskFlow?.isEdit) {
@@ -1491,28 +1501,9 @@ async function handleRelatedFile(ctx, draft) {
 
   const lang = ctx.session?.user?.language || "en";
 
-  // Try to edit the previous message with Skip button
-  try {
-    // Find the message ID of the Skip button message
-    // This assumes it's the message right before the file was sent
-    const messageId = ctx.message.message_id - 1;
-    
-    await ctx.telegram.editMessageReplyMarkup(
-      ctx.chat.id,
-      messageId,
-      null,
-      {
-        inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
-        ]]
-      }
-    );
-  } catch (err) {
-    console.log("Couldn't edit Skip button message:", err.message);
-    // Continue even if we can't edit the Skip button
-  }
+  // Don't try to edit the Skip button here - it will be handled when actually clicked
+  // Just proceed with the flow
 
-  // Rest of your function remains the same...
   if (ctx.session?.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
@@ -1725,8 +1716,9 @@ async function handleTimeToComplete(ctx, draft) {
   const lang = ctx.session?.user?.language || "en"; // Safely get language
   
   if (!/^\d+$/.test(text)) {
-    return ctx.reply("Digits only.");
+    return ctx.reply(TEXT.digitsOnlyError[lang]);
   }
+
   const hrs = parseInt(text,10);
   if (hrs <=0 || hrs>120) {
     return ctx.reply(TEXT.timeToCompleteError[lang]); // Use translation
@@ -1757,9 +1749,10 @@ async function handleRevisionTime(ctx, draft) {
   const text = ctx.message.text?.trim();
   const lang = ctx.session?.user?.language || "en"; // Safely get language
   
-  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  if (!/^\d+$/.test(text)) return ctx.reply(TEXT.digitsOnlyError[lang]);
   const rev = parseInt(text,10);
-  if (rev < 0) return ctx.reply("Cannot be negative.");
+  if (rev < 0) return ctx.reply(TEXT.negativeError[lang]);
+
   if (draft.timeToComplete != null && rev > draft.timeToComplete/2) {
     return ctx.reply(TEXT.revisionTimeError[lang]); // Use translation
   }
@@ -1790,10 +1783,10 @@ async function handlePenaltyPerHour(ctx, draft) {
   const lang = ctx.session?.user?.language || "en"; // Safely get language
   
   if (!/^\d+$/.test(text)) {
-    return ctx.reply(TEXT.paymentFeeErrorDigits[lang]);
+  return ctx.reply(TEXT.digitsOnlyError[lang]);
   }
   const pen = parseInt(text,10);
-  if (pen < 0) return ctx.reply("Cannot be negative.");
+  if (pen < 0) return ctx.reply(TEXT.negativeError[lang]);
   if (draft.paymentFee != null && pen > 0.2 * draft.paymentFee) {
     return ctx.reply(TEXT.penaltyPerHourError[lang]); // Use translation
   }
