@@ -1720,113 +1720,135 @@ async function handlePaymentFee(ctx, draft) {
 
 async function handleTimeToComplete(ctx, draft) {
   const text = ctx.message.text?.trim();
-  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  const lang = ctx.session?.user?.language || "en"; // Safely get language
+  
+  if (!/^\d+$/.test(text)) {
+    return ctx.reply("Digits only.");
+  }
   const hrs = parseInt(text,10);
   if (hrs <=0 || hrs>120) {
-    return ctx.reply(TEXT.timeToCompleteError[lang]);
+    return ctx.reply(TEXT.timeToCompleteError[lang]); // Use translation
   }
   draft.timeToComplete = hrs;
   await draft.save();
+  
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Time to complete updated.");
+    await ctx.reply(lang === "am" ? "✅ የስራ ጊዜ ተዘምኗል" : "✅ Time to complete updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
     return;
   }
+  
   ctx.session.taskFlow.step = "revisionTime";
-  return ctx.reply(TEXT.askRevisionTime[lang]);
+  return ctx.reply(TEXT.askRevisionTime[lang]); // Use translation
 }
 
 async function handleRevisionTime(ctx, draft) {
   const text = ctx.message.text?.trim();
+  const lang = ctx.session?.user?.language || "en"; // Safely get language
+  
   if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
   const rev = parseInt(text,10);
   if (rev < 0) return ctx.reply("Cannot be negative.");
   if (draft.timeToComplete != null && rev > draft.timeToComplete/2) {
-    return ctx.reply(TEXT.revisionTimeError[lang]);
+    return ctx.reply(TEXT.revisionTimeError[lang]); // Use translation
   }
   draft.revisionTime = rev;
   await draft.save();
+  
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Revision time updated.");
+    await ctx.reply(lang === "am" ? "✅ የማሻሻል ጊዜ ተዘምኗል" : "✅ Revision time updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
     return;
   }
+  
   ctx.session.taskFlow.step = "penaltyPerHour";
-  return ctx.reply(TEXT.askPenaltyPerHour[lang]);
+  return ctx.reply(TEXT.askPenaltyPerHour[lang]); // Use translation
 }
 
 async function handlePenaltyPerHour(ctx, draft) {
   const text = ctx.message.text?.trim();
-  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  const lang = ctx.session?.user?.language || "en"; // Safely get language
+  
+  if (!/^\d+$/.test(text)) {
+    return ctx.reply(TEXT.paymentFeeErrorDigits[lang]);
+  }
   const pen = parseInt(text,10);
   if (pen < 0) return ctx.reply("Cannot be negative.");
   if (draft.paymentFee != null && pen > 0.2 * draft.paymentFee) {
-    return ctx.reply(TEXT.penaltyPerHourError[lang]);
+    return ctx.reply(TEXT.penaltyPerHourError[lang]); // Use translation
   }
   draft.penaltyPerHour = pen;
   await draft.save();
+  
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Penalty per hour updated.");
+    await ctx.reply(lang === "am" ? "✅ የቅጣት መጠን ተዘምኗል" : "✅ Penalty per hour updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
     return;
   }
+  
   ctx.session.taskFlow.step = "expiryHours";
-  return ctx.reply(TEXT.askExpiryHours[lang]);
+  return ctx.reply(TEXT.askExpiryHours[lang]); // Use translation
 }
 
 async function handleExpiryHours(ctx, draft) {
   const text = ctx.message.text?.trim();
-  if (!/^\d+$/.test(text)) return ctx.reply("Digits only.");
+  const lang = ctx.session?.user?.language || "en"; // Safely get language
+  
+  if (!/^\d+$/.test(text)) {
+    return ctx.reply("Digits only.");
+  }
   const hrs = parseInt(text,10);
   if (hrs < 1 || hrs > 24) {
-    return ctx.reply(TEXT.expiryHoursError[lang]);
+    return ctx.reply(TEXT.expiryHoursError[lang]); // Use translation
   }
   draft.expiryHours = hrs;
   await draft.save();
+  
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Expiry time updated.");
+    await ctx.reply(lang === "am" ? "✅ የማብቂያ ጊዜ ተዘምኗል" : "✅ Expiry time updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
     return;
   }
+  
   ctx.session.taskFlow.step = "exchangeStrategy";
   return ctx.reply(
-    TEXT.askExchangeStrategy[lang],
+    TEXT.askExchangeStrategy[lang], // Use translation
     Markup.inlineKeyboard([
       [Markup.button.callback(TEXT.exchangeStrategy100[lang], "TASK_EX_100%")],
       [Markup.button.callback(TEXT.exchangeStrategy304030[lang], "TASK_EX_30:40:30")],
