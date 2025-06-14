@@ -435,6 +435,7 @@ const ALL_FIELDS = [
 const FIELDS_PER_PAGE = 10;
 
 function buildPreviewText(draft, user) {
+  const lang = user?.language || "en"; // Get language from user or default to English
   const lines = [];
   lines.push("*🚀 Task is open!*");
   lines.push("");
@@ -492,10 +493,11 @@ function buildPreviewText(draft, user) {
     lines.push(`*Exchange Strategy:* ${desc}`);
     lines.push("");
   }
-  // Optionally include user stats (earned/spent/avg rating) if desired:
-  // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
   return lines.join("\n");
 }
+  // Optionally include user stats (earned/spent/avg rating) if desired:
+  // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
+ 
 
 
 // ------------------------------------
@@ -1864,11 +1866,13 @@ bot.action(/TASK_EX_(.+)/, async (ctx) => {
   if (!draft) return ctx.reply("Draft expired.");
   draft.exchangeStrategy = strat;
   await draft.save();
-  // All data collected: send preview
+  
+  // Get user to pass language to buildPreviewText
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  
   try { await ctx.deleteMessage(); } catch(_) {}
-  // Build preview text
-  const preview = buildPreviewText(draft, /* optionally fetch User for stats */ await User.findOne({ telegramId: ctx.from.id }));
-  ctx.session.taskFlow = null; // clear flow
+  const preview = buildPreviewText(draft, user);
+  ctx.session.taskFlow = null;
   return ctx.reply(preview, Markup.inlineKeyboard([
     [Markup.button.callback("Edit Task", "TASK_EDIT")],
     [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
