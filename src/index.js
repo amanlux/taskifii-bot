@@ -343,6 +343,11 @@ const TEXT = {
     am: "አሉታዊ መሆን አይችልም።"
   },
   
+  digitsOnlyError: {
+    en: "Please enter digits only.",
+    am: "እባክዎ ቁጥሮች ብቻ ያስገቡ።"  
+  },
+  
 
 };
 
@@ -1441,8 +1446,14 @@ async function handleDescription(ctx, draft) {
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
   const lang = ctx.session.user.language;
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
 
-  // Only edit the Skip button if we're not in edit mode
+  // If draft already has a related file, don't allow skipping
+  if (draft?.relatedFile) {
+    return ctx.answerCbQuery(lang === "am" ? "አስቀድመው ፋይል ላኩ። መዝለል አይችሉም።" : "You already sent a file. Cannot skip now.");
+  }
+
+  // Rest of the existing skip button logic...
   if (!ctx.session.taskFlow?.isEdit) {
     try {
       await ctx.editMessageReplyMarkup({
@@ -1814,10 +1825,10 @@ async function handlePenaltyPerHour(ctx, draft) {
 
 async function handleExpiryHours(ctx, draft) {
   const text = ctx.message.text?.trim();
-  const lang = ctx.session?.user?.language || "en"; // Safely get language
+  const lang = ctx.session?.user?.language || "en";  // Safely get language
   
   if (!/^\d+$/.test(text)) {
-    return ctx.reply("Digits only.");
+    return ctx.reply(TEXT.digitsOnlyError[lang]); // Now using translated version
   }
   const hrs = parseInt(text,10);
   if (hrs < 1 || hrs > 24) {
@@ -1860,17 +1871,43 @@ bot.action(/TASK_EX_(.+)/, async (ctx) => {
   draft.exchangeStrategy = strat;
   await draft.save();
   
-  // Get user to pass language to buildPreviewText
+  // Get user for language
   const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   
-  try { await ctx.deleteMessage(); } catch(_) {}
+  // Instead of deleting the message, edit it to show selected strategy
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [
+        Markup.button.callback(
+          strat === "100%" ? `✔ ${TEXT.exchangeStrategy100[lang]}` : TEXT.exchangeStrategy100[lang],
+          "_DISABLED_EX_100%"
+        )
+      ],
+      [
+        Markup.button.callback(
+          strat === "30:40:30" ? `✔ ${TEXT.exchangeStrategy304030[lang]}` : TEXT.exchangeStrategy304030[lang],
+          "_DISABLED_EX_30:40:30"
+        )
+      ],
+      [
+        Markup.button.callback(
+          strat === "50:50" ? `✔ ${TEXT.exchangeStrategy5050[lang]}` : TEXT.exchangeStrategy5050[lang],
+          "_DISABLED_EX_50:50"
+        )
+      ]
+    ]
+  });
+
+  // Then show the preview with Edit/Post options
   const preview = buildPreviewText(draft, user);
   ctx.session.taskFlow = null;
   return ctx.reply(preview, Markup.inlineKeyboard([
-    [Markup.button.callback("Edit Task", "TASK_EDIT")],
-    [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+    [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+    [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
   ], { parse_mode: "Markdown" }));
 });
+
 bot.action("TASK_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch(_) {}
