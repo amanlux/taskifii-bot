@@ -449,72 +449,103 @@ const ALL_FIELDS = [
 const FIELDS_PER_PAGE = 10;
 
 function buildPreviewText(draft, user) {
-  const lang = user?.language || "en"; // Get language from user or default to English
+  const lang = user?.language || "en";
   const lines = [];
+
   lines.push("*🚀 Task is open!*");
   lines.push("");
+
+  // Description
   lines.push(`*Description:* ${draft.description}`);
   lines.push("");
+
+  // Fields → hashtags
   if (draft.fields.length) {
-    const hashtags = draft.fields.map(f => `#${f.replace(/\s+/g, '')}`).join(" ");
-    lines.push(`*Fields:* ${hashtags}`);
+    const tags = draft.fields.map(f => `#${f.replace(/\s+/g, "")}`).join(" ");
+    lines.push(`*Fields:* ${tags}`);
     lines.push("");
   }
+
+  // Skill Level
   if (draft.skillLevel) {
-    let emoji = draft.skillLevel === "Beginner" ? "🟢" 
-              : draft.skillLevel === "Intermediate" ? "🟡" 
-              : "🔴";
+    const emoji = draft.skillLevel === "Beginner"
+      ? "🟢"
+      : draft.skillLevel === "Intermediate"
+        ? "🟡"
+        : "🔴";
     lines.push(`*Skill Level Required:* ${emoji} ${draft.skillLevel}`);
     lines.push("");
   }
+
+  // Payment Fee
   if (draft.paymentFee != null) {
     lines.push(`*Payment Fee:* ${draft.paymentFee} birr`);
     lines.push("");
   }
+
+  // Time to Complete
   if (draft.timeToComplete != null) {
     lines.push(`*Time to Complete:* ${draft.timeToComplete} hour(s)`);
     lines.push("");
   }
+
+  // Revision Time
   if (draft.revisionTime != null) {
     lines.push(`*Revision Time:* ${draft.revisionTime} hour(s)`);
     lines.push("");
   }
+
+  // Penalty per Hour
   if (draft.penaltyPerHour != null) {
     lines.push(`*Penalty per Hour (late):* ${draft.penaltyPerHour} birr`);
     lines.push("");
   }
+
+  // Expiry
   if (draft.expiryHours != null) {
-    const now = new Date();
-    const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
-    const formatted = expiryDate.toLocaleString('en-US', {
-      timeZone: 'Africa/Addis_Ababa',
-      month: 'short', day: 'numeric', year: 'numeric',
-      hour: 'numeric', minute: '2-digit', hour12: true
-    }) + " EAT";
-    lines.push(`*Expiry:* ${formatted}`);
+    const expiryTs = new Date(Date.now() + draft.expiryHours*3600*1000);
+    const formatted = expiryTs.toLocaleString("en-US", {
+      timeZone: "Africa/Addis_Ababa",
+      month: "short", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true
+    }) + " GMT+3";
+    lines.push(`*Expires At:* ${formatted}`);
     lines.push("");
   }
+
+  // Exchange Strategy
   if (draft.exchangeStrategy) {
-    // Format human-friendly
     let desc = "";
     if (draft.exchangeStrategy === "100%") {
       desc = TEXT.exchangeStrategyDesc100[lang];
     } else if (draft.exchangeStrategy === "30:40:30") {
       desc = TEXT.exchangeStrategyDesc304030[lang];
-    } else if (draft.exchangeStrategy === "50:50") {
+    } else {
       desc = TEXT.exchangeStrategyDesc5050[lang];
     }
     lines.push(`*Exchange Strategy:* ${desc}`);
     lines.push("");
-    }
+  }
+
+  // Banks Accepted
   if (user.bankDetails && user.bankDetails.length) {
     const names = user.bankDetails.map(b => b.bankName).join(", ");
     lines.push(`*Banks Accepted:* ${names}`);
     lines.push("");
-  
   }
+
+  // ─── New: Creator stats ───────────────────────
+  lines.push(`*Creator Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
+  lines.push(`*Creator Total Spent:*  ${user.stats.totalSpent.toFixed(2)} birr`);
+  const ratingText = user.stats.ratingCount > 0
+    ? `${user.stats.averageRating.toFixed(1)} ★ (${user.stats.ratingCount} ratings)`
+    : `N/A ★ (0 ratings)`;
+  lines.push(`*Creator Rating:*     ${ratingText}`);
+  lines.push("");
+
   return lines.join("\n");
 }
+
   // Optionally include user stats (earned/spent/avg rating) if desired:
   // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
  
