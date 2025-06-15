@@ -1445,33 +1445,39 @@ async function handleDescription(ctx, draft) {
 }
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
-  const lang = ctx.session.user.language;
+  const lang = ctx.session?.user?.language || "en";
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  
+  if (!draft) return ctx.reply("Draft expired.");
 
-  // If draft already has a related file, don't allow skipping
+  // If draft already has a related file, disable skip button
   if (draft?.relatedFile) {
-    return ctx.answerCbQuery(lang === "am" ? "አስቀድመው ፋይል ላኩ። መዝለል አይችሉም።" : "You already sent a file. Cannot skip now.");
-  }
-
-  // Rest of the existing skip button logic...
-  if (!ctx.session.taskFlow?.isEdit) {
     try {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE")
+          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP_FILE", { disabled: true })
         ]]
       });
     } catch (err) {
       console.log("Couldn't edit message markup:", err.message);
     }
+    return ctx.answerCbQuery(lang === "am" ? "አስቀድመው ፋይል ላኩ። መዝለል አይችሉም።" : "You already sent a file. Cannot skip now.");
+  }
+
+  // Edit the message to show skip button as clicked
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE", { disabled: true })
+      ]]
+    });
+  } catch (err) {
+    console.log("Couldn't edit message markup:", err.message);
   }
 
   if (ctx.session.taskFlow?.isEdit) {
-    const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-    if (draft) {
-      draft.relatedFile = null;
-      await draft.save();
-    }
+    draft.relatedFile = null;
+    await draft.save();
     await ctx.reply(lang === "am" ? "✅ Related file removed." : "✅ Related file removed.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
@@ -1489,6 +1495,7 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
+
 async function handleRelatedFile(ctx, draft) {
   let fileId, fileType;
 
@@ -1512,8 +1519,21 @@ async function handleRelatedFile(ctx, draft) {
 
   const lang = ctx.session?.user?.language || "en";
 
-  // Don't try to edit the Skip button here - it will be handled when actually clicked
-  // Just proceed with the flow
+  // Disable the skip button in the original message
+  try {
+    await ctx.telegram.editMessageReplyMarkup(
+      ctx.chat.id,
+      ctx.message.message_id - 1, // The message with the skip button
+      null,
+      {
+        inline_keyboard: [[
+          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP_FILE", { disabled: true })
+        ]]
+      }
+    );
+  } catch (err) {
+    console.log("Couldn't edit skip button message:", err.message);
+  }
 
   if (ctx.session?.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
