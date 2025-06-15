@@ -1450,8 +1450,8 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
   
   if (!draft) return ctx.reply("Draft expired.");
 
-  // If draft already has a related file, disable skip button
-  if (draft?.relatedFile) {
+  // If file already exists, disable skip but don't proceed
+  if (draft.relatedFile) {
     try {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [[
@@ -1459,12 +1459,12 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
         ]]
       });
     } catch (err) {
-      console.log("Couldn't edit message markup:", err.message);
+      console.log("Couldn't edit message:", err.message);
     }
-    return ctx.answerCbQuery(lang === "am" ? "አስቀድመው ፋይል ላኩ። መዝለል አይችሉም።" : "You already sent a file. Cannot skip now.");
+    return ctx.answerCbQuery(lang === "am" ? "አስቀድመው ፋይል ላኩ። መዝለል አይችሉም።" : "File already sent. Cannot skip.");
   }
 
-  // Edit the message to show skip button as clicked
+  // Mark skip as clicked and proceed
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[
@@ -1472,7 +1472,7 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
       ]]
     });
   } catch (err) {
-    console.log("Couldn't edit message markup:", err.message);
+    console.log("Couldn't edit message:", err.message);
   }
 
   if (ctx.session.taskFlow?.isEdit) {
@@ -1492,6 +1492,7 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
     return;
   }
 
+  // Move to next step
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
@@ -1519,11 +1520,12 @@ async function handleRelatedFile(ctx, draft) {
 
   const lang = ctx.session?.user?.language || "en";
 
-  // Disable the skip button in the original message
+  // Disable skip button in original message (if it exists)
   try {
+    const messageId = ctx.message.message_id - 1;
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
-      ctx.message.message_id - 1, // The message with the skip button
+      messageId,
       null,
       {
         inline_keyboard: [[
@@ -1532,7 +1534,7 @@ async function handleRelatedFile(ctx, draft) {
       }
     );
   } catch (err) {
-    console.log("Couldn't edit skip button message:", err.message);
+    console.log("Couldn't disable skip button:", err.message);
   }
 
   if (ctx.session?.taskFlow?.isEdit) {
@@ -1553,6 +1555,7 @@ async function handleRelatedFile(ctx, draft) {
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 }
+
 
 function askFieldsPage(ctx, page) {
   const start = page * FIELDS_PER_PAGE;
