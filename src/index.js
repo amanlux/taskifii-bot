@@ -1445,57 +1445,21 @@ async function handleDescription(ctx, draft) {
 }
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
-  const lang = ctx.session?.user?.language || "en";
-  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  
-  if (!draft) return ctx.reply("Draft expired.");
+  const lang = ctx.session.user.language;
 
-  // If file already exists, disable skip but don't proceed
-  if (draft.relatedFile) {
-    try {
-      await ctx.editMessageReplyMarkup({
-        inline_keyboard: [[
-          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP_FILE", { disabled: true })
-        ]]
-      });
-    } catch (err) {
-      console.log("Couldn't edit message:", err.message);
-    }
-    return ctx.answerCbQuery(lang === "am" ? "አስቀድመው ፋይል ላኩ። መዝለል አይችሉም።" : "File already sent. Cannot skip.");
-  }
+  // 1) Highlight & disable Skip on the original file‐prompt
+  await ctx.editMessageReplyMarkup(
+    Markup.inlineKeyboard([[
+      // ✔️ + inert
+      Markup.button.callback(`✔️ ${TEXT.skipBtn[lang]}`, undefined, { disabled: true })
+    ]])
+  );
 
-  // Mark skip as clicked and proceed
-  try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP_FILE", { disabled: true })
-      ]]
-    });
-  } catch (err) {
-    console.log("Couldn't edit message:", err.message);
-  }
-
-  if (ctx.session.taskFlow?.isEdit) {
-    draft.relatedFile = null;
-    await draft.save();
-    await ctx.reply(lang === "am" ? "✅ Related file removed." : "✅ Related file removed.");
-    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    await ctx.reply(
-      buildPreviewText(updatedDraft, user),
-      Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
-      ], { parse_mode: "Markdown" })
-    );
-    ctx.session.taskFlow = null;
-    return;
-  }
-
-  // Move to next step
+  // 2) Move on to Fields step
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
+
 
 async function handleRelatedFile(ctx, draft) {
   let fileId, fileType;
@@ -1522,16 +1486,10 @@ async function handleRelatedFile(ctx, draft) {
 
   // Disable skip button in original message (if it exists)
   try {
-    const messageId = ctx.message.message_id - 1;
-    await ctx.telegram.editMessageReplyMarkup(
-      ctx.chat.id,
-      messageId,
-      null,
-      {
-        inline_keyboard: [[
-          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP_FILE", { disabled: true })
-        ]]
-      }
+    await ctx.editMessageReplyMarkup(
+      Markup.inlineKeyboard([[
+        Markup.button.callback(TEXT.skipBtn[lang], undefined, { disabled: true })
+      ]])
     );
   } catch (err) {
     console.log("Couldn't disable skip button:", err.message);
@@ -1552,8 +1510,8 @@ async function handleRelatedFile(ctx, draft) {
     return;
   }
 
-  ctx.session.taskFlow.step = "fields";
-  return askFieldsPage(ctx, 0);
+   ctx.session.taskFlow.step = "fields";
+   return askFieldsPage(ctx, 0);
 }
 
 
