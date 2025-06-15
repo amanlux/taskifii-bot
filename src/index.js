@@ -10,6 +10,7 @@
  * - “Review Bot Policies” button is removed.
  * - After the 10th bank detail, the bot automatically proceeds to Terms & Conditions.
  */
+
 require('dotenv').config();
 
 const { Telegraf, Markup, session } = require("telegraf");
@@ -551,7 +552,16 @@ mongoose
 // ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
+  mongoose.set('strictQuery', false); // Add this line to suppress Mongoose warning
   const { session } = require('telegraf');
+  
+  // Add this session initialization middleware
+  bot.use(async (ctx, next) => {
+    ctx.session = ctx.session || {};
+    ctx.session.user = ctx.session.user || {};
+    return next();
+  });
+  
   bot.use(session());
   /**
  * Build an inline keyboard with:
@@ -1306,7 +1316,17 @@ function askSkillLevel(ctx) {
 // ─────────── POST_TASK (start draft flow) ───────────
 bot.action("POST_TASK", async (ctx) => {
   await ctx.answerCbQuery();
+  
+  // Initialize session properly
+  ctx.session = ctx.session || {};
+  ctx.session.user = ctx.session.user || {};
+  
   const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+  
+  // Ensure taskFlow exists
+  ctx.session.taskFlow = ctx.session.taskFlow || {};
+  ctx.session.taskFlow.step = "description";
   if (!user) return ctx.reply("User not found. Please /start again.");
 
   // Initialize session properly
@@ -1376,6 +1396,10 @@ bot.action("TASK_EDIT", async (ctx) => {
 
 
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
+  // Initialize session if not exists
+  ctx.session = ctx.session || {};
+  ctx.session.user = ctx.session.user || {};
+  
   if (!ctx.session.taskFlow) return next();
   const { step, draftId } = ctx.session.taskFlow;
   if (!draftId) {
@@ -1436,9 +1460,12 @@ async function handleDescription(ctx, draft) {
   }
 
   ctx.session.taskFlow.step = "relatedFile";
+  // In your POST_TASK action handler or wherever you first send the related file prompt:
   const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
-    Markup.inlineKeyboard([[ Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE") ]])
+    Markup.inlineKeyboard([[ 
+      Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE") 
+    ]])
   );
   ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
   return;
@@ -1446,20 +1473,38 @@ async function handleDescription(ctx, draft) {
 }
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
-  const lang = ctx.session.user.language;
+  const lang = ctx.session?.user?.language || "en";
+  
+  if (!ctx.session.taskFlow) {
+    ctx.session.taskFlow = {};
+  }
+  
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
-  // Edit the original prompt to show ✔️ Skip (inert) and nothing else
-  await ctx.telegram.editMessageReplyMarkup(
-    ctx.chat.id,
-    promptId,
-    undefined,
-    Markup.inlineKeyboard([[
-      Markup.button.callback(`✔️ ${TEXT.skipBtn[lang]}`, "", { disabled: true })
-    ]])
-  );
+  try {
+    // Edit the original prompt to show ✔️ Skip (disabled)
+    await ctx.telegram.editMessageReplyMarkup(
+      ctx.chat.id,
+      promptId,
+      undefined,
+      {
+        inline_keyboard: [[
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP", { disabled: true })
+        ]]
+      }
+    );
+  } catch (err) {
+    console.error("Failed to edit message reply markup:", err);
+  }
 
-  // Advance
+  // Clear any related file that might have been set
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (draft) {
+    draft.relatedFile = undefined;
+    await draft.save();
+  }
+
+  // Advance to next step
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
@@ -1467,70 +1512,69 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
 
 
 async function handleRelatedFile(ctx, draft) {
-  // Retrieve language and the original prompt’s message_id
-  const lang = ctx.session.user.language;
+  const lang = ctx.session?.user?.language || "en";
+  
+  if (!ctx.session.taskFlow) {
+    ctx.session.taskFlow = {};
+  }
+  
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
   // 1) Determine file type and ID
   let fileId, fileType;
   if (ctx.message.photo) {
     const photos = ctx.message.photo;
-    fileId   = photos[photos.length - 1].file_id;
+    fileId = photos[photos.length - 1].file_id;
     fileType = "photo";
   } else if (ctx.message.document) {
-    fileId   = ctx.message.document.file_id;
+    fileId = ctx.message.document.file_id;
     fileType = "document";
   } else if (ctx.message.video) {
-    fileId   = ctx.message.video.file_id;
+    fileId = ctx.message.video.file_id;
     fileType = "video";
+  } else if (ctx.message.audio) {
+    fileId = ctx.message.audio.file_id;
+    fileType = "audio";
   } else {
-    // 2) Invalid input: show localized error
     return ctx.reply(TEXT.relatedFileError[lang]);
   }
 
-  // 3) Save the related file info to the draft
+  // 2) Save the related file info to the draft
   draft.relatedFile = { fileId, fileType };
   await draft.save();
 
-  // 4) Update the original “related file” prompt:
-  //    disable the Skip button (no ✔️) but keep it visible
+  // 3) Update the original "related file" prompt to disable skip button
   try {
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
-      Markup.inlineKeyboard([[
-        Markup.button.callback(
-          TEXT.skipBtn[lang],
-          undefined,
-          { disabled: true }
-        )
-      ]])
+      {
+        inline_keyboard: [[
+          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP", { disabled: true })
+        ]]
+      }
     );
-  } catch (__) {
-    // ignore if the prompt is too old to edit
+  } catch (err) {
+    console.error("Failed to edit message reply markup:", err);
   }
 
-  // 5) If this is an edit flow, send updated preview
+  // Rest of your existing logic...
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Related file updated.");
+    await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user         = await User.findOne({ telegramId: ctx.from.id });
-
+    const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [ Markup.button.callback("Edit Task", "TASK_EDIT") ],
-        [ Markup.button.callback("Post Task", "TASK_POST_CONFIRM") ]
-      ]),
-      { parse_mode: "Markdown" }
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
     );
-
     ctx.session.taskFlow = null;
     return;
   }
 
-  // 6) Otherwise, advance to Fields selection
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 }
@@ -2158,7 +2202,11 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
-
+// Error handling middleware
+bot.catch((err, ctx) => {
+  console.error(`Error for ${ctx.updateType}`, err);
+  return ctx.reply("An error occurred. Please try again.");
+});
   // ─────────── Launch Bot ───────────
   bot.launch().then(() => {
     console.log("🤖 Bot is up and running");
