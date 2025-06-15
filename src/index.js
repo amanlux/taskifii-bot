@@ -506,6 +506,12 @@ function buildPreviewText(draft, user) {
     }
     lines.push(`*Exchange Strategy:* ${desc}`);
     lines.push("");
+    }
+  if (user.bankDetails && user.bankDetails.length) {
+    const names = user.bankDetails.map(b => b.bankName).join(", ");
+    lines.push(`*Banks Accepted:* ${names}`);
+    lines.push("");
+  
   }
   return lines.join("\n");
 }
