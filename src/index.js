@@ -1436,83 +1436,105 @@ async function handleDescription(ctx, draft) {
   }
 
   ctx.session.taskFlow.step = "relatedFile";
-  return ctx.reply(
+  const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
-    Markup.inlineKeyboard([
-      Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE")
-    ])
+    Markup.inlineKeyboard([[ Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE") ]])
   );
+  ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
+  return;
+
 }
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
   const lang = ctx.session.user.language;
+  const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
-  // 1) Highlight & disable Skip on the original file‐prompt
-  await ctx.editMessageReplyMarkup(
+  // Edit the original prompt to show ✔️ Skip (inert) and nothing else
+  await ctx.telegram.editMessageReplyMarkup(
+    ctx.chat.id,
+    promptId,
+    undefined,
     Markup.inlineKeyboard([[
-      // ✔️ + inert
-      Markup.button.callback(`✔️ ${TEXT.skipBtn[lang]}`, undefined, { disabled: true })
+      Markup.button.callback(`✔️ ${TEXT.skipBtn[lang]}`, "", { disabled: true })
     ]])
   );
 
-  // 2) Move on to Fields step
+  // Advance
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
 
 
-async function handleRelatedFile(ctx, draft) {
-  let fileId, fileType;
 
+async function handleRelatedFile(ctx, draft) {
+  // Retrieve language and the original prompt’s message_id
+  const lang = ctx.session.user.language;
+  const promptId = ctx.session.taskFlow.relatedFilePromptId;
+
+  // 1) Determine file type and ID
+  let fileId, fileType;
   if (ctx.message.photo) {
     const photos = ctx.message.photo;
-    fileId = photos[photos.length - 1].file_id;
+    fileId   = photos[photos.length - 1].file_id;
     fileType = "photo";
   } else if (ctx.message.document) {
-    fileId = ctx.message.document.file_id;
+    fileId   = ctx.message.document.file_id;
     fileType = "document";
   } else if (ctx.message.video) {
-    fileId = ctx.message.video.file_id;
+    fileId   = ctx.message.video.file_id;
     fileType = "video";
   } else {
-    const lang = ctx.session?.user?.language || "en";
+    // 2) Invalid input: show localized error
     return ctx.reply(TEXT.relatedFileError[lang]);
   }
 
+  // 3) Save the related file info to the draft
   draft.relatedFile = { fileId, fileType };
   await draft.save();
 
-  const lang = ctx.session?.user?.language || "en";
-
-  // Disable skip button in original message (if it exists)
+  // 4) Update the original “related file” prompt:
+  //    disable the Skip button (no ✔️) but keep it visible
   try {
-    await ctx.editMessageReplyMarkup(
+    await ctx.telegram.editMessageReplyMarkup(
+      ctx.chat.id,
+      promptId,
+      undefined,
       Markup.inlineKeyboard([[
-        Markup.button.callback(TEXT.skipBtn[lang], undefined, { disabled: true })
+        Markup.button.callback(
+          TEXT.skipBtn[lang],
+          undefined,
+          { disabled: true }
+        )
       ]])
     );
-  } catch (err) {
-    console.log("Couldn't disable skip button:", err.message);
+  } catch (__) {
+    // ignore if the prompt is too old to edit
   }
 
-  if (ctx.session?.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
+  // 5) If this is an edit flow, send updated preview
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply("✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
+    const user         = await User.findOne({ telegramId: ctx.from.id });
+
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
-      ], { parse_mode: "Markdown" })
+        [ Markup.button.callback("Edit Task", "TASK_EDIT") ],
+        [ Markup.button.callback("Post Task", "TASK_POST_CONFIRM") ]
+      ]),
+      { parse_mode: "Markdown" }
     );
+
     ctx.session.taskFlow = null;
     return;
   }
 
-   ctx.session.taskFlow.step = "fields";
-   return askFieldsPage(ctx, 0);
+  // 6) Otherwise, advance to Fields selection
+  ctx.session.taskFlow.step = "fields";
+  return askFieldsPage(ctx, 0);
 }
+
 
 
 function askFieldsPage(ctx, page) {
