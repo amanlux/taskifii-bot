@@ -1984,13 +1984,27 @@ bot.action(/TASK_EX_(.+)/, async (ctx) => {
   });
 
   // Then show the preview with Edit/Post options
-  const preview = buildPreviewText(draft, user);
+  let preview = buildPreviewText(draft, user);
+  // Replace the "*Expires At:* …" line with a relative countdown
+  const hours = draft.expiryHours;
+  preview = preview
+    .split("\n")
+    .map(line =>
+      line.startsWith("*Expires At:*")
+        ? `*Expires In:* ${hours} hour(s)`
+        : line
+    )
+    .join("\n");
+
   ctx.session.taskFlow = null;
-  return ctx.reply(preview, Markup.inlineKeyboard([
-    [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-    [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
-  ], { parse_mode: "Markdown" }));
-});
+  return ctx.reply(preview,
+    Markup.inlineKeyboard([
+      [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+      [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+    ], { parse_mode: "Markdown" })
+  );
+
+  });
 
 bot.action("TASK_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
