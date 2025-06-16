@@ -281,12 +281,12 @@ const TEXT = {
   },
   
   askRevisionTime: {
-    en: "How many hours for revision (≤ half of total)?",
-    am: "ለማሻሻል ስንት ሰዓት ይፈልጋሉ (≤ ከጠቅላላው ግማሽ)?"
+  en: "How many hours for revision? (Up to half of total — you can use decimals for minutes, e.g. 0.5 for 30 min)",
+  am: "ለማሻሻል ስንት ሰዓት ይፈልጋሉ? (≤ ጠቅላላው ግማሽ — የደቂቃ ጊዜ ለማሳየት ከዳስማስ ቁጥሮች ጥቅም ይችላሉ፣ ለምሳሌ 0.5 ማለት 30 ደቂቃ ነው)"
   },
   revisionTimeError: {
-    en: "Cannot exceed half of total time.",
-    am: "ከጠቅላላው ጊዜ ግማሽ መብለጥ አይችልም።"
+  en: "Please send a number (decimals ok) not exceeding half of total time.",
+  am: "እባክዎ ቁጥር (ዳስማስ ቁጥሮች ደግመው ይቻላሉ) ያስገቡ፣ ከጠቅላላው ጊዜ ግማሽ መብለጥ አይችልም።"
   },
   
   askPenaltyPerHour: {
@@ -491,8 +491,9 @@ function buildPreviewText(draft, user) {
 
   // Revision Time
   if (draft.revisionTime != null) {
-    lines.push(`*Revision Time:* ${draft.revisionTime} hour(s)`);
-    lines.push("");
+  const minutes = Math.round(draft.revisionTime * 60);
+  lines.push(`*Revision Time:* ${minutes} minute(s)`);
+  lines.push("");
   }
 
   // Penalty per Hour
@@ -1841,36 +1842,41 @@ async function handleTimeToComplete(ctx, draft) {
 }
 
 async function handleRevisionTime(ctx, draft) {
-  const text = ctx.message.text?.trim();
-  const lang = ctx.session?.user?.language || "en"; // Safely get language
-  
-  if (!/^\d+$/.test(text)) return ctx.reply(TEXT.digitsOnlyError[lang]);
-  const rev = parseInt(text,10);
-  if (rev < 0) return ctx.reply(TEXT.negativeError[lang]);
+  const input = ctx.message.text?.trim();
+  const lang  = ctx.session?.user?.language || "en";
 
-  if (draft.timeToComplete != null && rev > draft.timeToComplete/2) {
-    return ctx.reply(TEXT.revisionTimeError[lang]); // Use translation
+  // Parse as float
+  const revHours = parseFloat(input);
+  if (isNaN(revHours) || revHours < 0 || revHours > draft.timeToComplete / 2) {
+    return ctx.reply(TEXT.revisionTimeError[lang]);
   }
-  draft.revisionTime = rev;
+
+  draft.revisionTime = revHours;
   await draft.save();
-  
+
+  // If in edit‐mode, show updated preview
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ የማሻሻል ጊዜ ተዘምኗል" : "✅ Revision time updated.");
-    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(lang === "am"
+      ? "✅ የማሻሻል ጊዜ ተመዘገበ።"
+      : "✅ Revision time updated.");
+
+    const updated = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user    = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
-      buildPreviewText(updatedDraft, user),
+      buildPreviewText(updated, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ Markup.button.callback(lang==="am"?"ተግዳሮት አርትዕ":"Edit Task", "TASK_EDIT") ],
+        [ Markup.button.callback(lang==="am"?"ተግዳሮት ልጥፍ":"Post Task", "TASK_POST_CONFIRM") ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
-  
+
+  // Move on to next step
   ctx.session.taskFlow.step = "penaltyPerHour";
-  return ctx.reply(TEXT.askPenaltyPerHour[lang]); // Use translation
+  return ctx.reply(TEXT.askPenaltyPerHour[lang]);
 }
 
 async function handlePenaltyPerHour(ctx, draft) {
