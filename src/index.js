@@ -517,11 +517,11 @@ function buildPreviewText(draft, user) {
   if (draft.exchangeStrategy) {
     let desc = "";
     if (draft.exchangeStrategy === "100%") {
-      desc = TEXT.exchangeStrategyDesc100[lang];
+      desc = TEXT.exchangeStrategyDesc100["en"];
     } else if (draft.exchangeStrategy === "30:40:30") {
-      desc = TEXT.exchangeStrategyDesc304030[lang];
+      desc = TEXT.exchangeStrategyDesc304030["en"];
     } else {
-      desc = TEXT.exchangeStrategyDesc5050[lang];
+      desc = TEXT.exchangeStrategyDesc5050["en"];
     }
     lines.push(`*Exchange Strategy:* ${desc}`);
     lines.push("");
