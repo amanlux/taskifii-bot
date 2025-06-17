@@ -489,12 +489,21 @@ function buildPreviewText(draft, user) {
     lines.push("");
   }
 
+  
   // Revision Time
   if (draft.revisionTime != null) {
-  const minutes = Math.round(draft.revisionTime * 60);
-  lines.push(`*Revision Time:* ${minutes} minute(s)`);
-  lines.push("");
+    const rev = draft.revisionTime;
+    if (Number.isInteger(rev)) {
+      // whole hours
+      lines.push(`*Revision Time:* ${rev} hour(s)`);
+    } else {
+      // decimal → minutes
+      const minutes = Math.round(rev * 60);
+      lines.push(`*Revision Time:* ${minutes} minute(s)`);
+    }
+    lines.push("");
   }
+
 
   // Penalty per Hour
   if (draft.penaltyPerHour != null) {
