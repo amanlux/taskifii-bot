@@ -349,6 +349,7 @@ const TEXT = {
     am: "እባክዎ ቁጥሮች ብቻ ያስገቡ።"  
   },
   
+  
 
 };
 
@@ -1653,36 +1654,27 @@ function askFieldsPage(ctx, page) {
 bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const idx = parseInt(ctx.match[1]);
-  const field = ALL_FIELDS[idx];
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) return ctx.reply("Draft expired.");
+  if (!draft) {
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "ረቂቁ ጊዜው አልፎታል" : "Draft expired.");
+  }
+  
+  const field = ALL_FIELDS[idx];
   if (!draft.fields.includes(field)) {
     draft.fields.push(field);
     await draft.save();
   }
-  // If reached 10, proceed:
-  if (draft.fields.length >= 10) {
-    try { await ctx.deleteMessage(); } catch(_) {}
-    ctx.session.taskFlow.step = "skillLevel";
-    return ctx.reply(
-      "Choose skill level:",
-      Markup.inlineKeyboard([
-        [Markup.button.callback("Beginner", "TASK_SKILL_Beginner")],
-        [Markup.button.callback("Intermediate", "TASK_SKILL_Intermediate")],
-        [Markup.button.callback("Professional", "TASK_SKILL_Professional")]
-      ])
-    );
-  }
-  // Otherwise, ask to add more or done:
+
+  const lang = ctx.session?.user?.language || "en";
   try { await ctx.deleteMessage(); } catch(_) {}
-  // Show current selections and prompt:
-  const buttons = [
-    [Markup.button.callback("Add More", `TASK_FIELDS_PAGE_0`)],
-    [Markup.button.callback("Done", "TASK_FIELDS_DONE")]
-  ];
+  
   return ctx.reply(
-    `Selected: ${draft.fields.join(", ")}`,
-    Markup.inlineKeyboard(buttons)
+    `${TEXT.fieldsSelected[lang]} ${draft.fields.join(", ")}`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.fieldsAddMore[lang], `TASK_FIELDS_PAGE_0`)],
+      [Markup.button.callback(TEXT.fieldsDone[lang], "TASK_FIELDS_DONE")]
+    ])
   );
 });
 
