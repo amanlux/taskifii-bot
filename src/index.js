@@ -1538,13 +1538,14 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
 
   try {
     // Edit the original prompt to show ✔️ Skip (disabled)
+    // Replace this part in TASK_SKIP_FILE:
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP", { disabled: true })
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP") // Keep the tick mark here since it was actually clicked
         ]]
       }
     );
@@ -1600,13 +1601,14 @@ async function handleRelatedFile(ctx, draft) {
 
   // 3) Update the original "related file" prompt to disable skip button
   try {
+    // Replace this part in handleRelatedFile:
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
+          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP") // Removed the tick mark
         ]]
       }
     );
@@ -2075,13 +2077,14 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
 
   try {
     // Edit the original prompt to show ✔️ Skip (disabled)
+    // Replace this part in TASK_SKIP_FILE_EDIT:
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP") // Keep the tick mark here since it was actually clicked
         ]]
       }
     );
