@@ -2183,75 +2183,85 @@ bot.action("EDIT_timeToComplete", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "timeToComplete",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  return ctx.reply("Enter the new time required in hours to complete the task (1–120):");
+  const lang = ctx.session?.user?.language || "en";
+  return ctx.reply(TEXT.askTimeToComplete[lang]);
 });
 bot.action("EDIT_revisionTime", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "revisionTime",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  return ctx.reply("Enter the new revision time in hours (≤ half of total time):");
+  const lang = ctx.session?.user?.language || "en";
+  return ctx.reply(TEXT.askRevisionTime[lang]);
 });
 bot.action("EDIT_penaltyPerHour", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "penaltyPerHour",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  return ctx.reply("Enter the new birr amount deducted per hour if late (≤20% of payment fee):");
+  const lang = ctx.session?.user?.language || "en";
+  return ctx.reply(TEXT.askPenaltyPerHour[lang]);
 });
 bot.action("EDIT_expiryHours", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "expiryHours",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  return ctx.reply("Enter the new expiry time in hours (1–24):");
+  const lang = ctx.session?.user?.language || "en";
+  return ctx.reply(TEXT.askExpiryHours[lang]);
 });
 bot.action("EDIT_exchangeStrategy", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
-    step: "exchangeStrategy",  // matches your middleware or pattern
+    step: "exchangeStrategy",
     draftId: draft._id.toString(),
     isEdit: true
   };
+  const lang = ctx.session?.user?.language || "en";
   return ctx.reply(
-    "Choose the new payment-task exchange strategy:",
+    TEXT.askExchangeStrategy[lang],
     Markup.inlineKeyboard([
-      [Markup.button.callback("100%", "TASK_EX_100%")],
-      [Markup.button.callback("30:40:30", "TASK_EX_30:40:30")],
-      [Markup.button.callback("50:50", "TASK_EX_50:50")]
+      [Markup.button.callback(TEXT.exchangeStrategy100[lang], "TASK_EX_100%")],
+      [Markup.button.callback(TEXT.exchangeStrategy304030[lang], "TASK_EX_30:40:30")],
+      [Markup.button.callback(TEXT.exchangeStrategy5050[lang], "TASK_EX_50:50")]
     ])
   );
 });
