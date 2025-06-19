@@ -1606,7 +1606,7 @@ async function handleRelatedFile(ctx, draft) {
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP", { disabled: true })
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
         ]]
       }
     );
@@ -1614,9 +1614,9 @@ async function handleRelatedFile(ctx, draft) {
     console.error("Failed to edit message reply markup:", err);
   }
 
-  // Rest of your existing logic...
+  // If in edit‐mode, show updated preview
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ Related file updated." : "✅ Related file updated.");
+    await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
@@ -1630,10 +1630,10 @@ async function handleRelatedFile(ctx, draft) {
     return;
   }
 
+  // Move on to next step for non-edit flow
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 }
-
 
 
 function askFieldsPage(ctx, page) {
@@ -2054,12 +2054,13 @@ bot.action("EDIT_relatedFile", async (ctx) => {
     isEdit: true
   };
   
-  return ctx.reply(
+  const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
     Markup.inlineKeyboard([
       [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE_EDIT")]
-    ])
+    ])  // Fixed: Added missing closing bracket
   );
+  ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
 });
 
 bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
@@ -2073,13 +2074,14 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
   try {
+    // Edit the original prompt to show ✔️ Skip (disabled)
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP", { disabled: true })
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
         ]]
       }
     );
