@@ -1413,33 +1413,42 @@ bot.action("TASK_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
 
-  // Fetch the draft you just created
+  // Fetch the draft
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
 
-  // Mark that we’re in edit‐mode
+  // Get user's language
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  // Mark that we're in edit-mode
   ctx.session.taskFlow = {
     isEdit: true,
-    draftId:  draft._id.toString(),
-    step:     null   // we’ll set this in the per‐field handlers
+    draftId: draft._id.toString(),
+    step: null
   };
 
-  // Present the list of fields that can be edited
+  // Present the list of fields that can be edited (in user's language)
   const buttons = [
-    [Markup.button.callback("✏️ Edit Description",   "EDIT_description")],
-    [Markup.button.callback("📎 Edit Related File",   "EDIT_relatedFile")],
-    [Markup.button.callback("🏷️ Edit Fields",         "EDIT_fields")],
-    [Markup.button.callback("🎯 Edit Skill Level",    "EDIT_skillLevel")],
-    [Markup.button.callback("💰 Edit Payment Fee",     "EDIT_paymentFee")],
-    [Markup.button.callback("⏳ Edit Time to Complete","EDIT_timeToComplete")],
-    [Markup.button.callback("🔄 Edit Revision Time",   "EDIT_revisionTime")],
-    [Markup.button.callback("⏱️ Edit Penalty per Hour","EDIT_penaltyPerHour")],
-    [Markup.button.callback("⌛ Edit Expiry Hours",     "EDIT_expiryHours")],
-    [Markup.button.callback("🔀 Edit Exchange Strat.", "EDIT_exchangeStrategy")]
+    [Markup.button.callback(lang === "am" ? "✏️ መግለጫ አርትዕ" : "✏️ Edit Description", "EDIT_description")],
+    [Markup.button.callback(lang === "am" ? "📎 ተያያዥ ፋይል አርትዕ" : "📎 Edit Related File", "EDIT_relatedFile")],
+    [Markup.button.callback(lang === "am" ? "🏷️ መስኮች አርትዕ" : "🏷️ Edit Fields", "EDIT_fields")],
+    [Markup.button.callback(lang === "am" ? "🎯 የስልጠና ደረጃ አርትዕ" : "🎯 Edit Skill Level", "EDIT_skillLevel")],
+    [Markup.button.callback(lang === "am" ? "💰 የክፍያ መጠን አርትዕ" : "💰 Edit Payment Fee", "EDIT_paymentFee")],
+    [Markup.button.callback(lang === "am" ? "⏳ የማጠናቀቂያ ጊዜ አርትዕ" : "⏳ Edit Time to Complete", "EDIT_timeToComplete")],
+    [Markup.button.callback(lang === "am" ? "🔄 የማሻሻል ጊዜ አርትዕ" : "🔄 Edit Revision Time", "EDIT_revisionTime")],
+    [Markup.button.callback(lang === "am" ? "⏱️ በሰዓት ቅጣት አርትዕ" : "⏱️ Edit Penalty per Hour", "EDIT_penaltyPerHour")],
+    [Markup.button.callback(lang === "am" ? "⌛ የማብቂያ ጊዜ አርትዕ" : "⌛ Edit Expiry Hours", "EDIT_expiryHours")],
+    [Markup.button.callback(lang === "am" ? "🔀 የልውውጥ ስልት አርትዕ" : "🔀 Edit Exchange Strat.", "EDIT_exchangeStrategy")]
   ];
-  return ctx.reply("Select which piece of the task you’d like to edit:", Markup.inlineKeyboard(buttons));
+
+  return ctx.reply(
+    lang === "am" ? "ለመስተካከል የሚፈልጉትን የተግዳሮቱን ክፍል ይምረጡ:" : "Select which piece of the task you'd like to edit:",
+    Markup.inlineKeyboard(buttons)
+  );
 });
 
 
@@ -1493,14 +1502,14 @@ async function handleDescription(ctx, draft) {
   await draft.save();
 
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply("✅ Description updated.");
+    await ctx.reply(lang === "am" ? "✅ መግለጫው ተዘምኗል" : "✅ Description updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback("Edit Task", "TASK_EDIT")],
-        [Markup.button.callback("Post Task", "TASK_POST_CONFIRM")]
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
       ], { parse_mode: "Markdown" })
     );
     ctx.session.taskFlow = null;
@@ -1508,7 +1517,6 @@ async function handleDescription(ctx, draft) {
   }
 
   ctx.session.taskFlow.step = "relatedFile";
-  // In your POST_TASK action handler or wherever you first send the related file prompt:
   const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
     Markup.inlineKeyboard([[ 
@@ -1517,7 +1525,6 @@ async function handleDescription(ctx, draft) {
   );
   ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
   return;
-
 }
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
@@ -2013,26 +2020,7 @@ bot.action(/TASK_EX_(.+)/, async (ctx) => {
 
   });
 
-bot.action("TASK_EDIT", async (ctx) => {
-  await ctx.answerCbQuery();
-  try { await ctx.deleteMessage(); } catch(_) {}
-  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) return ctx.reply("Draft expired.");
-  // Show buttons for each detail
-  const buttons = [
-    [Markup.button.callback("Task Description", "EDIT_description")],
-    [Markup.button.callback("Related File", "EDIT_relatedFile")],
-    [Markup.button.callback("Fields", "EDIT_fields")],
-    [Markup.button.callback("Skill Level", "EDIT_skillLevel")],
-    [Markup.button.callback("Payment Fee", "EDIT_paymentFee")],
-    [Markup.button.callback("Time to Complete", "EDIT_timeToComplete")],
-    [Markup.button.callback("Revision Time", "EDIT_revisionTime")],
-    [Markup.button.callback("Penalty per Hour", "EDIT_penaltyPerHour")],
-    [Markup.button.callback("Expiry Offer Time", "EDIT_expiryHours")],
-    [Markup.button.callback("Exchange Strategy", "EDIT_exchangeStrategy")]
-  ];
-  return ctx.reply("Select detail to edit:", Markup.inlineKeyboard(buttons));
-});
+
 bot.action("EDIT_description", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
@@ -2058,19 +2046,75 @@ bot.action("EDIT_relatedFile", async (ctx) => {
     const lang = ctx.session?.user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
+  
+  const lang = ctx.session?.user?.language || "en";
   ctx.session.taskFlow = {
     step: "relatedFile",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  
   return ctx.reply(
     TEXT.relatedFilePrompt[lang],
     Markup.inlineKeyboard([
-      [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE")]
+      [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE_EDIT")]
     ])
   );
 });
+
+bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
+  await ctx.answerCbQuery();
+  const lang = ctx.session?.user?.language || "en";
+  
+  if (!ctx.session.taskFlow) {
+    ctx.session.taskFlow = {};
+  }
+  
+  const promptId = ctx.session.taskFlow.relatedFilePromptId;
+
+  try {
+    await ctx.telegram.editMessageReplyMarkup(
+      ctx.chat.id,
+      promptId,
+      undefined,
+      {
+        inline_keyboard: [[
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP", { disabled: true })
+        ]]
+      }
+    );
+  } catch (err) {
+    console.error("Failed to edit message reply markup:", err);
+  }
+
+  // Clear any related file that might have been set
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  if (draft) {
+    draft.relatedFile = undefined;
+    await draft.save();
+  }
+
+  // In edit mode, return to preview instead of proceeding to fields
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+
+  // Original behavior for non-edit flow
+  ctx.session.taskFlow.step = "fields";
+  return askFieldsPage(ctx, 0);
+});
+
 bot.action("EDIT_fields", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
