@@ -2035,21 +2035,19 @@ bot.action("TASK_EDIT", async (ctx) => {
 });
 bot.action("EDIT_description", async (ctx) => {
   await ctx.answerCbQuery();
-  // Remove the “Select detail to edit” message
   try { await ctx.deleteMessage(); } catch (_) {}
-  // Fetch draft
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
-  // Set session to capture the next text reply as description
   ctx.session.taskFlow = {
     step: "description",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  // Prompt user
-  return ctx.reply("✏️ Write the new task description (20–1250 characters):");
+  const lang = ctx.session?.user?.language || "en";
+  return ctx.reply(TEXT.descriptionPrompt[lang]);
 });
 
 bot.action("EDIT_relatedFile", async (ctx) => {
@@ -2057,19 +2055,19 @@ bot.action("EDIT_relatedFile", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
-  // Set session to capture next file or Skip
   ctx.session.taskFlow = {
     step: "relatedFile",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  // Prompt with Skip button
+  const lang = ctx.session?.user?.language || "en";
   return ctx.reply(
-    "📎 Send the new related file (photo, document, video, audio), or click Skip:",
+    TEXT.relatedFilePrompt[lang],
     Markup.inlineKeyboard([
-      Markup.button.callback("Skip", "TASK_SKIP_FILE")
+      [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE")]
     ])
   );
 });
@@ -2078,9 +2076,9 @@ bot.action("EDIT_fields", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
-  // Reset fields or allow modifying; simplest: clear existing selections:
   draft.fields = [];
   await draft.save();
   ctx.session.taskFlow = {
@@ -2095,18 +2093,22 @@ bot.action("EDIT_skillLevel", async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+  if (!draft) {
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+  }
   ctx.session.taskFlow = {
     step: "skillLevel",
     draftId: draft._id.toString(),
     isEdit: true
   };
+  const lang = ctx.session?.user?.language || "en";
   return ctx.reply(
-    "Choose the new skill level:",
+    TEXT.askSkillLevel[lang],
     Markup.inlineKeyboard([
-      [Markup.button.callback("Beginner", "TASK_SKILL_Beginner")],
-      [Markup.button.callback("Intermediate", "TASK_SKILL_Intermediate")],
-      [Markup.button.callback("Professional", "TASK_SKILL_Professional")]
+      [Markup.button.callback(TEXT.skillLevelBeginner[lang], "TASK_SKILL_Beginner")],
+      [Markup.button.callback(TEXT.skillLevelIntermediate[lang], "TASK_SKILL_Intermediate")],
+      [Markup.button.callback(TEXT.skillLevelProfessional[lang], "TASK_SKILL_Professional")]
     ])
   );
 });
@@ -2116,14 +2118,16 @@ bot.action("EDIT_paymentFee", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    return ctx.reply("❌ Draft expired. Please click Post a Task again.");
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "paymentFee",
     draftId: draft._id.toString(),
     isEdit: true
   };
-  return ctx.reply("Enter the new payment fee amount in birr (must be ≥50):");
+  const lang = ctx.session?.user?.language || "en";
+  return ctx.reply(TEXT.askPaymentFee[lang]);
 });
 bot.action("EDIT_timeToComplete", async (ctx) => {
   await ctx.answerCbQuery();
