@@ -348,7 +348,16 @@ const TEXT = {
     en: "Please enter digits only.",
     am: "እባክዎ ቁጥሮች ብቻ ያስገቡ።"  
   },
-  
+  editNameBtn: { 
+    en: "Edit Name",   
+    am: "ስም አርትዕ"
+
+  },
+  backToMenu:  { 
+    en: "Back",        
+    am: "ተመለስ"   
+  },
+
   
 
 };
@@ -2313,6 +2322,86 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   // Delete draft
   await TaskDraft.findByIdAndDelete(draft._id);
 });
+
+// ─────────── EDIT_PROFILE (start edit‐profile flow) ───────────
+bot.action("EDIT_PROFILE", async (ctx) => {
+  await ctx.answerCbQuery();
+
+  // load user & language
+  const me   = await User.findOne({ telegramId: ctx.from.id });
+  const lang = me?.language || "en";
+
+  // 1) disable & highlight the main menu
+  await ctx.telegram.editMessageReplyMarkup(
+    ctx.chat.id,
+    ctx.callbackQuery.message.message_id,
+    undefined,
+    Markup.inlineKeyboard([[
+      Markup.button.callback(`✔️ ${TEXT.postTaskBtn[lang]}`,    undefined, { disabled: true }),
+      Markup.button.callback(       TEXT.findTaskBtn[lang],    undefined, { disabled: true }),
+      Markup.button.callback(`✔️ ${TEXT.editProfileBtn[lang]}`, undefined, { disabled: true })
+    ]])
+  );
+
+  // 2) re‐send the profile with only “Edit Name” + “Back” buttons
+  const profileText = buildProfileText(me);
+  return ctx.reply(
+    profileText,
+    Markup.inlineKeyboard([
+      [ Markup.button.callback(TEXT.editNameBtn[lang], "EDIT_NAME") ],
+      [ Markup.button.callback(TEXT.backToMenu[lang], "BACK_TO_MENU") ]
+    ])
+  );
+});
+
+// ─────────── EDIT_NAME (user chose to edit their name) ───────────
+bot.action("EDIT_NAME", async (ctx) => {
+  await ctx.answerCbQuery();
+
+  // load user & language
+  const me   = await User.findOne({ telegramId: ctx.from.id });
+  const lang = me?.language || "en";
+
+  // disable & highlight “Edit Name”, keep “Back” inert
+  await ctx.telegram.editMessageReplyMarkup(
+    ctx.chat.id,
+    ctx.callbackQuery.message.message_id,
+    undefined,
+    Markup.inlineKeyboard([[
+      Markup.button.callback(`✔️ ${TEXT.editNameBtn[lang]}`, undefined, { disabled: true })
+    ],[
+      Markup.button.callback(TEXT.backToMenu[lang], undefined, { disabled: true })
+    ]])
+  );
+
+  // prompt for new name (localized, emphasizing replacement)
+  return ctx.reply(
+    lang === "am"
+      ? "እባክዎ አዲስ ስምዎን ያስገቡ። ይህ ከዚህ በፊት ያስገቡትን ስም ይተካል።"
+      : "Please enter your new full name. This will replace your existing name.",
+    Markup.removeKeyboard()
+  );
+});
+// ─────────── BACK_TO_MENU (cancel out of edit‐profile) ───────────
+bot.action("BACK_TO_MENU", async (ctx) => {
+  await ctx.answerCbQuery();
+
+  // load user & language
+  const me   = await User.findOne({ telegramId: ctx.from.id });
+  const lang = me?.language || "en";
+
+  // reply with full profile + original three‐button menu
+  const profileText = buildProfileText(me);
+  return ctx.reply(
+    profileText,
+    Markup.inlineKeyboard([
+      [ Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK") ],
+      [ Markup.button.callback(TEXT.findTaskBtn[lang], "FIND_TASK") ],
+      [ Markup.button.callback(TEXT.editProfileBtn[lang], "EDIT_PROFILE") ]
+    ])
+  );
+});
+
 
 
   // ─────────── Placeholder Actions ───────────
