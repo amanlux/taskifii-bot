@@ -2478,16 +2478,24 @@ bot.action("EDIT_PROFILE", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
+  // Initialize session properly
+  ctx.session = ctx.session || {};
+  ctx.session.editing = ctx.session.editing || {};
+
   // Highlight "Edit Profile" and disable all buttons
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [
-      [
-        Markup.button.callback(TEXT.postTaskBtn[user.language], "_DISABLED_POST_TASK"),
-        Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK"),
-        Markup.button.callback(`✔ ${TEXT.editProfileBtn[user.language]}`, "_DISABLED_EDIT_PROFILE")
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          Markup.button.callback(TEXT.postTaskBtn[user.language], "_DISABLED_POST_TASK"),
+          Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK"),
+          Markup.button.callback(`✔ ${TEXT.editProfileBtn[user.language]}`, "_DISABLED_EDIT_PROFILE")
+        ]
       ]
-    ]
-  });
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
 
   // Send the profile with edit options
   const editButtons = Markup.inlineKeyboard([
@@ -2530,19 +2538,26 @@ bot.action("EDIT_NAME", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Highlight "Name" and disable all buttons
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [
-      [Markup.button.callback(`✔ ${TEXT.editNameBtn[user.language]}`, "_DISABLED_EDIT_NAME")],
-      [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
-      [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
-      [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
-      [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
-      [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
-    ]
-  });
-
+  // Initialize session
+  ctx.session = ctx.session || {};
   ctx.session.editing = { field: "fullName" };
+
+  try {
+    // Highlight "Name" and disable all buttons
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(`✔ ${TEXT.editNameBtn[user.language]}`, "_DISABLED_EDIT_NAME")],
+        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
+        [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
+        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
+        [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
   return ctx.reply(user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en);
 });
 
@@ -2679,17 +2694,25 @@ bot.action("EDIT_BANKS", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
+  // Initialize session
+  ctx.session = ctx.session || {};
+  ctx.session.editing = ctx.session.editing || {};
+
   // Highlight "Bank Details" and disable all buttons
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [
-      [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
-      [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
-      [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
-      [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
-      [Markup.button.callback(`✔ ${TEXT.editBanksBtn[user.language]}`, "_DISABLED_EDIT_BANKS")],
-      [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
-    ]
-  });
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
+        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
+        [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
+        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(`✔ ${TEXT.editBanksBtn[user.language]}`, "_DISABLED_EDIT_BANKS")],
+        [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
 
   // Show bank entries with options to edit each
   if (user.bankDetails.length === 0) {
@@ -2732,6 +2755,8 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
     return ctx.reply("Invalid bank entry. Please try again.");
   }
 
+  // Initialize session
+  ctx.session = ctx.session || {};
   ctx.session.editing = {
     field: "bankReplacing",
     bankIndex: index
@@ -2743,7 +2768,6 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
       : "Please type the new bank entry in `BankName,AccountNumber` format."
   );
 });
-
 // Add handler for adding new bank
 bot.action("ADD_BANK", async (ctx) => {
   await ctx.answerCbQuery();
@@ -2759,50 +2783,66 @@ bot.action("ADD_BANK", async (ctx) => {
     );
   }
 
+  // Initialize session
+  ctx.session = ctx.session || {};
   ctx.session.editing = { field: "bankAdding" };
+
   return ctx.reply(
     user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en
   );
 });
 
-// Add handler for removing bank
-bot.action("REMOVE_BANK", async (ctx) => {
-  await ctx.answerCbQuery();
-  const tgId = ctx.from.id;
-  const user = await User.findOne({ telegramId: tgId });
-  if (!user) return ctx.reply("User not found. Please /start again.");
 
-  if (user.bankDetails.length === 0) {
-    return ctx.reply(
-      user.language === "am" 
-        ? "ምንም ባንክ ዝርዝር የለም።" 
-        : "No bank details to remove."
-    );
+// Add handler for removing bank
+bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const index = parseInt(ctx.match[1]);
+  const tgId = ctx.from.id;
+  
+  // Use findOneAndUpdate to avoid version conflicts
+  const updatedUser = await User.findOneAndUpdate(
+    { telegramId: tgId },
+    { $pull: { bankDetails: { _id: user.bankDetails[index]._id } } },
+    { new: true }
+  );
+
+  if (!updatedUser) {
+    return ctx.reply("Error removing bank. Please try again.");
   }
 
-  // Create buttons for each bank entry to remove
-  const bankButtons = user.bankDetails.map((bank, index) => {
+  // Update admin channel
+  await updateAdminProfilePost(ctx, updatedUser);
+
+  // Show success message
+  await ctx.reply(TEXT.profileUpdated[updatedUser.language]);
+
+  // Return to bank edit menu
+  if (updatedUser.bankDetails.length === 0) {
+    ctx.session.editing = { field: "bankFirst" };
+    return ctx.reply(updatedUser.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
+  }
+
+  // Create buttons for each bank entry
+  const bankButtons = updatedUser.bankDetails.map((bank, index) => {
     return [Markup.button.callback(
       `${index + 1}. ${bank.bankName} (${bank.accountNumber})`, 
-      `REMOVE_BANK_${index}`
+      `EDIT_BANK_${index}`
     )];
   });
 
   bankButtons.push([
-    Markup.button.callback(
-      user.language === "am" ? "ተመለስ" : "Back", 
-      "EDIT_BANKS"
-    )
+    Markup.button.callback(TEXT.addBankBtn[updatedUser.language], "ADD_BANK"),
+    Markup.button.callback(TEXT.removeBankBtn[updatedUser.language], "REMOVE_BANK")
+  ]);
+  bankButtons.push([
+    Markup.button.callback(TEXT.bankEditDoneBtn[updatedUser.language], "BANK_EDIT_DONE")
   ]);
 
   return ctx.reply(
-    user.language === "am" 
-      ? "ለመሰረዝ የሚፈልጉትን ባንክ ይምረጡ:" 
-      : "Select which bank to remove:",
+    TEXT.editBankPrompt[updatedUser.language],
     Markup.inlineKeyboard(bankButtons)
   );
 });
-
 // Add handler for removing specific bank
 bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -2878,125 +2918,143 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
 
 // Update the existing text handler to support profile editing
 bot.on("text", async (ctx, next) => {
-  // Check if we're in task flow first
-  if (ctx.session?.taskFlow) {
-    return next();
-  }
-
-  // Check if we're editing profile
-  if (ctx.session?.editing) {
-    const { field, bankIndex } = ctx.session.editing;
-    const tgId = ctx.from.id;
-    const user = await User.findOne({ telegramId: tgId });
-    if (!user) return ctx.reply("User not found. Please /start again.");
-
-    const text = ctx.message.text.trim();
-    let successMessage = "";
-
-    // Handle different field edits
-    switch(field) {
-      case "fullName":
-        if (text.length < 3) {
-          return ctx.reply(user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en);
-        }
-        const countSame = await User.countDocuments({ fullName: text });
-        user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
-        successMessage = user.language === "am" ? "ስም ተስተካክሏል" : "Name updated";
-        break;
-
-      case "phone":
-        const phoneRegex = /^\+?\d{5,14}$/;
-        if (!phoneRegex.test(text)) {
-          return ctx.reply(user.language === "am" ? TEXT.phoneErrorFormat.am : TEXT.phoneErrorFormat.en);
-        }
-        const existingPhone = await User.findOne({ phone: text });
-        if (existingPhone && existingPhone.telegramId !== tgId) {
-          return ctx.reply(user.language === "am" ? TEXT.phoneErrorTaken.am : TEXT.phoneErrorTaken.en);
-        }
-        user.phone = text;
-        successMessage = user.language === "am" ? "ስልክ ቁጥር ተስተካክሏል" : "Phone number updated";
-        break;
-
-      case "email":
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(text)) {
-          return ctx.reply(user.language === "am" ? TEXT.emailErrorFormat.am : TEXT.emailErrorFormat.en);
-        }
-        const existingEmail = await User.findOne({ email: text });
-        if (existingEmail && existingEmail.telegramId !== tgId) {
-          return ctx.reply(user.language === "am" ? TEXT.emailErrorTaken.am : TEXT.emailErrorTaken.en);
-        }
-        user.email = text;
-        successMessage = user.language === "am" ? "ኢሜይል ተስተካክሏል" : "Email updated";
-        break;
-
-      case "username":
-        const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
-        if (!userHandleRegex.test(text)) {
-          return ctx.reply(user.language === "am" ? TEXT.usernameErrorGeneral.am : TEXT.usernameErrorGeneral.en);
-        }
-        const existingUser = await User.findOne({ username: text });
-        if (existingUser && existingUser.telegramId !== tgId) {
-          return ctx.reply(user.language === "am" ? TEXT.usernameErrorTaken.am : TEXT.usernameErrorTaken.en);
-        }
-        user.username = text;
-        successMessage = user.language === "am" ? "የተጠቃሚ ስም ተስተካክሏል" : "Username updated";
-        break;
-
-      case "bankFirst":
-      case "bankAdding":
-        const bankRegex = /^[A-Za-z ]+,\d+$/;
-        if (!bankRegex.test(text)) {
-          return ctx.reply(user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en);
-        }
-        const [bankName, acctNum] = text.split(",").map((s) => s.trim());
-        user.bankDetails.push({ bankName, accountNumber: acctNum });
-        successMessage = user.language === "am" ? "ባንክ ታክሏል" : "Bank added";
-        break;
-
-      case "bankReplacing":
-        const bankReplaceRegex = /^[A-Za-z ]+,\d+$/;
-        if (!bankReplaceRegex.test(text)) {
-          return ctx.reply(user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en);
-        }
-        const [newBankName, newAcctNum] = text.split(",").map((s) => s.trim());
-        if (bankIndex >= 0 && bankIndex < user.bankDetails.length) {
-          user.bankDetails[bankIndex] = { bankName: newBankName, accountNumber: newAcctNum };
-        }
-        successMessage = user.language === "am" ? "ባንክ ተስተካክሏል" : "Bank updated";
-        break;
-
-      default:
-        delete ctx.session.editing;
-        return next();
+  try {
+    // Check if we're in task flow first
+    if (ctx.session?.taskFlow) {
+      return next();
     }
 
-    // Save changes
-    await user.save();
-    
-    // Update admin channel
-    await updateAdminProfilePost(ctx, user);
+    // Check if we're editing profile
+    if (ctx.session?.editing) {
+      const { field, bankIndex } = ctx.session.editing;
+      const tgId = ctx.from.id;
+      
+      // Find user with version tracking disabled to prevent version conflicts
+      const user = await User.findOne({ telegramId: tgId }).lean();
+      if (!user) return ctx.reply("User not found. Please /start again.");
 
-    // Clear editing session
-    delete ctx.session.editing;
+      const text = ctx.message.text.trim();
+      let successMessage = "";
 
-    // Send success message
-    await ctx.reply(`✅ ${successMessage}`);
+      // Create update object
+      const update = {};
+      
+      // Handle different field edits
+      switch(field) {
+        case "fullName":
+          if (text.length < 3) {
+            return ctx.reply(user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en);
+          }
+          const countSame = await User.countDocuments({ fullName: text });
+          update.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
+          successMessage = user.language === "am" ? "ስም ተስተካክሏል" : "Name updated";
+          break;
 
-    // Return to profile with original buttons
-    const menu = Markup.inlineKeyboard([
-      [ 
-        Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-        Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-        Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-      ]
-    ]);
+        case "phone":
+          const phoneRegex = /^\+?\d{5,14}$/;
+          if (!phoneRegex.test(text)) {
+            return ctx.reply(user.language === "am" ? TEXT.phoneErrorFormat.am : TEXT.phoneErrorFormat.en);
+          }
+          const existingPhone = await User.findOne({ phone: text });
+          if (existingPhone && existingPhone.telegramId !== tgId) {
+            return ctx.reply(user.language === "am" ? TEXT.phoneErrorTaken.am : TEXT.phoneErrorTaken.en);
+          }
+          update.phone = text;
+          successMessage = user.language === "am" ? "ስልክ ቁጥር ተስተካክሏል" : "Phone number updated";
+          break;
 
-    return ctx.reply(buildProfileText(user), menu);
+        case "email":
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(text)) {
+            return ctx.reply(user.language === "am" ? TEXT.emailErrorFormat.am : TEXT.emailErrorFormat.en);
+          }
+          const existingEmail = await User.findOne({ email: text });
+          if (existingEmail && existingEmail.telegramId !== tgId) {
+            return ctx.reply(user.language === "am" ? TEXT.emailErrorTaken.am : TEXT.emailErrorTaken.en);
+          }
+          update.email = text;
+          successMessage = user.language === "am" ? "ኢሜይል ተስተካክሏል" : "Email updated";
+          break;
+
+        case "username":
+          const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
+          if (!userHandleRegex.test(text)) {
+            return ctx.reply(user.language === "am" ? TEXT.usernameErrorGeneral.am : TEXT.usernameErrorGeneral.en);
+          }
+          const existingUser = await User.findOne({ username: text });
+          if (existingUser && existingUser.telegramId !== tgId) {
+            return ctx.reply(user.language === "am" ? TEXT.usernameErrorTaken.am : TEXT.usernameErrorTaken.en);
+          }
+          update.username = text;
+          successMessage = user.language === "am" ? "የተጠቃሚ ስም ተስተካክሏል" : "Username updated";
+          break;
+
+        case "bankFirst":
+        case "bankAdding":
+          const bankRegex = /^[A-Za-z ]+,\d+$/;
+          if (!bankRegex.test(text)) {
+            return ctx.reply(user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en);
+          }
+          const [bankName, acctNum] = text.split(",").map((s) => s.trim());
+          update.$push = { bankDetails: { bankName, accountNumber: acctNum } };
+          successMessage = user.language === "am" ? "ባንክ ታክሏል" : "Bank added";
+          break;
+
+        case "bankReplacing":
+          const bankReplaceRegex = /^[A-Za-z ]+,\d+$/;
+          if (!bankReplaceRegex.test(text)) {
+            return ctx.reply(user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en);
+          }
+          const [newBankName, newAcctNum] = text.split(",").map((s) => s.trim());
+          if (bankIndex >= 0) {
+            update.$set = { [`bankDetails.${bankIndex}`]: { bankName: newBankName, accountNumber: newAcctNum } };
+          }
+          successMessage = user.language === "am" ? "ባንክ ተስተካክሏል" : "Bank updated";
+          break;
+
+        default:
+          delete ctx.session.editing;
+          return next();
+      }
+
+      // Save changes using findOneAndUpdate to avoid version conflicts
+      const updatedUser = await User.findOneAndUpdate(
+        { telegramId: tgId },
+        update,
+        { new: true }
+      );
+
+      if (!updatedUser) {
+        return ctx.reply("Error updating profile. Please try again.");
+      }
+
+      // Update admin channel
+      await updateAdminProfilePost(ctx, updatedUser);
+
+      // Clear editing session
+      delete ctx.session.editing;
+
+      // Send success message
+      await ctx.reply(`✅ ${successMessage}`);
+
+      // Return to profile with original buttons
+      const menu = Markup.inlineKeyboard([
+        [ 
+          Markup.button.callback(TEXT.postTaskBtn[updatedUser.language], "POST_TASK"),
+          Markup.button.callback(TEXT.findTaskBtn[updatedUser.language], "FIND_TASK"),
+          Markup.button.callback(TEXT.editProfileBtn[updatedUser.language], "EDIT_PROFILE")
+        ]
+      ]);
+
+      return ctx.reply(buildProfileText(updatedUser), menu);
+    }
+
+    // If not editing, proceed with normal text handling
+    return next();
+  } catch (err) {
+    console.error("Error in text handler:", err);
+    return ctx.reply("An error occurred. Please try again.");
   }
-
-  // If not editing, proceed with normal text handling
-  return next();
 });
 
 
