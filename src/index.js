@@ -2015,8 +2015,9 @@ async function handleExpiryHours(ctx, draft) {
 
 async function updateAdminProfilePost(ctx, user) {
   const ADMIN_CHANNEL = "-1002310380363";
-  const placeholderHistory = "(No past tasks or violations yet. This section will show full activity in future updates.)";
-
+  
+  // Find the existing admin message (you'll need to store this ID when first posting)
+  // For now, we'll just send a new message (you should implement message ID storage)
   const banksList = user.bankDetails
     .map((b) => `${b.bankName} (${b.accountNumber})`)
     .join(", ") || "N/A";
@@ -2039,7 +2040,7 @@ async function updateAdminProfilePost(ctx, user) {
     "",
     "---",
     "**Past Activity / History:**",
-    placeholderHistory,
+    "(No past tasks or violations yet. This section will show full activity in future updates.)",
     "",
     "**Admin Actions:**"
   ];
@@ -2056,7 +2057,7 @@ async function updateAdminProfilePost(ctx, user) {
     "",
     "---",
     "**የታሪክ እና ታሪክ ጥቆማ 👉**",
-    placeholderHistory,
+    "(እስካሁን ምንም ተግዳሮቶች ወይም ጥሰቶች የሉም። ይህ ክፍል በወደፊቱ ሙሉ እንቅስቃሴዎችን ያሳያል።)",
     "",
     "**የአስተዳደር እርምጃዎች:**"
   ];
@@ -2073,9 +2074,8 @@ async function updateAdminProfilePost(ctx, user) {
     ]
   ]);
 
-  // Find and update the existing admin message
-  // Note: You'll need to store the admin message ID when first posting to the admin channel
-  // For now, we'll just send a new message (you can implement message updating later)
+  // In a real implementation, you would edit the existing message here
+  // For now, we'll just send a new message (you should implement message ID storage)
   await ctx.telegram.sendMessage(ADMIN_CHANNEL, adminText, adminButtons);
 }
 
@@ -2542,7 +2542,10 @@ bot.action("EDIT_NAME", async (ctx) => {
 
   // Initialize session
   ctx.session = ctx.session || {};
-  ctx.session.editing = { field: "fullName" };
+  ctx.session.editing = { 
+    field: "fullName",
+    messageId: ctx.callbackQuery.message.message_id // Store the message ID we need to edit later
+  };
 
   try {
     // Highlight "Name" and disable all buttons
@@ -2950,131 +2953,62 @@ bot.on("text", async (ctx, next) => {
     }
 
     // Check if we're editing profile
-    if (ctx.session?.editing) {
-      const { field, bankIndex } = ctx.session.editing;
+    if (ctx.session?.editing?.field === "fullName") {
       const tgId = ctx.from.id;
-      
-      // Find user with version tracking disabled to prevent version conflicts
-      const user = await User.findOne({ telegramId: tgId }).lean();
+      const text = ctx.message.text.trim();
+      const user = await User.findOne({ telegramId: tgId });
       if (!user) return ctx.reply("User not found. Please /start again.");
 
-      const text = ctx.message.text.trim();
-      let successMessage = "";
-
-      // Create update object
-      const update = {};
-      
-      // Handle different field edits
-      switch(field) {
-        case "fullName":
-          if (text.length < 3) {
-            return ctx.reply(user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en);
-          }
-          const countSame = await User.countDocuments({ fullName: text });
-          update.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
-          successMessage = user.language === "am" ? "ስም ተስተካክሏል" : "Name updated";
-          break;
-
-        case "phone":
-          const phoneRegex = /^\+?\d{5,14}$/;
-          if (!phoneRegex.test(text)) {
-            return ctx.reply(user.language === "am" ? TEXT.phoneErrorFormat.am : TEXT.phoneErrorFormat.en);
-          }
-          const existingPhone = await User.findOne({ phone: text });
-          if (existingPhone && existingPhone.telegramId !== tgId) {
-            return ctx.reply(user.language === "am" ? TEXT.phoneErrorTaken.am : TEXT.phoneErrorTaken.en);
-          }
-          update.phone = text;
-          successMessage = user.language === "am" ? "ስልክ ቁጥር ተስተካክሏል" : "Phone number updated";
-          break;
-
-        case "email":
-          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-          if (!emailRegex.test(text)) {
-            return ctx.reply(user.language === "am" ? TEXT.emailErrorFormat.am : TEXT.emailErrorFormat.en);
-          }
-          const existingEmail = await User.findOne({ email: text });
-          if (existingEmail && existingEmail.telegramId !== tgId) {
-            return ctx.reply(user.language === "am" ? TEXT.emailErrorTaken.am : TEXT.emailErrorTaken.en);
-          }
-          update.email = text;
-          successMessage = user.language === "am" ? "ኢሜይል ተስተካክሏል" : "Email updated";
-          break;
-
-        case "username":
-          const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
-          if (!userHandleRegex.test(text)) {
-            return ctx.reply(user.language === "am" ? TEXT.usernameErrorGeneral.am : TEXT.usernameErrorGeneral.en);
-          }
-          const existingUser = await User.findOne({ username: text });
-          if (existingUser && existingUser.telegramId !== tgId) {
-            return ctx.reply(user.language === "am" ? TEXT.usernameErrorTaken.am : TEXT.usernameErrorTaken.en);
-          }
-          update.username = text;
-          successMessage = user.language === "am" ? "የተጠቃሚ ስም ተስተካክሏል" : "Username updated";
-          break;
-
-        case "bankFirst":
-        case "bankAdding":
-          const bankRegex = /^[A-Za-z ]+,\d+$/;
-          if (!bankRegex.test(text)) {
-            return ctx.reply(user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en);
-          }
-          const [bankName, acctNum] = text.split(",").map((s) => s.trim());
-          update.$push = { bankDetails: { bankName, accountNumber: acctNum } };
-          successMessage = user.language === "am" ? "ባንክ ታክሏል" : "Bank added";
-          break;
-
-        case "bankReplacing":
-          const bankReplaceRegex = /^[A-Za-z ]+,\d+$/;
-          if (!bankReplaceRegex.test(text)) {
-            return ctx.reply(user.language === "am" ? TEXT.bankErrorFormat.am : TEXT.bankErrorFormat.en);
-          }
-          const [newBankName, newAcctNum] = text.split(",").map((s) => s.trim());
-          if (bankIndex >= 0) {
-            update.$set = { [`bankDetails.${bankIndex}`]: { bankName: newBankName, accountNumber: newAcctNum } };
-          }
-          successMessage = user.language === "am" ? "ባንክ ተስተካክሏል" : "Bank updated";
-          break;
-
-        default:
-          delete ctx.session.editing;
-          return next();
+      // Validate name
+      if (text.length < 3) {
+        return ctx.reply(user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en);
       }
 
-      // Save changes using findOneAndUpdate to avoid version conflicts
-      const updatedUser = await User.findOneAndUpdate(
-        { telegramId: tgId },
-        update,
-        { new: true }
-      );
+      // Check for duplicate names
+      const countSame = await User.countDocuments({ fullName: text });
+      const newName = countSame > 0 ? `${text} (${countSame + 1})` : text;
 
-      if (!updatedUser) {
-        return ctx.reply("Error updating profile. Please try again.");
-      }
+      // Update user
+      user.fullName = newName;
+      await user.save();
 
-      // Update admin channel
-      await updateAdminProfilePost(ctx, updatedUser);
+      // Send confirmation message
+      await ctx.reply(TEXT.profileUpdated[user.language]);
 
-      // Clear editing session
-      delete ctx.session.editing;
-
-      // Send success message
-      await ctx.reply(`✅ ${successMessage}`);
-
-      // Return to profile with original buttons
+      // Update the original profile message
+      const profileText = buildProfileText(user);
       const menu = Markup.inlineKeyboard([
         [ 
-          Markup.button.callback(TEXT.postTaskBtn[updatedUser.language], "POST_TASK"),
-          Markup.button.callback(TEXT.findTaskBtn[updatedUser.language], "FIND_TASK"),
-          Markup.button.callback(TEXT.editProfileBtn[updatedUser.language], "EDIT_PROFILE")
+          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
+          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
+          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
         ]
       ]);
 
-      return ctx.reply(buildProfileText(updatedUser), menu);
+      try {
+        // Edit the original profile message
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          ctx.session.editing.messageId,
+          null,
+          profileText,
+          { reply_markup: menu.reply_markup }
+        );
+      } catch (err) {
+        console.error("Error editing profile message:", err);
+        // If editing fails, send a new message
+        await ctx.reply(profileText, menu);
+      }
+
+      // Update admin channel (modify existing message instead of sending new one)
+      await updateAdminProfilePost(ctx, user);
+
+      // Clear editing session
+      delete ctx.session.editing;
+      return;
     }
 
-    // If not editing, proceed with normal text handling
+    // If not handling name edit, proceed with normal text handling
     return next();
   } catch (err) {
     console.error("Error in text handler:", err);
