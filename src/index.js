@@ -2513,6 +2513,7 @@ bot.action("EDIT_PROFILE", async (ctx) => {
   );
 });
 
+
 bot.action("EDIT_BACK", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
@@ -2530,6 +2531,7 @@ bot.action("EDIT_BACK", async (ctx) => {
 
   return ctx.reply(buildProfileText(user), menu);
 });
+
 
 // Add handlers for each edit option
 bot.action("EDIT_NAME", async (ctx) => {
@@ -2567,19 +2569,26 @@ bot.action("EDIT_PHONE", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Highlight "Phone" and disable all buttons
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [
-      [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
-      [Markup.button.callback(`✔ ${TEXT.editPhoneBtn[user.language]}`, "_DISABLED_EDIT_PHONE")],
-      [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
-      [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
-      [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
-      [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
-    ]
-  });
-
+  // Initialize session
+  ctx.session = ctx.session || {};
   ctx.session.editing = { field: "phone" };
+
+  try {
+    // Highlight "Phone" and disable all buttons
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
+        [Markup.button.callback(`✔ ${TEXT.editPhoneBtn[user.language]}`, "_DISABLED_EDIT_PHONE")],
+        [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
+        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
+        [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
   return ctx.reply(user.language === "am" ? TEXT.askPhone.am : TEXT.askPhone.en);
 });
 
@@ -2589,19 +2598,26 @@ bot.action("EDIT_EMAIL", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Highlight "Email" and disable all buttons
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [
-      [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
-      [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
-      [Markup.button.callback(`✔ ${TEXT.editEmailBtn[user.language]}`, "_DISABLED_EDIT_EMAIL")],
-      [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
-      [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
-      [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
-    ]
-  });
-
+  // Initialize session
+  ctx.session = ctx.session || {};
   ctx.session.editing = { field: "email" };
+
+  try {
+    // Highlight "Email" and disable all buttons
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
+        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
+        [Markup.button.callback(`✔ ${TEXT.editEmailBtn[user.language]}`, "_DISABLED_EDIT_EMAIL")],
+        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
+        [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
   return ctx.reply(user.language === "am" ? TEXT.askEmail.am : TEXT.askEmail.en);
 });
 
@@ -2611,20 +2627,26 @@ bot.action("EDIT_USERNAME", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Highlight "Username" and disable all buttons
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [
-      [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
-      [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
-      [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
-      [Markup.button.callback(`✔ ${TEXT.editUsernameBtn[user.language]}`, "_DISABLED_EDIT_USERNAME")],
-      [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
-      [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
-    ]
-  });
-
+  // Initialize session
+  ctx.session = ctx.session || {};
   ctx.session.editing = { field: "username" };
-  
+
+  try {
+    // Highlight "Username" and disable all buttons
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
+        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
+        [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
+        [Markup.button.callback(`✔ ${TEXT.editUsernameBtn[user.language]}`, "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
+        [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
   // Prompt for Telegram username
   const currentHandle = ctx.from.username || "";
   const promptText = user.language === "am"
@@ -2648,14 +2670,18 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
   if (!user) return ctx.reply("User not found. Please /start again.");
 
   // Highlight "Yes, keep it" and disable it
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [[
-      Markup.button.callback(
-        user.language === "am" ? "✔ አዎን፣ ይቀበሉ" : "✔ Yes, keep it",
-        "_DISABLED_USERNAME_KEEP_EDIT"
-      )
-    ]]
-  });
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(
+          user.language === "am" ? "✔ አዎን፣ ይቀበሉ" : "✔ Yes, keep it",
+          "_DISABLED_USERNAME_KEEP_EDIT"
+        )
+      ]]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
 
   const handle = ctx.from.username || "";
   if (!handle) {
@@ -2666,6 +2692,7 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
     );
   }
 
+  // Update username
   user.username = handle;
   await user.save();
   
@@ -2698,8 +2725,8 @@ bot.action("EDIT_BANKS", async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.editing = ctx.session.editing || {};
 
-  // Highlight "Bank Details" and disable all buttons
   try {
+    // Highlight "Bank Details" and disable all buttons
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
@@ -2743,6 +2770,7 @@ bot.action("EDIT_BANKS", async (ctx) => {
   );
 });
 
+
 // Add handler for editing specific bank entry
 bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -2761,6 +2789,30 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
     field: "bankReplacing",
     bankIndex: index
   };
+
+  // Highlight the selected bank entry and disable all buttons
+  try {
+    const bankButtons = user.bankDetails.map((bank, i) => {
+      return [Markup.button.callback(
+        i === index ? `✔ ${i + 1}. ${bank.bankName} (${bank.accountNumber})` : `${i + 1}. ${bank.bankName} (${bank.accountNumber})`,
+        i === index ? "_DISABLED_EDIT_BANK" : "_DISABLED_EDIT_BANK"
+      )];
+    });
+
+    bankButtons.push([
+      Markup.button.callback(TEXT.addBankBtn[user.language], "_DISABLED_ADD_BANK"),
+      Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")
+    ]);
+    bankButtons.push([
+      Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")
+    ]);
+
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: bankButtons
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
 
   return ctx.reply(
     user.language === "am" 
@@ -2787,63 +2839,36 @@ bot.action("ADD_BANK", async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.editing = { field: "bankAdding" };
 
+  // Highlight "Add Bank" and disable all buttons
+  try {
+    const bankButtons = user.bankDetails.map((bank, index) => {
+      return [Markup.button.callback(
+        `${index + 1}. ${bank.bankName} (${bank.accountNumber})`,
+        "_DISABLED_EDIT_BANK"
+      )];
+    });
+
+    bankButtons.push([
+      Markup.button.callback(`✔ ${TEXT.addBankBtn[user.language]}`, "_DISABLED_ADD_BANK"),
+      Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")
+    ]);
+    bankButtons.push([
+      Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")
+    ]);
+
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: bankButtons
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
   return ctx.reply(
     user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en
   );
 });
 
-
-// Add handler for removing bank
-bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const index = parseInt(ctx.match[1]);
-  const tgId = ctx.from.id;
-  
-  // Use findOneAndUpdate to avoid version conflicts
-  const updatedUser = await User.findOneAndUpdate(
-    { telegramId: tgId },
-    { $pull: { bankDetails: { _id: user.bankDetails[index]._id } } },
-    { new: true }
-  );
-
-  if (!updatedUser) {
-    return ctx.reply("Error removing bank. Please try again.");
-  }
-
-  // Update admin channel
-  await updateAdminProfilePost(ctx, updatedUser);
-
-  // Show success message
-  await ctx.reply(TEXT.profileUpdated[updatedUser.language]);
-
-  // Return to bank edit menu
-  if (updatedUser.bankDetails.length === 0) {
-    ctx.session.editing = { field: "bankFirst" };
-    return ctx.reply(updatedUser.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
-  }
-
-  // Create buttons for each bank entry
-  const bankButtons = updatedUser.bankDetails.map((bank, index) => {
-    return [Markup.button.callback(
-      `${index + 1}. ${bank.bankName} (${bank.accountNumber})`, 
-      `EDIT_BANK_${index}`
-    )];
-  });
-
-  bankButtons.push([
-    Markup.button.callback(TEXT.addBankBtn[updatedUser.language], "ADD_BANK"),
-    Markup.button.callback(TEXT.removeBankBtn[updatedUser.language], "REMOVE_BANK")
-  ]);
-  bankButtons.push([
-    Markup.button.callback(TEXT.bankEditDoneBtn[updatedUser.language], "BANK_EDIT_DONE")
-  ]);
-
-  return ctx.reply(
-    TEXT.editBankPrompt[updatedUser.language],
-    Markup.inlineKeyboard(bankButtons)
-  );
-});
-// Add handler for removing specific bank
+// Handler for removing bank
 bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const index = parseInt(ctx.match[1]);
@@ -3056,7 +3081,6 @@ bot.on("text", async (ctx, next) => {
     return ctx.reply("An error occurred. Please try again.");
   }
 });
-
 
 
 
