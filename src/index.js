@@ -834,6 +834,7 @@ function askSkillLevel(ctx) {
         return ctx.reply(user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en);
       }
 
+
       // Update name
       const countSame = await User.countDocuments({ fullName: text });
       user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
@@ -2150,18 +2151,17 @@ async function handleExpiryHours(ctx, draft) {
 }
 
 
-async function updateAdminProfilePost(ctx, user) {
-  const ADMIN_CHANNEL = "-1002310380363";
+async function updateAdminProfilePost(ctx, user, adminMessageId) {
+  const ADMIN_CHANNEL = "-1002310380363"; // Admin channel ID
   
-  if (!user.adminMessageId) {
+  // If no adminMessageId provided, try to get it from user
+  const messageId = adminMessageId || user?.adminMessageId;
+  
+  if (!messageId) {
     console.error("No admin message ID found for user");
     return;
   }
 
-  const banksList = user.bankDetails
-    .map((b) => `${b.bankName} (${b.accountNumber})`)
-    .join(", ") || "N/A";
-  
   const adminText = buildAdminProfileText(user);
   const adminButtons = Markup.inlineKeyboard([
     [
@@ -2177,7 +2177,7 @@ async function updateAdminProfilePost(ctx, user) {
   try {
     await ctx.telegram.editMessageText(
       ADMIN_CHANNEL,
-      user.adminMessageId,
+      messageId,
       null,
       adminText,
       { 
@@ -2187,6 +2187,22 @@ async function updateAdminProfilePost(ctx, user) {
     );
   } catch (err) {
     console.error("Failed to edit admin message:", err);
+    // If editing fails, try sending a new message
+    try {
+      const sentMessage = await ctx.telegram.sendMessage(
+        ADMIN_CHANNEL,
+        adminText,
+        { 
+          parse_mode: "Markdown", 
+          reply_markup: adminButtons.reply_markup 
+        }
+      );
+      // Update user with new message ID
+      user.adminMessageId = sentMessage.message_id;
+      await user.save();
+    } catch (sendErr) {
+      console.error("Failed to send new admin message:", sendErr);
+    }
   }
 }
 
@@ -2684,7 +2700,7 @@ bot.action("EDIT_NAME", async (ctx) => {
   ctx.session.editing = { 
     field: "fullName",
     profileMessageId: ctx.callbackQuery.message.message_id,
-    adminMessageId: user.adminMessageId
+    adminMessageId: user.adminMessageId // Make sure to include this
   };
   // Highlight "Name" and disable all buttons
   try {
