@@ -2586,7 +2586,31 @@ function buildProfileText(user, showCongrats = false) {
 
   return profileLines.join("\n");
 }
-
+function buildAdminProfileText(user) {
+  const banksList = user.bankDetails
+    .map((b) => `${b.bankName} (${b.accountNumber})`)
+    .join(", ") || "N/A";
+  
+  return [
+    "🆕 *New User Profile*",
+    "",
+    `• *ID:* ${user._id}`,
+    `• *Telegram ID:* ${user.telegramId}`,
+    `• *Name:* ${user.fullName}`,
+    `• *Phone:* ${user.phone}`,
+    `• *Email:* ${user.email}`,
+    `• *Username:* @${user.username}`,
+    `• *Banks:* ${banksList}`,
+    `• *Language:* ${user.language === "am" ? "Amharic" : "English"}`,
+    `• *Registered:* ${user.createdAt.toLocaleString("en-US", { 
+      timeZone: "Africa/Addis_Ababa",
+      month: "short", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true
+    })} GMT+3`,
+    "",
+    "🔹 *Admin Actions:*"
+  ].join("\n");
+}
 bot.action("EDIT_PROFILE", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
