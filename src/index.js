@@ -843,7 +843,7 @@ function askSkillLevel(ctx) {
       // Send success confirmation
       await ctx.reply(TEXT.profileUpdated[user.language]);
 
-      // Build updated profile without congratulations
+      // Build updated profile WITHOUT congratulations
       const menu = Markup.inlineKeyboard([
         [ 
           Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
@@ -852,7 +852,7 @@ function askSkillLevel(ctx) {
         ]
       ]);
 
-      // Send new profile message
+      // Send new profile message WITHOUT congratulations
       await ctx.reply(buildProfileText(user, false), menu);
 
       // Update admin channel message (edit existing)
@@ -1482,7 +1482,7 @@ function askSkillLevel(ctx) {
   user.onboardingStep = "completed";
   await user.save();
 
-  // Build and send user profile without congratulations
+  // Build and send user profile WITH congratulations
   const menu = Markup.inlineKeyboard([
     [ 
       buildButton(TEXT.postTaskBtn, "POST_TASK", user.language),
@@ -1491,8 +1491,8 @@ function askSkillLevel(ctx) {
     ]
   ]);
   
-  // Send profile without congratulations
-  await ctx.reply(buildProfileText(user, false), menu);
+  // Send profile WITH congratulations (showCongrats = true)
+  await ctx.reply(buildProfileText(user, true), menu);
 
   // Send to Admin Channel and store the message ID
   const sentMessage = await ctx.telegram.sendMessage(
@@ -2132,6 +2132,17 @@ async function handleExpiryHours(ctx, draft) {
 async function updateAdminProfilePost(ctx, user, messageId = null) {
   const ADMIN_CHANNEL = "-1002310380363";
   
+  // If no messageId provided but user has one, use it
+  if (!messageId && user.adminMessageId) {
+    messageId = user.adminMessageId;
+  }
+
+  // If we still don't have a messageId, return (don't create new post)
+  if (!messageId) {
+    console.error("No messageId provided for admin profile update");
+    return;
+  }
+
   const banksList = user.bankDetails
     .map((b) => `${b.bankName} (${b.accountNumber})`)
     .join(", ") || "N/A";
@@ -2151,7 +2162,7 @@ async function updateAdminProfilePost(ctx, user, messageId = null) {
         `• ተጠቃሚ ስም: @${user.username}`,
         `• ባንኮች: ${banksList}`,
         `• ቋንቋ: ${langLabel}`,
-        `• ተመዝግቦበት ቀን: ${registeredAt}`,
+        `• ተመዝግቦት ቀን: ${registeredAt}`,
         "",
         "---",
         "**የታሪክ እና ታሪክ ጥቆማ 👉**",
@@ -2187,24 +2198,31 @@ async function updateAdminProfilePost(ctx, user, messageId = null) {
     ]
   ]);
 
-  if (messageId) {
-    // Edit existing message
-    try {
-      await ctx.telegram.editMessageText(
-        ADMIN_CHANNEL,
-        messageId,
-        null,
-        adminText,
-        { reply_markup: adminButtons.reply_markup }
-      );
-    } catch (err) {
-      console.error("Failed to edit admin message:", err);
-      // Fallback to sending new message if edit fails
-      await ctx.telegram.sendMessage(ADMIN_CHANNEL, adminText, adminButtons);
-    }
-  } else {
-    // Send new message if no messageId provided
-    await ctx.telegram.sendMessage(ADMIN_CHANNEL, adminText, adminButtons);
+  // Always try to edit the existing message
+  try {
+    await ctx.telegram.editMessageText(
+      ADMIN_CHANNEL,
+      messageId,
+      null,
+      adminText,
+      { 
+        parse_mode: "Markdown",
+        reply_markup: adminButtons.reply_markup 
+      }
+    );
+  } catch (err) {
+    console.error("Failed to edit admin message:", err);
+    // If editing fails, send a new message and update the messageId
+    const sentMessage = await ctx.telegram.sendMessage(
+      ADMIN_CHANNEL,
+      adminText,
+      { 
+        parse_mode: "Markdown",
+        reply_markup: adminButtons.reply_markup 
+      }
+    );
+    user.adminMessageId = sentMessage.message_id;
+    await user.save();
   }
 }
 
