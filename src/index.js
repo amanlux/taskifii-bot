@@ -1506,16 +1506,24 @@ function askSkillLevel(ctx) {
     ]
   ]);
 
-  const sentMessage = await ctx.telegram.sendMessage(
-    "-1002310380363", // Admin channel ID
-    adminText,
-    { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
-  );
-  
-  // Store admin message ID for future edits
-  user.adminMessageId = sentMessage.message_id;
-  await user.save();
-});
+  try {
+    const sentMessage = await ctx.telegram.sendMessage(
+      "-1002310380363", // Admin channel ID
+      adminText,
+      { 
+        parse_mode: "Markdown", 
+        reply_markup: adminButtons.reply_markup 
+      }
+    );
+    
+    // Store admin message ID for future edits
+    user.adminMessageId = sentMessage.message_id;
+    await user.save();
+  } catch (err) {
+    console.error("Failed to send admin message:", err);
+    await ctx.reply("Profile created, but failed to notify admin. Please contact support.");
+  }
+  });
 
 // In the text handler for name editing:
 
