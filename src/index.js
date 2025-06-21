@@ -827,15 +827,14 @@ function askSkillLevel(ctx) {
   // ─────────── Handle profile editing ───────────
   if (ctx.session?.editing?.field) {
     // Handle name editing
+    // In the text handler for name editing:
     if (ctx.session.editing.field === "fullName") {
-  // Validate name (same rules as onboarding)
+      // Validate name (same rules as onboarding)
       if (text.length < 3) {
-        return ctx.reply(
-          user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en
-        );
+        return ctx.reply(user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en);
       }
 
-      // Check for duplicates and update name
+      // Update name
       const countSame = await User.countDocuments({ fullName: text });
       user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
       await user.save();
@@ -843,7 +842,7 @@ function askSkillLevel(ctx) {
       // Send success confirmation
       await ctx.reply(TEXT.profileUpdated[user.language]);
 
-      // Build updated profile WITHOUT congratulations
+      // Build profile WITHOUT congratulations
       const menu = Markup.inlineKeyboard([
         [ 
           Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
@@ -1485,26 +1484,40 @@ function askSkillLevel(ctx) {
   // Build and send user profile WITH congratulations
   const menu = Markup.inlineKeyboard([
     [ 
-      buildButton(TEXT.postTaskBtn, "POST_TASK", user.language),
-      buildButton(TEXT.findTaskBtn, "FIND_TASK", user.language),
-      buildButton(TEXT.editProfileBtn, "EDIT_PROFILE", user.language)
+      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
+      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
+      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
     ]
   ]);
   
   // Send profile WITH congratulations (showCongrats = true)
   await ctx.reply(buildProfileText(user, true), menu);
 
-  // Send to Admin Channel and store the message ID
+  // Send new post to Admin Channel with 4 buttons
+  const adminText = buildAdminProfileText(user);
+  const adminButtons = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
+      Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
+    ],
+    [
+      Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
+      Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
+    ]
+  ]);
+
   const sentMessage = await ctx.telegram.sendMessage(
-    "-1002310380363",
-    buildAdminProfileText(user),
-    getAdminButtons(user)
+    "-1002310380363", // Admin channel ID
+    adminText,
+    { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
   );
   
   // Store admin message ID for future edits
   user.adminMessageId = sentMessage.message_id;
   await user.save();
-  });
+});
+
+// In the text handler for name editing:
 
   bot.action("AGE_NO", async (ctx) => {
     await ctx.answerCbQuery();
@@ -2129,64 +2142,19 @@ async function handleExpiryHours(ctx, draft) {
 }
 
 
-async function updateAdminProfilePost(ctx, user, messageId = null) {
+async function updateAdminProfilePost(ctx, user) {
   const ADMIN_CHANNEL = "-1002310380363";
   
-  // If no messageId provided but user has one, use it
-  if (!messageId && user.adminMessageId) {
-    messageId = user.adminMessageId;
-  }
-
-  // If we still don't have a messageId, return (don't create new post)
-  if (!messageId) {
-    console.error("No messageId provided for admin profile update");
+  if (!user.adminMessageId) {
+    console.error("No admin message ID found for user");
     return;
   }
 
   const banksList = user.bankDetails
     .map((b) => `${b.bankName} (${b.accountNumber})`)
     .join(", ") || "N/A";
-  const langLabel = user.language === "am" ? "አማርኛ" : "English";
-  const registeredAt = user.createdAt.toLocaleString("en-US", { 
-    timeZone: "Africa/Addis_Ababa",
-    month: "short", day: "numeric", year: "numeric",
-    hour: "numeric", minute: "2-digit", hour12: true
-  }) + " GMT+3";
-
-  const adminText = user.language === "am" 
-    ? [
-        "📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ**",
-        `• ሙሉ ስም: ${user.fullName}`,
-        `• ስልክ: ${user.phone}`,
-        `• ኢሜይል: ${user.email}`,
-        `• ተጠቃሚ ስም: @${user.username}`,
-        `• ባንኮች: ${banksList}`,
-        `• ቋንቋ: ${langLabel}`,
-        `• ተመዝግቦት ቀን: ${registeredAt}`,
-        "",
-        "---",
-        "**የታሪክ እና ታሪክ ጥቆማ 👉**",
-        "(እስካሁን ምንም ተግዳሮቶች ወይም ጥሰቶች የሉም። ይህ ክፍል በወደፊቱ ሙሉ እንቅስቃሴዎችን ያሳያል።)",
-        "",
-        "**የአስተዳደር እርምጃዎች:**"
-      ].join("\n")
-    : [
-        "📋 **Profile Post for Approval**",
-        `• Full Name: ${user.fullName}`,
-        `• Phone: ${user.phone}`,
-        `• Email: ${user.email}`,
-        `• Username: @${user.username}`,
-        `• Banks: ${banksList}`,
-        `• Language: ${langLabel}`,
-        `• Registered: ${registeredAt}`,
-        "",
-        "---",
-        "**Past Activity / History:**",
-        "(No past tasks or violations yet. This section will show full activity in future updates.)",
-        "",
-        "**Admin Actions:**"
-      ].join("\n");
-
+  
+  const adminText = buildAdminProfileText(user);
   const adminButtons = Markup.inlineKeyboard([
     [
       Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
@@ -2198,11 +2166,10 @@ async function updateAdminProfilePost(ctx, user, messageId = null) {
     ]
   ]);
 
-  // Always try to edit the existing message
   try {
     await ctx.telegram.editMessageText(
       ADMIN_CHANNEL,
-      messageId,
+      user.adminMessageId,
       null,
       adminText,
       { 
@@ -2212,19 +2179,9 @@ async function updateAdminProfilePost(ctx, user, messageId = null) {
     );
   } catch (err) {
     console.error("Failed to edit admin message:", err);
-    // If editing fails, send a new message and update the messageId
-    const sentMessage = await ctx.telegram.sendMessage(
-      ADMIN_CHANNEL,
-      adminText,
-      { 
-        parse_mode: "Markdown",
-        reply_markup: adminButtons.reply_markup 
-      }
-    );
-    user.adminMessageId = sentMessage.message_id;
-    await user.save();
   }
 }
+
 
 
 bot.action(/TASK_EX_(.+)/, async (ctx) => {
@@ -2578,70 +2535,48 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   await TaskDraft.findByIdAndDelete(draft._id);
 });
 
-function buildProfileText(user, showCongrats = true) {
+function buildProfileText(user, showCongrats = false) {
   const banksList = user.bankDetails
     .map((b, i) => `${i+1}. ${b.bankName} (${b.accountNumber})`)
     .join("\n") || "N/A";
-  const langLabel = user.language === "am" ? "አማርኛ" : "English";
-  const registeredAt = user.createdAt.toLocaleString("en-US", { 
-    timeZone: "Africa/Addis_Ababa",
-    month: "short", day: "numeric", year: "numeric",
-    hour: "numeric", minute: "2-digit", hour12: true
-  }) + " GMT+3";
+  
+  const profileLines = user.language === "am" 
+    ? [
+        showCongrats ? "🎉 እንኳን ደስ አለዎት! ይህ የዎት Taskifii ፕሮፋይል ነው፦" : "📋 የእርስዎ Taskifii ፕሮፋይል፦",
+        `• ሙሉ ስም: ${user.fullName}`,
+        `• ስልክ: ${user.phone}`,
+        `• ኢሜይል: ${user.email}`,
+        `• ተጠቃሚ ስም: @${user.username}`,
+        `• ባንኮች:\n${banksList}`,
+        `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`,
+        `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
+          timeZone: "Africa/Addis_Ababa",
+          month: "short", day: "numeric", year: "numeric",
+          hour: "numeric", minute: "2-digit", hour12: true
+        })} GMT+3`,
+        `🔹 እስካሁን የተቀበሉት: ${user.stats.totalEarned.toFixed(2)} ብር`,
+        `🔹 እስካሁን ያከፈሉት: ${user.stats.totalSpent.toFixed(2)} ብር`,
+        `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
+      ]
+    : [
+        showCongrats ? "🎉 Congratulations! Here is your Taskifii profile:" : "📋 Your Taskifii Profile:",
+        `• Full Name: ${user.fullName}`,
+        `• Phone: ${user.phone}`,
+        `• Email: ${user.email}`,
+        `• Username: @${user.username}`,
+        `• Banks:\n${banksList}`,
+        `• Language: ${user.language === "am" ? "Amharic" : "English"}`,
+        `• Registered: ${user.createdAt.toLocaleString("en-US", { 
+          timeZone: "Africa/Addis_Ababa",
+          month: "short", day: "numeric", year: "numeric",
+          hour: "numeric", minute: "2-digit", hour12: true
+        })} GMT+3`,
+        `🔹 Total earned: ${user.stats.totalEarned.toFixed(2)} birr`,
+        `🔹 Total spent: ${user.stats.totalSpent.toFixed(2)} birr`,
+        `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)`
+      ];
 
-  const profileLinesEn = showCongrats ? [
-    "🎉 Congratulations! Here is your Taskifii profile:",
-    `• Full Name: ${user.fullName}`,
-    `• Phone: ${user.phone}`,
-    `• Email: ${user.email}`,
-    `• Username: @${user.username}`,
-    `• Banks:\n${banksList}`,
-    `• Language: ${langLabel}`,
-    `• Registered: ${registeredAt}`,
-    `🔹 Total earned (as Task-Doer): ${user.stats.totalEarned.toFixed(2)} birr`,
-    `🔹 Total spent (as Task-Creator): ${user.stats.totalSpent.toFixed(2)} birr`,
-    `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)`
-  ]:[
-     "📋 Your Taskifii Profile:",
-    `• Full Name: ${user.fullName}`,
-    `• Phone: ${user.phone}`,
-    `• Email: ${user.email}`,
-    `• Username: @${user.username}`,
-    `• Banks:\n${banksList}`,
-    `• Language: ${langLabel}`,
-    `• Registered: ${registeredAt}`,
-    `🔹 Total earned (as Task-Doer): ${user.stats.totalEarned.toFixed(2)} birr`,
-    `🔹 Total spent (as Task-Creator): ${user.stats.totalSpent.toFixed(2)} birr`,
-    `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)`
-  ];
-
-   const profileLinesAm = showCongrats ? [
-    "🎉 እንኳን ደስ አለዎት! ይህ የዎት Taskifii ፕሮፋይል ነው፦",
-    `• ሙሉ ስም: ${user.fullName}`,
-    `• ስልክ: ${user.phone}`,
-    `• ኢሜይል: ${user.email}`,
-    `• ተጠቃሚ ስም: @${user.username}`,
-    `• ባንኮች:\n${banksList}`,
-    `• ቋንቋ: ${langLabel}`,
-    `• ተመዝግቦበት ቀን: ${registeredAt}`,
-    `🔹 እስካሁን የተቀበሉት (በተግዳሮት ተሳታፊ): ${user.stats.totalEarned.toFixed(2)} ብር`,
-    `🔹 እስካሁን ያከፈሉት (እንደ ተግዳሮት ፍጻሜ): ${user.stats.totalSpent.toFixed(2)} ብር`,
-    `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
-  ]:[
-     "📋 የእርስዎ Taskifii ፕሮፋይል፦",
-    `• ሙሉ ስም: ${user.fullName}`,
-    `• ስልክ: ${user.phone}`,
-    `• ኢሜይል: ${user.email}`,
-    `• ተጠቃሚ ስም: @${user.username}`,
-    `• ባንኮች:\n${banksList}`,
-    `• ቋንቋ: ${langLabel}`,
-    `• ተመዝግቦበት ቀን: ${registeredAt}`,
-    `🔹 እስካሁን የተቀበሉት (በተግዳሮት ተሳታፊ): ${user.stats.totalEarned.toFixed(2)} ብር`,
-    `🔹 እስካሁን ያከፈሉት (እንደ ተግዳሮት ፍጻሜ): ${user.stats.totalSpent.toFixed(2)} ብር`,
-    `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
-  ];
-
-  return user.language === "am" ? profileLinesAm.join("\n") : profileLinesEn.join("\n");
+  return profileLines.join("\n");
 }
 
 bot.action("EDIT_PROFILE", async (ctx) => {
