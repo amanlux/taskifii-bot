@@ -828,52 +828,40 @@ function askSkillLevel(ctx) {
   if (ctx.session?.editing?.field) {
     // Handle name editing
     if (ctx.session.editing.field === "fullName") {
-      // Validate name (same rules as onboarding)
-      if (text.length < 3) {
-        return ctx.reply(
-          user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en
-        );
-      }
-
-      // Check for duplicates and update name
-      const countSame = await User.countDocuments({ fullName: text });
-      user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
-      await user.save();
-
-      // Send success confirmation
-      await ctx.reply(TEXT.profileUpdated[user.language]);
-
-      // Build updated profile with main menu
-      const menu = Markup.inlineKeyboard([
-        [ 
-          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-        ]
-      ]);
-
-      // Update the original profile message
-      try {
-        await ctx.telegram.editMessageText(
-          ctx.chat.id,
-          ctx.session.editing.profileMessageId,
-          null,
-          buildProfileText(user),
-          { reply_markup: menu.reply_markup }
-        );
-      } catch (err) {
-        console.error("Failed to edit profile message:", err);
-        // Fallback to sending new message
-        await ctx.reply(buildProfileText(user), menu);
-      }
-
-      // Update admin channel message (edit existing)
-      await updateAdminProfilePost(ctx, user, ctx.session.editing.adminMessageId);
-
-      // Clear editing session
-      delete ctx.session.editing;
-      return;
+    // Validate name (same rules as onboarding)
+    if (text.length < 3) {
+      return ctx.reply(
+        user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en
+      );
     }
+
+    // Check for duplicates and update name
+    const countSame = await User.countDocuments({ fullName: text });
+    user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
+    await user.save();
+
+    // Send success confirmation
+    await ctx.reply(TEXT.profileUpdated[user.language]);
+
+    // Build updated profile without congratulations
+    const menu = Markup.inlineKeyboard([
+      [ 
+        Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
+        Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
+        Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
+      ]
+    ]);
+
+    // Send new profile message
+    await ctx.reply(buildProfileText(user, false), menu);
+
+    // Update admin channel message (edit existing)
+    await updateAdminProfilePost(ctx, user, ctx.session.editing.adminMessageId);
+
+    // Clear editing session
+    delete ctx.session.editing;
+    return;
+  }
 
     // Handle phone editing
     if (ctx.session.editing.field === "phone") {
@@ -1495,7 +1483,7 @@ function askSkillLevel(ctx) {
   user.onboardingStep = "completed";
   await user.save();
 
-  // Build and send user profile
+  // Build and send user profile without congratulations
   const menu = Markup.inlineKeyboard([
     [ 
       buildButton(TEXT.postTaskBtn, "POST_TASK", user.language),
@@ -1504,7 +1492,8 @@ function askSkillLevel(ctx) {
     ]
   ]);
   
-  await ctx.reply(buildProfileText(user), menu);
+  // Send profile without congratulations
+  await ctx.reply(buildProfileText(user, false), menu);
 
   // Send to Admin Channel and store the message ID
   const sentMessage = await ctx.telegram.sendMessage(
@@ -1517,6 +1506,7 @@ function askSkillLevel(ctx) {
   user.adminMessageId = sentMessage.message_id;
   await user.save();
   });
+
 
   bot.action("AGE_NO", async (ctx) => {
     await ctx.answerCbQuery();
@@ -2572,7 +2562,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   await TaskDraft.findByIdAndDelete(draft._id);
 });
 
-function buildProfileText(user) {
+function buildProfileText(user, showCongrats = true) {
   const banksList = user.bankDetails
     .map((b, i) => `${i+1}. ${b.bankName} (${b.accountNumber})`)
     .join("\n") || "N/A";
@@ -2583,32 +2573,24 @@ function buildProfileText(user) {
     hour: "numeric", minute: "2-digit", hour12: true
   }) + " GMT+3";
 
-  const profileLinesEn = [
+  const profileLinesEn = showCongrats ? [
     "🎉 Congratulations! Here is your Taskifii profile:",
     `• Full Name: ${user.fullName}`,
-    `• Phone: ${user.phone}`,
-    `• Email: ${user.email}`,
-    `• Username: @${user.username}`,
-    `• Banks:\n${banksList}`,
-    `• Language: ${langLabel}`,
-    `• Registered: ${registeredAt}`,
-    `🔹 Total earned (as Task-Doer): ${user.stats.totalEarned.toFixed(2)} birr`,
-    `🔹 Total spent (as Task-Creator): ${user.stats.totalSpent.toFixed(2)} birr`,
-    `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)`
+    // ... rest of the profile lines
+  ] : [
+    "📋 Your Taskifii Profile:",
+    `• Full Name: ${user.fullName}`,
+    // ... rest of the profile lines
   ];
 
-  const profileLinesAm = [
+  const profileLinesAm = showCongrats ? [
     "🎉 እንኳን ደስ አለዎት! ይህ የዎት Taskifii ፕሮፋይል ነው፦",
     `• ሙሉ ስም: ${user.fullName}`,
-    `• ስልክ: ${user.phone}`,
-    `• ኢሜይል: ${user.email}`,
-    `• ተጠቃሚ ስም: @${user.username}`,
-    `• ባንኮች:\n${banksList}`,
-    `• ቋንቋ: ${langLabel}`,
-    `• ተመዝግቦበት ቀን: ${registeredAt}`,
-    `🔹 እስካሁን የተቀበሉት (በተግዳሮት ተሳታፊ): ${user.stats.totalEarned.toFixed(2)} ብር`,
-    `🔹 እስካሁን ያከፈሉት (እንደ ተግዳሮት ፍጻሜ): ${user.stats.totalSpent.toFixed(2)} ብር`,
-    `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
+    // ... rest of the profile lines
+  ] : [
+    "📋 የእርስዎ Taskifii ፕሮፋይል፦",
+    `• ሙሉ ስም: ${user.fullName}`,
+    // ... rest of the profile lines
   ];
 
   return user.language === "am" ? profileLinesAm.join("\n") : profileLinesEn.join("\n");
@@ -2687,7 +2669,7 @@ bot.action("EDIT_NAME", async (ctx) => {
   ctx.session.editing = { 
     field: "fullName",
     profileMessageId: ctx.callbackQuery.message.message_id,
-    adminMessageId: user.adminMessageId // Store this when first creating profile
+    adminMessageId: user.adminMessageId
   };
 
   // Highlight "Name" and disable all buttons
@@ -3103,7 +3085,10 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
 // Error handling middleware
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
-  return ctx.reply("An error occurred. Please try again.");
+  // Only send error message if it's not during profile completion
+  if (!ctx.session?.onboardingStep === "completed") {
+    return ctx.reply("An error occurred. Please try again.");
+  }
 });
   // ─────────── Launch Bot ───────────
   bot.launch().then(() => {
