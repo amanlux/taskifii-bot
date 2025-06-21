@@ -840,6 +840,9 @@ function askSkillLevel(ctx) {
       user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
       await user.save();
 
+      // 1) Edit the existing admin‐channel post in place
+      await updateAdminProfilePost(ctx, user, null);
+
       // Send success confirmation
       await ctx.reply(TEXT.profileUpdated[user.language]);
 
@@ -2152,17 +2155,11 @@ async function handleExpiryHours(ctx, draft) {
 
 
 async function updateAdminProfilePost(ctx, user, adminMessageId) {
-  const ADMIN_CHANNEL = "-1002310380363"; // Admin channel ID
-  
-  // If no adminMessageId provided, try to get it from user
-  const messageId = adminMessageId || user?.adminMessageId;
-  
-  if (!messageId) {
-    console.error("No admin message ID found for user");
-    return;
-  }
+  const ADMIN_CHANNEL = "-1002310380363";
+  const messageId = adminMessageId || user.adminMessageId;
+  if (!messageId) return console.error("No admin msg ID");
 
-  const adminText = buildAdminProfileText(user);
+  const adminText   = buildAdminProfileText(user);
   const adminButtons = Markup.inlineKeyboard([
     [
       Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
@@ -2180,31 +2177,21 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
       messageId,
       null,
       adminText,
-      { 
-        parse_mode: "Markdown",
-        reply_markup: adminButtons.reply_markup 
-      }
+      { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
     );
   } catch (err) {
     console.error("Failed to edit admin message:", err);
-    // If editing fails, try sending a new message
-    try {
-      const sentMessage = await ctx.telegram.sendMessage(
-        ADMIN_CHANNEL,
-        adminText,
-        { 
-          parse_mode: "Markdown", 
-          reply_markup: adminButtons.reply_markup 
-        }
-      );
-      // Update user with new message ID
-      user.adminMessageId = sentMessage.message_id;
-      await user.save();
-    } catch (sendErr) {
-      console.error("Failed to send new admin message:", sendErr);
-    }
+    // fallback: send new and store its id
+    const sent = await ctx.telegram.sendMessage(
+      ADMIN_CHANNEL,
+      adminText,
+      { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
+    );
+    user.adminMessageId = sent.message_id;
+    await user.save();
   }
 }
+
 
 
 
@@ -2547,9 +2534,9 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
       [Markup.button.callback("Apply", `APPLY_${task._id}`)]
     ])
   });
-  // Save channel message id if needed:
-  task.channelMessageId = sent.message_id;
-  await task.save();
+  // 👉 Store the message_id so we can edit this exact message later
+  user.adminProfileMsgId = sent.message_id;
+  await user.save();
 
   // Notify creator with Cancel Task button
   await ctx.reply("✅ Your task is live!", Markup.inlineKeyboard([
@@ -2603,30 +2590,46 @@ function buildProfileText(user, showCongrats = false) {
   return profileLines.join("\n");
 }
 function buildAdminProfileText(user) {
-  const banksList = user.bankDetails
-    .map((b) => `${b.bankName} (${b.accountNumber})`)
-    .join(", ") || "N/A";
-  
-  return [
-    "🆕 *New User Profile*",
-    "",
-    `• *ID:* ${user._id}`,
-    `• *Telegram ID:* ${user.telegramId}`,
-    `• *Name:* ${user.fullName}`,
-    `• *Phone:* ${user.phone}`,
-    `• *Email:* ${user.email}`,
-    `• *Username:* @${user.username}`,
-    `• *Banks:* ${banksList}`,
-    `• *Language:* ${user.language === "am" ? "Amharic" : "English"}`,
-    `• *Registered:* ${user.createdAt.toLocaleString("en-US", { 
-      timeZone: "Africa/Addis_Ababa",
-      month: "short", day: "numeric", year: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true
-    })} GMT+3`,
-    "",
-    "🔹 *Admin Actions:*"
-  ].join("\n");
+  const lang = user.language || "en";
+  const lines = [];
+
+  if (lang === "am") {
+    lines.push("📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ**");
+    lines.push(`• ሙሉ ስም: ${user.fullName}`);
+    lines.push(`• ስልክ: ${user.phone}`);
+    lines.push(`• ኢሜይል: ${user.email}`);
+    lines.push(    `• ተጠቃሚ ስም: @${user.username}`);
+    lines.push(    `• ባንኮች:\n${banksList}`);
+    lines.push(    `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`);
+    lines.push(    `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
+          timeZone: "Africa/Addis_Ababa",
+          month: "short", day: "numeric", year: "numeric",
+          hour: "numeric", minute: "2-digit", hour12: true
+        })} GMT+3`);
+    lines.push(    `🔹 እስካሁን የተቀበሉት: ${user.stats.totalEarned.toFixed(2)} ብር`);
+    lines.push(    `🔹 እስካሁን ያከፈሉት: ${user.stats.totalSpent.toFixed(2)} ብር`);
+    lines.push(    `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`);
+  } else {
+    lines.push("📋 **Profile Post for Approval**");
+    lines.push(`• Full Name: ${user.fullName}`);
+    lines.push(`• Phone: ${user.phone}`);
+    lines.push(`• Email: ${user.email}`,);
+    lines.push(  `• Username: @${user.username}`,);
+    lines.push(     `• Banks:\n${banksList}`,);
+    lines.push(    `• Language: ${user.language === "am" ? "Amharic" : "English"}`,);
+    lines.push(     `• Registered: ${user.createdAt.toLocaleString("en-US", { 
+          timeZone: "Africa/Addis_Ababa",
+          month: "short", day: "numeric", year: "numeric",
+          hour: "numeric", minute: "2-digit", hour12: true
+        })} GMT+3`,);
+    lines.push(    `🔹 Total earned: ${user.stats.totalEarned.toFixed(2)} birr`,);
+    lines.push(   `🔹 Total spent: ${user.stats.totalSpent.toFixed(2)} birr`,);
+    lines.push(    `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)`);
+  }
+
+  return lines.join("\n");
 }
+
 bot.action("EDIT_PROFILE", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
