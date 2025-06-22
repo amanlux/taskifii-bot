@@ -3164,8 +3164,7 @@ bot.catch((err, ctx) => {
   }
 });
 
-console.log(`User ${user._id} adminMessageId:`, user.adminMessageId);
-console.log(`Editing name for user ${user._id}, current name: ${user.fullName}, new name: ${text}`);
+
   // ─────────── Launch Bot ───────────
   bot.launch().then(() => {
     console.log("🤖 Bot is up and running");
