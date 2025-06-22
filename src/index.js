@@ -2199,7 +2199,7 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
     }
   }
 
-  // Rest of the function remains the same...
+  // Update existing message
   const adminText = buildAdminProfileText(user);
   const adminButtons = Markup.inlineKeyboard([
     [
@@ -2657,13 +2657,15 @@ function buildProfileText(user, showCongrats = false) {
   return profileLines.join("\n");
 }
 function buildAdminProfileText(user) {
+  // Fix the bank account display by using accountNumber instead of bankAccountNumber
   const banksList = user.bankDetails
-    .map((b, i) => `${i+1}. ${b.bankName} (${b.bankAccountNumber})`)
+    .map((b, i) => `${i+1}. ${b.bankName} (${b.accountNumber})`) // Changed from bankAccountNumber to accountNumber
     .join("\n") || "N/A";
   
+  // Add user ID to the header
   const lines = user.language === "am" 
     ? [
-        "📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ**",
+        `📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ** (User ID: ${user._id})`, // Added user ID
         `• ሙሉ ስም: ${user.fullName}`,
         `• ስልክ: ${user.phone}`,
         `• ኢሜይል: ${user.email}`,
@@ -2680,7 +2682,7 @@ function buildAdminProfileText(user) {
         `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
       ]
     : [
-        "📋 **Profile Post for Approval**",
+        `📋 **Profile Post for Approval** (User ID: ${user._id})`, // Added user ID
         `• Full Name: ${user.fullName}`,
         `• Phone: ${user.phone}`,
         `• Email: ${user.email}`,
