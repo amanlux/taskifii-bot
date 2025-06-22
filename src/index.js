@@ -828,7 +828,7 @@ function askSkillLevel(ctx) {
   if (ctx.session?.editing?.field) {
     // Handle name editing
     // In the text handler for name editing:
-    // In the text handler for name editing:
+    
     if (ctx.session.editing.field === "fullName") {
       // Validate name (same rules as onboarding)
       if (text.length < 3) {
@@ -838,21 +838,19 @@ function askSkillLevel(ctx) {
       // Update name
       const countSame = await User.countDocuments({ fullName: text });
       user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
+      
+      // Refresh the user document to ensure we have the latest data
       await user.save();
+      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
+      
+      console.log(`Editing name for user ${updatedUser._id}, adminMessageId: ${updatedUser.adminMessageId}`);
 
-      // Make sure we have the adminMessageId
-      if (!user.adminMessageId) {
-        console.log("No adminMessageId found for user:", user._id);
-        // Try to find the latest message from this user in the admin channel
-        // (This is a fallback - you might need to implement message searching)
-      }
-
-      // 1) Edit the existing admin-channel post in place
       try {
-        await updateAdminProfilePost(ctx, user, user.adminMessageId);
+        // Update admin channel post
+        await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId);
       } catch (err) {
         console.error("Failed to update admin profile post:", err);
-        // Fallback behavior here if needed
+        // Continue with profile update even if admin channel update fails
       }
 
       // Send success confirmation
@@ -1519,7 +1517,7 @@ function askSkillLevel(ctx) {
   ]);
 
   try {
-    const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is defined
+    const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is correct
     const sentMessage = await ctx.telegram.sendMessage(
       ADMIN_CHANNEL,
       adminText,
@@ -1532,6 +1530,8 @@ function askSkillLevel(ctx) {
     // Store admin message ID for future edits
     user.adminMessageId = sentMessage.message_id;
     await user.save(); // Make sure to save after setting adminMessageId
+    
+    console.log(`Saved adminMessageId ${sentMessage.message_id} for user ${user._id}`);
   } catch (err) {
     console.error("Failed to send admin message:", err);
     await ctx.reply("Profile created, but failed to notify admin. Please contact support.");
@@ -2164,14 +2164,42 @@ async function handleExpiryHours(ctx, draft) {
 
 
 async function updateAdminProfilePost(ctx, user, adminMessageId) {
-  const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is defined
+  const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is correct
   const messageId = adminMessageId || user.adminMessageId;
   
   if (!messageId) {
     console.error("No adminMessageId found for user:", user._id);
-    throw new Error("No admin message ID available");
+    // Fallback: Send a new message and store its ID
+    try {
+      const adminText = buildAdminProfileText(user);
+      const adminButtons = Markup.inlineKeyboard([
+        [
+          Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
+          Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
+        ],
+        [
+          Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
+          Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
+        ]
+      ]);
+
+      const sent = await ctx.telegram.sendMessage(
+        ADMIN_CHANNEL,
+        adminText,
+        { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
+      );
+      
+      user.adminMessageId = sent.message_id;
+      await user.save();
+      console.log(`Created new admin message ${sent.message_id} for user ${user._id}`);
+      return sent;
+    } catch (err) {
+      console.error("Failed to create new admin message:", err);
+      throw new Error("Failed to create new admin message");
+    }
   }
 
+  // Rest of the function remains the same...
   const adminText = buildAdminProfileText(user);
   const adminButtons = Markup.inlineKeyboard([
     [
@@ -2211,12 +2239,14 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
         { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
       );
       
-      // Try to delete the old message
-      try {
-        await ctx.telegram.deleteMessage(ADMIN_CHANNEL, messageId);
-        console.log("Deleted old admin message");
-      } catch (deleteErr) {
-        console.error("Failed to delete old admin message:", deleteErr.message);
+      // Try to delete the old message if it exists
+      if (messageId) {
+        try {
+          await ctx.telegram.deleteMessage(ADMIN_CHANNEL, messageId);
+          console.log("Deleted old admin message");
+        } catch (deleteErr) {
+          console.error("Failed to delete old admin message:", deleteErr.message);
+        }
       }
       
       // Update user with new message ID
