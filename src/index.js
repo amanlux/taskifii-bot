@@ -829,19 +829,18 @@ function askSkillLevel(ctx) {
     // Handle name editing
     // In the text handler for name editing:
     if (ctx.session.editing.field === "fullName") {
-      // Validate name (same rules as onboarding)
+  // Validate name (same rules as onboarding)
       if (text.length < 3) {
         return ctx.reply(user.language === "am" ? TEXT.fullNameError.am : TEXT.fullNameError.en);
       }
-
 
       // Update name
       const countSame = await User.countDocuments({ fullName: text });
       user.fullName = countSame > 0 ? `${text} (${countSame + 1})` : text;
       await user.save();
 
-      // 1) Edit the existing admin‐channel post in place
-      await updateAdminProfilePost(ctx, user, null);
+      // 1) Edit the existing admin-channel post in place
+      await updateAdminProfilePost(ctx, user, ctx.session.editing.adminMessageId);
 
       // Send success confirmation
       await ctx.reply(TEXT.profileUpdated[user.language]);
@@ -857,9 +856,6 @@ function askSkillLevel(ctx) {
 
       // Send new profile message WITHOUT congratulations
       await ctx.reply(buildProfileText(user, false), menu);
-
-      // Update admin channel message (edit existing)
-      await updateAdminProfilePost(ctx, user, ctx.session.editing.adminMessageId);
 
       // Clear editing session
       delete ctx.session.editing;
@@ -2159,7 +2155,7 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
   const messageId = adminMessageId || user.adminMessageId;
   if (!messageId) return console.error("No admin msg ID");
 
-  const adminText   = buildAdminProfileText(user);
+  const adminText = buildAdminProfileText(user);
   const adminButtons = Markup.inlineKeyboard([
     [
       Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
@@ -2187,6 +2183,17 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
       adminText,
       { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
     );
+    
+    // Try to delete the old message if it exists
+    if (user.adminMessageId) {
+      try {
+        await ctx.telegram.deleteMessage(ADMIN_CHANNEL, user.adminMessageId);
+      } catch (deleteErr) {
+        console.error("Failed to delete old admin message:", deleteErr);
+      }
+    }
+    
+    // Store the new message ID
     user.adminMessageId = sent.message_id;
     await user.save();
   }
@@ -2590,42 +2597,45 @@ function buildProfileText(user, showCongrats = false) {
   return profileLines.join("\n");
 }
 function buildAdminProfileText(user) {
-  const lang = user.language || "en";
-  const lines = [];
-
-  if (lang === "am") {
-    lines.push("📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ**");
-    lines.push(`• ሙሉ ስም: ${user.fullName}`);
-    lines.push(`• ስልክ: ${user.phone}`);
-    lines.push(`• ኢሜይል: ${user.email}`);
-    lines.push(    `• ተጠቃሚ ስም: @${user.username}`);
-    lines.push(    `• ባንኮች:\n${banksList}`);
-    lines.push(    `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`);
-    lines.push(    `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
+  const banksList = user.bankDetails
+    .map((b, i) => `${i+1}. ${b.bankName} (${b.bankAccountNumber})`)
+    .join("\n") || "N/A";
+  
+  const lines = user.language === "am" 
+    ? [
+        "📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ**",
+        `• ሙሉ ስም: ${user.fullName}`,
+        `• ስልክ: ${user.phone}`,
+        `• ኢሜይል: ${user.email}`,
+        `• ተጠቃሚ ስም: @${user.username}`,
+        `• ባንኮች:\n${banksList}`,
+        `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`,
+        `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
           month: "short", day: "numeric", year: "numeric",
           hour: "numeric", minute: "2-digit", hour12: true
-        })} GMT+3`);
-    lines.push(    `🔹 እስካሁን የተቀበሉት: ${user.stats.totalEarned.toFixed(2)} ብር`);
-    lines.push(    `🔹 እስካሁን ያከፈሉት: ${user.stats.totalSpent.toFixed(2)} ብር`);
-    lines.push(    `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`);
-  } else {
-    lines.push("📋 **Profile Post for Approval**");
-    lines.push(`• Full Name: ${user.fullName}`);
-    lines.push(`• Phone: ${user.phone}`);
-    lines.push(`• Email: ${user.email}`,);
-    lines.push(  `• Username: @${user.username}`,);
-    lines.push(     `• Banks:\n${banksList}`,);
-    lines.push(    `• Language: ${user.language === "am" ? "Amharic" : "English"}`,);
-    lines.push(     `• Registered: ${user.createdAt.toLocaleString("en-US", { 
+        })} GMT+3`,
+        `🔹 እስካሁን የተቀበሉት: ${user.stats.totalEarned.toFixed(2)} ብር`,
+        `🔹 እስካሁን ያከፈሉት: ${user.stats.totalSpent.toFixed(2)} ብር`,
+        `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
+      ]
+    : [
+        "📋 **Profile Post for Approval**",
+        `• Full Name: ${user.fullName}`,
+        `• Phone: ${user.phone}`,
+        `• Email: ${user.email}`,
+        `• Username: @${user.username}`,
+        `• Banks:\n${banksList}`,
+        `• Language: ${user.language === "am" ? "Amharic" : "English"}`,
+        `• Registered: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
           month: "short", day: "numeric", year: "numeric",
           hour: "numeric", minute: "2-digit", hour12: true
-        })} GMT+3`,);
-    lines.push(    `🔹 Total earned: ${user.stats.totalEarned.toFixed(2)} birr`,);
-    lines.push(   `🔹 Total spent: ${user.stats.totalSpent.toFixed(2)} birr`,);
-    lines.push(    `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)`);
-  }
+        })} GMT+3`,
+        `🔹 Total earned: ${user.stats.totalEarned.toFixed(2)} birr`,
+        `🔹 Total spent: ${user.stats.totalSpent.toFixed(2)} birr`,
+        `🔹 Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)`
+      ];
 
   return lines.join("\n");
 }
