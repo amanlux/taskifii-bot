@@ -2777,18 +2777,35 @@ bot.action("EDIT_PROFILE", async (ctx) => {
 });
 
 
+// Update the EDIT_BACK handler
 bot.action("EDIT_BACK", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Restore original buttons
+  // Highlight "Back" and disable all buttons in the edit menu
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
+        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
+        [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
+        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(TEXT.editBanksBtn[user.language], "_DISABLED_EDIT_BANKS")],
+        [Markup.button.callback(`✔ ${TEXT.backBtn[user.language]}`, "_DISABLED_EDIT_BACK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
+  // Restore original buttons (disabled)
   const menu = Markup.inlineKeyboard([
     [ 
-      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
+      Markup.button.callback(TEXT.postTaskBtn[user.language], "_DISABLED_POST_TASK"),
+      Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK"),
+      Markup.button.callback(TEXT.editProfileBtn[user.language], "_DISABLED_EDIT_PROFILE")
     ]
   ]);
 
@@ -3003,6 +3020,7 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
 });
 
 // Add handler for bank details edit
+// In the EDIT_BANKS action handler:
 bot.action("EDIT_BANKS", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
@@ -3043,11 +3061,32 @@ bot.action("EDIT_BANKS", async (ctx) => {
     )];
   });
 
-  // Add additional options
-  bankButtons.push([
-    Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK"),
-    Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")
-  ]);
+  // Add additional options conditionally
+  const additionalButtons = [];
+  
+  // Only show Add button if less than 10 banks
+  if (user.bankDetails.length < 10) {
+    additionalButtons.push(Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK"));
+  }
+  
+  // Only show Remove button if more than 1 bank
+  if (user.bankDetails.length > 1) {
+    if (additionalButtons.length > 0) {
+      // If Add button is also present, put Remove on same row
+      additionalButtons[additionalButtons.length - 1].push(
+        Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")
+      );
+    } else {
+      // Otherwise put Remove on its own row
+      additionalButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")]);
+    }
+  }
+  
+  if (additionalButtons.length > 0) {
+    bankButtons.push(...additionalButtons);
+  }
+
+  // Always show Done button
   bankButtons.push([
     Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")
   ]);
@@ -3171,13 +3210,20 @@ bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
 
   // Highlight the selected bank entry and disable all buttons
   try {
+    const bankButtons = user.bankDetails.map((bank, i) => {
+      return [Markup.button.callback(
+        i === index ? `✔ ${i + 1}. ${bank.bankName} (${bank.accountNumber})` : `${i + 1}. ${bank.bankName} (${bank.accountNumber})`,
+        i === index ? "_DISABLED_REMOVE_BANK_ENTRY" : "_DISABLED_REMOVE_BANK_ENTRY"
+      )];
+    });
+
+    // Add disabled back button
+    bankButtons.push([
+      Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_BANK_REMOVE_BACK")
+    ]);
+
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(
-          `✔ ${index + 1}. ${user.bankDetails[index].bankName} (${user.bankDetails[index].accountNumber})`,
-          "_DISABLED_REMOVE_BANK_ENTRY"
-        )
-      ]]
+      inline_keyboard: bankButtons
     });
   } catch (err) {
     console.error("Error editing message markup:", err);
@@ -3200,26 +3246,44 @@ bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
   }
 
   // Create buttons for each bank entry
-  const bankButtons = user.bankDetails.map((bank, index) => {
+  const newBankButtons = user.bankDetails.map((bank, index) => {
     return [Markup.button.callback(
       `${index + 1}. ${bank.bankName} (${bank.accountNumber})`, 
       `EDIT_BANK_${index}`
     )];
   });
 
-  bankButtons.push([
-    Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK"),
-    Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")
-  ]);
-  bankButtons.push([
+  // Conditionally add Add/Remove buttons
+  const additionalButtons = [];
+  
+  if (user.bankDetails.length < 10) {
+    additionalButtons.push(Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK"));
+  }
+  
+  if (user.bankDetails.length > 1) {
+    if (additionalButtons.length > 0) {
+      additionalButtons[additionalButtons.length - 1].push(
+        Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")
+      );
+    } else {
+      additionalButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")]);
+    }
+  }
+  
+  if (additionalButtons.length > 0) {
+    newBankButtons.push(...additionalButtons);
+  }
+
+  newBankButtons.push([
     Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")
   ]);
 
   return ctx.reply(
     TEXT.editBankPrompt[user.language],
-    Markup.inlineKeyboard(bankButtons)
+    Markup.inlineKeyboard(newBankButtons)
   );
 });
+
 
 // Add handler for finishing bank editing
 // Update the existing BANK_EDIT_DONE handler
@@ -3386,11 +3450,11 @@ bot.action("REMOVE_BANK", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
-  if (user.bankDetails.length === 0) {
+  if (user.bankDetails.length <= 1) {
     return ctx.reply(
       user.language === "am" 
-        ? "ምንም የባንክ መግለጫ የለም።" 
-        : "No bank entries to remove."
+        ? "ቢያንስ አንድ የባንክ መግለጫ መኖር አለበት።" 
+        : "You must have at least one bank detail."
     );
   }
 
@@ -3402,22 +3466,21 @@ bot.action("REMOVE_BANK", async (ctx) => {
     )];
   });
 
+  // Add back button (disabled)
   bankButtons.push([
-    Markup.button.callback(TEXT.backBtn[user.language], "BANK_REMOVE_CANCEL")
+    Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_BANK_REMOVE_BACK")
   ]);
 
-  // Highlight "Remove Bank" and disable other buttons
+  // Edit the original message to show disabled buttons but keep them visible
   try {
     const currentButtons = ctx.callbackQuery.message.reply_markup.inline_keyboard;
     const newButtons = currentButtons.map(row => {
       return row.map(button => {
         if (button.text === TEXT.removeBankBtn[user.language]) {
           return Markup.button.callback(`✔ ${button.text}`, "_DISABLED_REMOVE_BANK");
-        } else if (button.text === TEXT.addBankBtn[user.language] || 
-                   button.text === TEXT.bankEditDoneBtn[user.language]) {
+        } else {
           return Markup.button.callback(button.text, `_DISABLED_${button.callback_data}`);
         }
-        return button;
       });
     });
 
@@ -3428,6 +3491,7 @@ bot.action("REMOVE_BANK", async (ctx) => {
     console.error("Error editing message markup:", err);
   }
 
+  // Send new message with bank selection for removal
   return ctx.reply(
     user.language === "am" 
       ? "ለማስወገድ የሚፈልጉትን የባንክ መግለጫ ይምረጡ:" 
@@ -3435,6 +3499,7 @@ bot.action("REMOVE_BANK", async (ctx) => {
     Markup.inlineKeyboard(bankButtons)
   );
 });
+
 
 // Add handler for canceling remove bank operation
 bot.action("BANK_REMOVE_CANCEL", async (ctx) => {
