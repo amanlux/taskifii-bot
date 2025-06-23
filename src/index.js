@@ -873,6 +873,7 @@ function askSkillLevel(ctx) {
       return;
     }
     // Handle phone editing
+        // In the text handler for phone editing:
     if (ctx.session.editing.field === "phone") {
       const phoneRegex = /^\+?\d{5,14}$/;
       if (!phoneRegex.test(text)) {
@@ -887,31 +888,39 @@ function askSkillLevel(ctx) {
         );
       }
       user.phone = text;
-      await user.save();
       
+      // Save and refresh user
+      await user.save();
+      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
+      
+      try {
+        // Update admin channel post
+        await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId);
+      } catch (err) {
+        console.error("Failed to update admin profile post:", err);
+      }
+
       // Send success confirmation
       await ctx.reply(TEXT.profileUpdated[user.language]);
-      
-      // Update admin channel
-      await updateAdminProfilePost(ctx, user, ctx.session.editing.adminMessageId);
-      
-      // Return to profile edit menu
-      const editButtons = Markup.inlineKeyboard([
-        [Markup.button.callback(TEXT.editNameBtn[user.language], "EDIT_NAME")],
-        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "EDIT_PHONE")],
-        [Markup.button.callback(TEXT.editEmailBtn[user.language], "EDIT_EMAIL")],
-        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "EDIT_USERNAME")],
-        [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_BANKS")],
-        [Markup.button.callback(TEXT.backBtn[user.language], "EDIT_BACK")]
+
+      // Build profile WITHOUT congratulations
+      const menu = Markup.inlineKeyboard([
+        [ 
+          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
+          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
+          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
+        ]
       ]);
 
-      return ctx.reply(
-        `${TEXT.editProfilePrompt[user.language]}\n\n${buildProfileText(user)}`,
-        editButtons
-      );
-    }
+      // Send new profile message WITHOUT congratulations
+      await ctx.reply(buildProfileText(user, false), menu);
 
+      // Clear editing session
+      delete ctx.session.editing;
+      return;
+    }
     // Handle email editing
+        // In the text handler for email editing:
     if (ctx.session.editing.field === "email") {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(text)) {
@@ -926,31 +935,40 @@ function askSkillLevel(ctx) {
         );
       }
       user.email = text;
-      await user.save();
       
+      // Save and refresh user
+      await user.save();
+      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
+      
+      try {
+        // Update admin channel post
+        await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId);
+      } catch (err) {
+        console.error("Failed to update admin profile post:", err);
+      }
+
       // Send success confirmation
       await ctx.reply(TEXT.profileUpdated[user.language]);
-      
-      // Update admin channel
-      await updateAdminProfilePost(ctx, user, ctx.session.editing.adminMessageId);
-      
-      // Return to profile edit menu
-      const editButtons = Markup.inlineKeyboard([
-        [Markup.button.callback(TEXT.editNameBtn[user.language], "EDIT_NAME")],
-        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "EDIT_PHONE")],
-        [Markup.button.callback(TEXT.editEmailBtn[user.language], "EDIT_EMAIL")],
-        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "EDIT_USERNAME")],
-        [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_BANKS")],
-        [Markup.button.callback(TEXT.backBtn[user.language], "EDIT_BACK")]
+
+      // Build profile WITHOUT congratulations
+      const menu = Markup.inlineKeyboard([
+        [ 
+          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
+          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
+          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
+        ]
       ]);
 
-      return ctx.reply(
-        `${TEXT.editProfilePrompt[user.language]}\n\n${buildProfileText(user)}`,
-        editButtons
-      );
+      // Send new profile message WITHOUT congratulations
+      await ctx.reply(buildProfileText(user, false), menu);
+
+      // Clear editing session
+      delete ctx.session.editing;
+      return;
     }
 
     // Handle username editing (typed override)
+        // In the text handler for username editing:
     if (ctx.session.editing.field === "username") {
       const reply = text;
       const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
@@ -967,28 +985,36 @@ function askSkillLevel(ctx) {
       }
 
       user.username = reply;
-      await user.save();
       
+      // Save and refresh user
+      await user.save();
+      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
+      
+      try {
+        // Update admin channel post
+        await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId);
+      } catch (err) {
+        console.error("Failed to update admin profile post:", err);
+      }
+
       // Send success confirmation
       await ctx.reply(TEXT.profileUpdated[user.language]);
-      
-      // Update admin channel
-      await updateAdminProfilePost(ctx, user, ctx.session.editing.adminMessageId);
-      
-      // Return to profile edit menu
-      const editButtons = Markup.inlineKeyboard([
-        [Markup.button.callback(TEXT.editNameBtn[user.language], "EDIT_NAME")],
-        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "EDIT_PHONE")],
-        [Markup.button.callback(TEXT.editEmailBtn[user.language], "EDIT_EMAIL")],
-        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "EDIT_USERNAME")],
-        [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_BANKS")],
-        [Markup.button.callback(TEXT.backBtn[user.language], "EDIT_BACK")]
+
+      // Build profile WITHOUT congratulations
+      const menu = Markup.inlineKeyboard([
+        [ 
+          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
+          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
+          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
+        ]
       ]);
 
-      return ctx.reply(
-        `${TEXT.editProfilePrompt[user.language]}\n\n${buildProfileText(user)}`,
-        editButtons
-      );
+      // Send new profile message WITHOUT congratulations
+      await ctx.reply(buildProfileText(user, false), menu);
+
+      // Clear editing session
+      delete ctx.session.editing;
+      return;
     }
 
     // Handle bank editing
