@@ -3021,6 +3021,7 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
 
 // Add handler for bank details edit
 // In the EDIT_BANKS action handler:
+// In the EDIT_BANKS action handler:
 bot.action("EDIT_BANKS", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
@@ -3035,12 +3036,16 @@ bot.action("EDIT_BANKS", async (ctx) => {
     // Highlight "Bank Details" and disable all buttons
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
-        [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
-        [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
-        [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
-        [Markup.button.callback(`✔ ${TEXT.editBanksBtn[user.language]}`, "_DISABLED_EDIT_BANKS")],
-        [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
+        [
+          Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME"),
+          Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE"),
+          Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")
+        ],
+        [
+          Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME"),
+          Markup.button.callback(`✔ ${TEXT.editBanksBtn[user.language]}`, "_DISABLED_EDIT_BANKS"),
+          Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")
+        ]
       ]
     });
   } catch (err) {
@@ -3053,7 +3058,7 @@ bot.action("EDIT_BANKS", async (ctx) => {
     return ctx.reply(user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
   }
 
-  // Create buttons for each bank entry
+  // Create buttons for each bank entry - ensure each is in its own array to form a row
   const bankButtons = user.bankDetails.map((bank, index) => {
     return [Markup.button.callback(
       `${index + 1}. ${bank.bankName} (${bank.accountNumber})`, 
@@ -3062,28 +3067,25 @@ bot.action("EDIT_BANKS", async (ctx) => {
   });
 
   // Add additional options conditionally
-  const additionalButtons = [];
+  const actionButtons = [];
   
   // Only show Add button if less than 10 banks
   if (user.bankDetails.length < 10) {
-    additionalButtons.push(Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK"));
+    actionButtons.push(Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK"));
   }
   
   // Only show Remove button if more than 1 bank
   if (user.bankDetails.length > 1) {
-    if (additionalButtons.length > 0) {
-      // If Add button is also present, put Remove on same row
-      additionalButtons[additionalButtons.length - 1].push(
-        Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")
-      );
-    } else {
-      // Otherwise put Remove on its own row
-      additionalButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")]);
-    }
+    actionButtons.push(Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK"));
   }
   
-  if (additionalButtons.length > 0) {
-    bankButtons.push(...additionalButtons);
+  // Add action buttons if any exist
+  if (actionButtons.length > 0) {
+    // Split into rows of max 2 buttons each
+    for (let i = 0; i < actionButtons.length; i += 2) {
+      const row = actionButtons.slice(i, i + 2);
+      bankButtons.push(row);
+    }
   }
 
   // Always show Done button
@@ -3466,26 +3468,25 @@ bot.action("REMOVE_BANK", async (ctx) => {
     )];
   });
 
-  // Add back button (disabled)
+  // Add back button
   bankButtons.push([
     Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_BANK_REMOVE_BACK")
   ]);
 
-  // Edit the original message to show disabled buttons but keep them visible
+  // Edit the original message to show disabled buttons
   try {
-    const currentButtons = ctx.callbackQuery.message.reply_markup.inline_keyboard;
-    const newButtons = currentButtons.map(row => {
-      return row.map(button => {
-        if (button.text === TEXT.removeBankBtn[user.language]) {
-          return Markup.button.callback(`✔ ${button.text}`, "_DISABLED_REMOVE_BANK");
-        } else {
-          return Markup.button.callback(button.text, `_DISABLED_${button.callback_data}`);
-        }
-      });
-    });
+    const currentButtons = [
+      [
+        Markup.button.callback(`✔ ${TEXT.removeBankBtn[user.language]}`, "_DISABLED_REMOVE_BANK"),
+        Markup.button.callback(TEXT.addBankBtn[user.language], "_DISABLED_ADD_BANK")
+      ],
+      [
+        Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")
+      ]
+    ];
 
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: newButtons
+      inline_keyboard: currentButtons
     });
   } catch (err) {
     console.error("Error editing message markup:", err);
