@@ -969,6 +969,7 @@ function askSkillLevel(ctx) {
 
     // Handle username editing (typed override)
         // In the text handler for username editing:
+        // In the text handler for username editing:
     if (ctx.session.editing.field === "username") {
       const reply = text;
       const userHandleRegex = /^[A-Za-z0-9_]{5,}$/;
@@ -984,37 +985,43 @@ function askSkillLevel(ctx) {
         );
       }
 
-      user.username = reply;
-      
-      // Save and refresh user
-      await user.save();
-      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
-      
+      // Mark that username was provided to disable "Yes, keep it" button
+      ctx.session.usernameProvided = true;
+
+      // Disable the "Yes, keep it" button from the previous message
       try {
-        // Update admin channel post
-        await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId);
+        await ctx.telegram.editMessageReplyMarkup(
+          ctx.chat.id,
+          ctx.message.message_id - 1,
+          null,
+          {
+            inline_keyboard: [[
+              Markup.button.callback(
+                user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+                "_DISABLED_USERNAME_KEEP_EDIT"
+              )
+            ]]
+          }
+        );
       } catch (err) {
-        console.error("Failed to update admin profile post:", err);
+        console.error("Failed to edit message reply markup:", err);
       }
 
-      // Send success confirmation
-      await ctx.reply(TEXT.profileUpdated[user.language]);
-
-      // Build profile WITHOUT congratulations
-      const menu = Markup.inlineKeyboard([
-        [ 
-          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-        ]
-      ]);
-
-      // Send new profile message WITHOUT congratulations
-      await ctx.reply(buildProfileText(user, false), menu);
-
-      // Clear editing session
-      delete ctx.session.editing;
-      return;
+      // Store the new username in session without saving yet
+      ctx.session.newUsername = reply;
+      
+      // Ask for confirmation
+      return ctx.reply(
+        user.language === "am" 
+          ? `ይህን አዲስ የተጠቃሚ ስም ለመቀበል ይፈቅዳሉ? @${reply}`
+          : `Do you want to keep this new username? @${reply}`,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback(user.language === "am" ? "አዎን" : "Yes", "CONFIRM_NEW_USERNAME"),
+            Markup.button.callback(user.language === "am" ? "አይ" : "No", "CANCEL_NEW_USERNAME")
+          ]
+        ])
+      );
     }
 
     // Handle bank editing
@@ -2888,7 +2895,10 @@ bot.action("EDIT_USERNAME", async (ctx) => {
 
   // Initialize session
   ctx.session = ctx.session || {};
-  ctx.session.editing = { field: "username" };
+  ctx.session.editing = {
+    field: "username",
+    adminMessageId: user.adminMessageId
+  };
 
   try {
     // Highlight "Username" and disable all buttons
@@ -2912,12 +2922,23 @@ bot.action("EDIT_USERNAME", async (ctx) => {
     ? TEXT.askUsername.am.replace("%USERNAME%", currentHandle || "<none>")
     : TEXT.askUsername.en.replace("%USERNAME%", currentHandle || "<none>");
   
-  return ctx.reply(
-    promptText,
-    Markup.inlineKeyboard([[Markup.button.callback(
+  // Send the prompt with a disabled "Yes, keep it" button if username was already provided
+  const buttons = [];
+  if (!ctx.session.usernameProvided) {
+    buttons.push(Markup.button.callback(
       user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
       "USERNAME_KEEP_EDIT"
-    )]])
+    ));
+  } else {
+    buttons.push(Markup.button.callback(
+      user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+      "_DISABLED_USERNAME_KEEP_EDIT"
+    ));
+  }
+
+  return ctx.reply(
+    promptText,
+    Markup.inlineKeyboard([buttons])
   );
 });
 
@@ -2927,6 +2948,11 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
   const tgId = ctx.from.id;
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
+
+  // If username was already provided, don't proceed
+  if (ctx.session?.usernameProvided) {
+    return ctx.answerCbQuery("Please confirm the new username first", { show_alert: true });
+  }
 
   // Highlight "Yes, keep it" and disable it
   try {
@@ -2957,6 +2983,9 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
   
   // Update admin channel
   await updateAdminProfilePost(ctx, user);
+  
+  // Clear session
+  delete ctx.session.editing;
   
   // Send success message and return to profile
   await ctx.reply(TEXT.profileUpdated[user.language]);
@@ -3213,6 +3242,106 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
   bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
+
+bot.action("CONFIRM_NEW_USERNAME", async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+
+  if (!ctx.session?.newUsername) {
+    return ctx.reply("No username to confirm. Please try again.");
+  }
+
+  // Highlight "Yes" and disable both buttons
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(
+          user.language === "am" ? "✔ አዎን" : "✔ Yes", 
+          "_DISABLED_CONFIRM_NEW_USERNAME"
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "አይ" : "No",
+          "_DISABLED_CANCEL_NEW_USERNAME"
+        )
+      ]]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
+  // Update username
+  user.username = ctx.session.newUsername;
+  await user.save();
+  
+  // Update admin channel
+  await updateAdminProfilePost(ctx, user);
+  
+  // Clear session
+  delete ctx.session.editing;
+  delete ctx.session.newUsername;
+  delete ctx.session.usernameProvided;
+
+  // Send success message and return to profile
+  await ctx.reply(TEXT.profileUpdated[user.language]);
+  
+  // Restore original buttons
+  const menu = Markup.inlineKeyboard([
+    [ 
+      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
+      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
+      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
+    ]
+  ]);
+
+  return ctx.reply(buildProfileText(user), menu);
+});
+
+bot.action("CANCEL_NEW_USERNAME", async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+
+  // Highlight "No" and disable both buttons
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(
+          user.language === "am" ? "አዎን" : "Yes", 
+          "_DISABLED_CONFIRM_NEW_USERNAME"
+        ),
+        Markup.button.callback(
+          user.language === "am" ? "✔ አይ" : "✔ No",
+          "_DISABLED_CANCEL_NEW_USERNAME"
+        )
+      ]]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
+  // Clear session
+  delete ctx.session.editing;
+  delete ctx.session.newUsername;
+  delete ctx.session.usernameProvided;
+
+  // Return to profile edit menu
+  const editButtons = Markup.inlineKeyboard([
+    [Markup.button.callback(TEXT.editNameBtn[user.language], "EDIT_NAME")],
+    [Markup.button.callback(TEXT.editPhoneBtn[user.language], "EDIT_PHONE")],
+    [Markup.button.callback(TEXT.editEmailBtn[user.language], "EDIT_EMAIL")],
+    [Markup.button.callback(TEXT.editUsernameBtn[user.language], "EDIT_USERNAME")],
+    [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_BANKS")],
+    [Markup.button.callback(TEXT.backBtn[user.language], "EDIT_BACK")]
+  ]);
+
+  return ctx.reply(
+    `${TEXT.editProfilePrompt[user.language]}\n\n${buildProfileText(user)}`,
+    editButtons
+  );
+});
 // Error handling middleware
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
