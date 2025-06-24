@@ -713,7 +713,13 @@ function buildMenu(ctx, buttons, clickedData) {
     )
   );
 }
-function askSkillLevel(ctx, lang = "en") {
+function askSkillLevel(ctx, lang = null) {
+  // Get language from user if not provided
+  if (!lang) {
+    const user = ctx.session?.user || {};
+    lang = user.language || "en";
+  }
+  
   return ctx.reply(
     TEXT.askSkillLevel[lang],
     Markup.inlineKeyboard([
@@ -2091,7 +2097,8 @@ async function handlePaymentFee(ctx, draft) {
 
 async function handleTimeToComplete(ctx, draft) {
   const text = ctx.message.text?.trim();
-  const lang = ctx.session?.user?.language || "en"; // Safely get language
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en"; 
   
   if (!/^\d+$/.test(text)) {
     return ctx.reply(TEXT.digitsOnlyError[lang]);
@@ -2099,7 +2106,7 @@ async function handleTimeToComplete(ctx, draft) {
 
   const hrs = parseInt(text,10);
   if (hrs <=0 || hrs>120) {
-    return ctx.reply(TEXT.timeToCompleteError[lang]); // Use translation
+    return ctx.reply(TEXT.timeToCompleteError[lang]); 
   }
   draft.timeToComplete = hrs;
   await draft.save();
@@ -2120,7 +2127,7 @@ async function handleTimeToComplete(ctx, draft) {
   }
   
   ctx.session.taskFlow.step = "revisionTime";
-  return ctx.reply(TEXT.askRevisionTime[lang]); // Use translation
+  return ctx.reply(TEXT.askRevisionTime[lang]); 
 }
 
 async function handleRevisionTime(ctx, draft) {
