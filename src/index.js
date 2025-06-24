@@ -1907,8 +1907,16 @@ async function handleRelatedFile(ctx, draft) {
 
 
 function askFieldsPage(ctx, page) {
+  // Get user properly like other handlers do
   const user = ctx.session?.user || {};
-  const lang = user.language || "en"; // Get language from user session
+  let lang = user.language;
+  
+  // If not in session, get from DB like other handlers
+  if (!lang) {
+    const dbUser = await User.findOne({ telegramId: ctx.from.id });
+    lang = dbUser?.language || "en";
+  }
+
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
   const keyboard = [];
@@ -1928,7 +1936,7 @@ function askFieldsPage(ctx, page) {
   if (nav.length) keyboard.push(nav);
   
   return ctx.reply(
-    TEXT.fieldsIntro[lang], // Use the correct language
+    TEXT.fieldsIntro[lang], // Now properly using the correct language
     Markup.inlineKeyboard(keyboard)
   );
 }
