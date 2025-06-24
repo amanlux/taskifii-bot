@@ -1665,7 +1665,8 @@ bot.action("TASK_EDIT", async (ctx) => {
   // Fetch the draft
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
 
@@ -1858,7 +1859,7 @@ async function handleRelatedFile(ctx, draft) {
     fileId = ctx.message.audio.file_id;
     fileType = "audio";
   } else {
-    return ctx.reply(TEXT.relatedFileError[lang]); // Use language-specific error
+    return ctx.reply(TEXT.relatedFileError[lang]);
   }
 
   // 2) Save the related file info to the draft
@@ -1866,6 +1867,7 @@ async function handleRelatedFile(ctx, draft) {
   await draft.save();
 
   // 3) Update the original "related file" prompt to disable skip button
+  // BUT DON'T HIGHLIGHT IT since it wasn't clicked
   try {
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
@@ -1873,13 +1875,15 @@ async function handleRelatedFile(ctx, draft) {
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
+          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP") // No checkmark prefix
         ]]
       }
     );
   } catch (err) {
     console.error("Failed to edit message reply markup:", err);
   }
+
+  // Rest of the function remains the same...
   // If in edit‐mode, show updated preview
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
@@ -1934,7 +1938,8 @@ bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
   const idx = parseInt(ctx.match[1]);
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "ረቂቁ ጊዜው አልፎታል" : "Draft expired.");
   }
   
@@ -2065,7 +2070,8 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
 
 async function handlePaymentFee(ctx, draft) {
   const text = ctx.message.text?.trim();
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   if (!/^\d+$/.test(text)) {
     return ctx.reply(TEXT.paymentFeeErrorDigits[lang]);
   }
@@ -2132,7 +2138,8 @@ async function handleTimeToComplete(ctx, draft) {
 
 async function handleRevisionTime(ctx, draft) {
   const input = ctx.message.text?.trim();
-  const lang  = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
 
   // Parse as float
   const revHours = parseFloat(input);
@@ -2170,7 +2177,8 @@ async function handleRevisionTime(ctx, draft) {
 
 async function handlePenaltyPerHour(ctx, draft) {
   const text = ctx.message.text?.trim();
-  const lang = ctx.session?.user?.language || "en"; // Safely get language
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   
   if (!/^\d+$/.test(text)) {
   return ctx.reply(TEXT.digitsOnlyError[lang]);
@@ -2204,7 +2212,8 @@ async function handlePenaltyPerHour(ctx, draft) {
 
 async function handleExpiryHours(ctx, draft) {
   const text = ctx.message.text?.trim();
-  const lang = ctx.session?.user?.language || "en";  // Safely get language
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   
   if (!/^\d+$/.test(text)) {
     return ctx.reply(TEXT.digitsOnlyError[lang]); // Now using translated version
@@ -2407,7 +2416,8 @@ bot.action("EDIT_description", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2415,7 +2425,8 @@ bot.action("EDIT_description", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(TEXT.descriptionPrompt[lang]);
 });
 
@@ -2424,11 +2435,13 @@ bot.action("EDIT_relatedFile", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   ctx.session.taskFlow = {
     step: "relatedFile",
     draftId: draft._id.toString(),
@@ -2503,7 +2516,8 @@ bot.action("EDIT_fields", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   draft.fields = [];
@@ -2521,7 +2535,8 @@ bot.action("EDIT_skillLevel", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2529,7 +2544,8 @@ bot.action("EDIT_skillLevel", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(
     TEXT.askSkillLevel[lang],
     Markup.inlineKeyboard([
@@ -2545,7 +2561,8 @@ bot.action("EDIT_paymentFee", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2553,7 +2570,8 @@ bot.action("EDIT_paymentFee", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(TEXT.askPaymentFee[lang]);
 });
 bot.action("EDIT_timeToComplete", async (ctx) => {
@@ -2561,7 +2579,8 @@ bot.action("EDIT_timeToComplete", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2569,7 +2588,8 @@ bot.action("EDIT_timeToComplete", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(TEXT.askTimeToComplete[lang]);
 });
 bot.action("EDIT_revisionTime", async (ctx) => {
@@ -2577,7 +2597,8 @@ bot.action("EDIT_revisionTime", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2585,7 +2606,8 @@ bot.action("EDIT_revisionTime", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(TEXT.askRevisionTime[lang]);
 });
 bot.action("EDIT_penaltyPerHour", async (ctx) => {
@@ -2593,7 +2615,8 @@ bot.action("EDIT_penaltyPerHour", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2601,7 +2624,8 @@ bot.action("EDIT_penaltyPerHour", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(TEXT.askPenaltyPerHour[lang]);
 });
 bot.action("EDIT_expiryHours", async (ctx) => {
@@ -2609,7 +2633,8 @@ bot.action("EDIT_expiryHours", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2617,7 +2642,8 @@ bot.action("EDIT_expiryHours", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(TEXT.askExpiryHours[lang]);
 });
 bot.action("EDIT_exchangeStrategy", async (ctx) => {
@@ -2625,7 +2651,8 @@ bot.action("EDIT_exchangeStrategy", async (ctx) => {
   try { await ctx.deleteMessage(); } catch (_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
-    const lang = ctx.session?.user?.language || "en";
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
@@ -2633,7 +2660,8 @@ bot.action("EDIT_exchangeStrategy", async (ctx) => {
     draftId: draft._id.toString(),
     isEdit: true
   };
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   return ctx.reply(
     TEXT.askExchangeStrategy[lang],
     Markup.inlineKeyboard([
