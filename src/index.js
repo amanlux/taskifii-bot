@@ -3042,7 +3042,7 @@ bot.action("EDIT_BANKS", async (ctx) => {
     )];
   });
 
-  // Add additional options in a stable layout
+  // Add additional options
   const actionButtons = [];
   
   // Only show Add button if less than 10 banks
@@ -3084,25 +3084,33 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
     bankIndex: index
   };
 
-  // Highlight the selected bank entry and disable all buttons
+  // Create buttons for each bank entry with the selected one highlighted
+  const bankButtons = user.bankDetails.map((bank, i) => {
+    return [Markup.button.callback(
+      i === index ? `✔ ${i + 1}. ${bank.bankName} (${bank.accountNumber})` : `${i + 1}. ${bank.bankName} (${bank.accountNumber})`,
+      "_DISABLED_EDIT_BANK"
+    )];
+  });
+
+  // Add additional options - maintaining the same visibility rules as EDIT_BANKS
+  const actionButtons = [];
+  
+  // Only show Add button if less than 10 banks
+  if (user.bankDetails.length < 10) {
+    actionButtons.push([Markup.button.callback(TEXT.addBankBtn[user.language], "_DISABLED_ADD_BANK")]);
+  }
+  
+  // Only show Remove button if more than 1 bank
+  if (user.bankDetails.length > 1) {
+    actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")]);
+  }
+  
+  // Add Done button
+  actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")]);
+
   try {
-    const bankButtons = user.bankDetails.map((bank, i) => {
-      return [Markup.button.callback(
-        i === index ? `✔ ${i + 1}. ${bank.bankName} (${bank.accountNumber})` : `${i + 1}. ${bank.bankName} (${bank.accountNumber})`,
-        i === index ? "_DISABLED_EDIT_BANK" : "_DISABLED_EDIT_BANK"
-      )];
-    });
-
-    bankButtons.push([
-      Markup.button.callback(TEXT.addBankBtn[user.language], "_DISABLED_ADD_BANK"),
-      Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")
-    ]);
-    bankButtons.push([
-      Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")
-    ]);
-
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: bankButtons
+      inline_keyboard: [...bankButtons, ...actionButtons]
     });
   } catch (err) {
     console.error("Error editing message markup:", err);
@@ -3133,25 +3141,31 @@ bot.action("ADD_BANK", async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.editing = { field: "bankAdding" };
 
-  // Highlight "Add Bank" and disable all buttons
+  // Create buttons for each bank entry
+  const bankButtons = user.bankDetails.map((bank, index) => {
+    return [Markup.button.callback(
+      `${index + 1}. ${bank.bankName} (${bank.accountNumber})`,
+      "_DISABLED_BANK_ENTRY"
+    )];
+  });
+
+  // Add additional options - maintaining the same visibility rules
+  const actionButtons = [];
+  
+  // Highlight Add button and disable it
+  actionButtons.push([Markup.button.callback(`✔ ${TEXT.addBankBtn[user.language]}`, "_DISABLED_ADD_BANK")]);
+  
+  // Only show Remove button if more than 1 bank
+  if (user.bankDetails.length > 1) {
+    actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")]);
+  }
+  
+  // Add Done button
+  actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")]);
+
   try {
-    const bankButtons = user.bankDetails.map((bank, index) => {
-      return [Markup.button.callback(
-        `${index + 1}. ${bank.bankName} (${bank.accountNumber})`,
-        "_DISABLED_EDIT_BANK"
-      )];
-    });
-
-    bankButtons.push([
-      Markup.button.callback(`✔ ${TEXT.addBankBtn[user.language]}`, "_DISABLED_ADD_BANK"),
-      Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")
-    ]);
-    bankButtons.push([
-      Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")
-    ]);
-
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: bankButtons
+      inline_keyboard: [...bankButtons, ...actionButtons]
     });
   } catch (err) {
     console.error("Error editing message markup:", err);
