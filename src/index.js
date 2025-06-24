@@ -3034,14 +3034,14 @@ bot.action("EDIT_BANKS", async (ctx) => {
   ctx.session.editing = ctx.session.editing || {};
 
   try {
-    // Highlight "Bank Details" and disable all buttons
+    // Highlight "Bank Details" and disable all buttons in a stable layout
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [Markup.button.callback(`✔ ${TEXT.editBanksBtn[user.language]}`, "_DISABLED_EDIT_BANKS")],
         [Markup.button.callback(TEXT.editNameBtn[user.language], "_DISABLED_EDIT_NAME")],
         [Markup.button.callback(TEXT.editPhoneBtn[user.language], "_DISABLED_EDIT_PHONE")],
         [Markup.button.callback(TEXT.editEmailBtn[user.language], "_DISABLED_EDIT_EMAIL")],
         [Markup.button.callback(TEXT.editUsernameBtn[user.language], "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(`✔ ${TEXT.editBanksBtn[user.language]}`, "_DISABLED_EDIT_BANKS")],
         [Markup.button.callback(TEXT.backBtn[user.language], "_DISABLED_EDIT_BACK")]
       ]
     });
@@ -3063,7 +3063,7 @@ bot.action("EDIT_BANKS", async (ctx) => {
     )];
   });
 
-  // Add additional options
+  // Add additional options in a stable layout
   const actionButtons = [];
   
   // Only show Add button if less than 10 banks
