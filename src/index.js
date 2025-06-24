@@ -1626,7 +1626,7 @@ bot.action("POST_TASK", async (ctx) => {
   // Ensure taskFlow exists
   ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "description";
-
+  
   // Edit the existing message to show disabled buttons - STACKED VERTICALLY
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
@@ -1769,7 +1769,8 @@ async function handleDescription(ctx, draft) {
 }
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   
   if (!ctx.session.taskFlow) {
     ctx.session.taskFlow = {};
@@ -1778,15 +1779,13 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
   try {
-    // Edit the original prompt to show ✔️ Skip (disabled)
-    // Replace this part in TASK_SKIP_FILE:
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP") // Keep the tick mark here since it was actually clicked
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
         ]]
       }
     );
@@ -1809,7 +1808,9 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
 
 
 async function handleRelatedFile(ctx, draft) {
-  const lang = ctx.session?.user?.language || "en";
+  // Get user for language
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   
   if (!ctx.session.taskFlow) {
     ctx.session.taskFlow = {};
@@ -1842,14 +1843,13 @@ async function handleRelatedFile(ctx, draft) {
 
   // 3) Update the original "related file" prompt to disable skip button
   try {
-    // Replace this part in handleRelatedFile:
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP") // Removed the tick mark
+          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP")
         ]]
       }
     );
@@ -1992,28 +1992,34 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
 bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const lvl = ctx.match[1];
-  const lang = ctx.session.user.language;
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found.");
+  
+  const lang = user.language || "en";
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) return ctx.reply(lang === "am" ? "ረቂቁ ጊዜው አልፎታል" : "Draft expired.");
 
   // Highlight selected button and disable all
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
-      [Markup.button.callback(
-        lvl === "Beginner" ? `✔ ${TEXT.skillLevelBeginner[lang]}` : TEXT.skillLevelBeginner[lang],
-        "_DISABLED_SKILL_Beginner",
-        { disabled: true }
-      )],
-      [Markup.button.callback(
-        lvl === "Intermediate" ? `✔ ${TEXT.skillLevelIntermediate[lang]}` : TEXT.skillLevelIntermediate[lang],
-        "_DISABLED_SKILL_Intermediate",
-        { disabled: true }
-      )],
-      [Markup.button.callback(
-        lvl === "Professional" ? `✔ ${TEXT.skillLevelProfessional[lang]}` : TEXT.skillLevelProfessional[lang],
-        "_DISABLED_SKILL_Professional",
-        { disabled: true }
-      )]
+      [
+        Markup.button.callback(
+          lvl === "Beginner" ? `✔ ${TEXT.skillLevelBeginner[lang]}` : TEXT.skillLevelBeginner[lang],
+          "_DISABLED_SKILL_Beginner"
+        )
+      ],
+      [
+        Markup.button.callback(
+          lvl === "Intermediate" ? `✔ ${TEXT.skillLevelIntermediate[lang]}` : TEXT.skillLevelIntermediate[lang],
+          "_DISABLED_SKILL_Intermediate"
+        )
+      ],
+      [
+        Markup.button.callback(
+          lvl === "Professional" ? `✔ ${TEXT.skillLevelProfessional[lang]}` : TEXT.skillLevelProfessional[lang],
+          "_DISABLED_SKILL_Professional"
+        )
+      ]
     ]
   });
 
@@ -2023,7 +2029,6 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ የስልጠና ደረጃ ተዘምኗል" : "✅ Skill level updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
@@ -2035,8 +2040,11 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
     return;
   }
 
+  // Ensure taskFlow exists in session
+  ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "paymentFee";
-  return ctx.reply(lang === "am" ? "ክፍያው መጠን በብር ያስገቡ (ከ50 ብር አይነስ):" : "How much is the payment fee amount (in birr)? (must be ≥50)");
+  
+  return ctx.reply(TEXT.askPaymentFee[lang]);
 });
 
 
@@ -2422,7 +2430,8 @@ bot.action("EDIT_relatedFile", async (ctx) => {
 
 bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
   
   if (!ctx.session.taskFlow) {
     ctx.session.taskFlow = {};
@@ -2431,15 +2440,13 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
   try {
-    // Edit the original prompt to show ✔️ Skip (disabled)
-    // Replace this part in TASK_SKIP_FILE_EDIT:
     await ctx.telegram.editMessageReplyMarkup(
       ctx.chat.id,
       promptId,
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP") // Keep the tick mark here since it was actually clicked
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
         ]]
       }
     );
