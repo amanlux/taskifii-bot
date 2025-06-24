@@ -675,15 +675,17 @@ function startBot() {
   
   // Add this session initialization middleware
   bot.use(async (ctx, next) => {
+    // Initialize session if not exists
     ctx.session = ctx.session || {};
-    ctx.session.user = ctx.session.user || {};
+    
     // Get user from DB if not in session
-    if (!ctx.session.user.telegramId && ctx.from) {
+    if (!ctx.session.user && ctx.from) {
       const user = await User.findOne({ telegramId: ctx.from.id });
       if (user) {
-        ctx.session.user = user.toObject(); // Convert mongoose doc to plain object
+        ctx.session.user = user.toObject(); // Store the full user object
       }
     }
+    
     return next();
   });
   
@@ -1733,7 +1735,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
 
 async function handleDescription(ctx, draft) {
   const text = ctx.message.text?.trim();
-  const lang = ctx.session?.user?.language || "en";  // Safe language access
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
 
   if (!text || text.length < 20 || text.length > 1250) {
     return ctx.reply(TEXT.descriptionError[lang]);
@@ -1745,7 +1748,6 @@ async function handleDescription(ctx, draft) {
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ መግለጫው ተዘምኗል" : "✅ Description updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
@@ -1800,7 +1802,23 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
     await draft.save();
   }
 
-  // Advance to next step
+  // In edit mode, return to preview instead of proceeding to fields
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+      ], { parse_mode: "Markdown" })
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+
+  // Original behavior for non-edit flow
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
@@ -1834,7 +1852,7 @@ async function handleRelatedFile(ctx, draft) {
     fileId = ctx.message.audio.file_id;
     fileType = "audio";
   } else {
-    return ctx.reply(TEXT.relatedFileError[lang]);
+    return ctx.reply(TEXT.relatedFileError[lang]); // Use language-specific error
   }
 
   // 2) Save the related file info to the draft
@@ -1849,14 +1867,13 @@ async function handleRelatedFile(ctx, draft) {
       undefined,
       {
         inline_keyboard: [[
-          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP")
+          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
         ]]
       }
     );
   } catch (err) {
     console.error("Failed to edit message reply markup:", err);
   }
-
   // If in edit‐mode, show updated preview
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
@@ -1880,7 +1897,7 @@ async function handleRelatedFile(ctx, draft) {
 
 
 function askFieldsPage(ctx, page) {
-  const user = ctx.session.user || {};
+  const user = ctx.session?.user || {};
   const lang = user.language || "en"; // Get language from user session
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
@@ -1944,30 +1961,26 @@ bot.action(/TASK_FIELDS_PAGE_(\d+)/, async (ctx) => {
 
 bot.action("TASK_FIELDS_DONE", async (ctx) => {
   await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft || !draft.fields.length) {
-    const lang = ctx.session?.user?.language || "en";
     return ctx.reply(lang === "am" ? "ቢያንስ አንድ መስክ ይምረጡ" : "Select at least one field before proceeding.");
   }
 
-  const lang = ctx.session?.user?.language || "en";
-  const selectedText = `${TEXT.fieldsSelected[lang]} ${draft.fields.join(", ")}`;
-  
-  // Edit the message to show the selections and disabled buttons
+  // Edit the message to show selections with vertical buttons
   await ctx.editMessageText(
-    selectedText,
+    `${TEXT.fieldsSelected[lang]} ${draft.fields.join(", ")}`,
     Markup.inlineKeyboard([
-      [
-        Markup.button.callback(TEXT.fieldsAddMore[lang], "_DISABLED_ADD_MORE"),
-        Markup.button.callback(`✔ ${TEXT.fieldsDone[lang]}`, "_DISABLED_DONE")
-      ]
+      [Markup.button.callback(TEXT.fieldsAddMore[lang], "_DISABLED_ADD_MORE")],
+      [Markup.button.callback(`✔ ${TEXT.fieldsDone[lang]}`, "_DISABLED_DONE")]
     ])
   );
 
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ መስኮች ተዘምነዋል" : "✅ Fields updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
@@ -1983,11 +1996,7 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "skillLevel";
   
-  // Get user for language
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const userLang = user?.language || "en";
-  
-  return askSkillLevel(ctx, userLang);
+  return askSkillLevel(ctx, lang);
 });
 bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
