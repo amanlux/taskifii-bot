@@ -858,11 +858,9 @@ function askSkillLevel(ctx) {
 
       // Build profile WITHOUT congratulations
       const menu = Markup.inlineKeyboard([
-        [ 
-          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-        ]
+        [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+        [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
       ]);
 
       // Send new profile message WITHOUT congratulations
@@ -905,11 +903,9 @@ function askSkillLevel(ctx) {
 
       // Build profile WITHOUT congratulations
       const menu = Markup.inlineKeyboard([
-        [ 
-          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-        ]
+        [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+        [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
       ]);
 
       // Send new profile message WITHOUT congratulations
@@ -952,11 +948,9 @@ function askSkillLevel(ctx) {
 
       // Build profile WITHOUT congratulations
       const menu = Markup.inlineKeyboard([
-        [ 
-          Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-          Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-          Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-        ]
+        [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+        [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
       ]);
 
       // Send new profile message WITHOUT congratulations
@@ -1526,11 +1520,9 @@ function askSkillLevel(ctx) {
   
   // Build and send user profile WITH congratulations
   const menu = Markup.inlineKeyboard([
-    [ 
-      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-    ]
+    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
   ]);
   
   // Send profile WITH congratulations (showCongrats = true)
@@ -2800,12 +2792,11 @@ bot.action("EDIT_BACK", async (ctx) => {
 
   // Edit the existing message to show profile with working menu buttons
   const menu = Markup.inlineKeyboard([
-    [ 
-      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-    ]
+    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
   ]);
+
 
   return ctx.editMessageText(
     buildProfileText(user),
@@ -3010,11 +3001,9 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
   
   // Restore original buttons
   const menu = Markup.inlineKeyboard([
-    [ 
-      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-    ]
+    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
   ]);
 
   return ctx.reply(buildProfileText(user), menu);
@@ -3208,11 +3197,9 @@ bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
 
   // Return to bank edit menu with updated profile
   const menu = Markup.inlineKeyboard([
-    [ 
-      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-    ]
+    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
   ]);
 
   return ctx.reply(buildProfileText(user), menu);
@@ -3323,11 +3310,9 @@ bot.action("CONFIRM_NEW_USERNAME", async (ctx) => {
   
   // Restore original buttons
   const menu = Markup.inlineKeyboard([
-    [ 
-      Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK"),
-      Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK"),
-      Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")
-    ]
+    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
   ]);
 
   return ctx.reply(buildProfileText(user), menu);
