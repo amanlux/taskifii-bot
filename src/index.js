@@ -3211,10 +3211,12 @@ bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
   // Add additional options with proper visibility
   const actionButtons = [];
   
+  // Only show Add button if less than 10 banks
   if (user.bankDetails.length < 10) {
     actionButtons.push([Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK")]);
   }
   
+  // Only show Remove button if more than 1 bank
   if (user.bankDetails.length > 1) {
     actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")]);
   }
