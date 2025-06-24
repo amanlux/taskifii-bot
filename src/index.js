@@ -395,7 +395,11 @@ const TEXT = {
   bankEditDoneBtn: {
     en: "Done Editing Banks",
     am: "የባንክ ማስተካከል ተጠናቋል"
-  }
+  },
+  fieldsSelected: {
+    en: "Selected:",
+    am: "የተመረጡ:"
+  },
 
   
   
@@ -673,6 +677,13 @@ function startBot() {
   bot.use(async (ctx, next) => {
     ctx.session = ctx.session || {};
     ctx.session.user = ctx.session.user || {};
+    // Get user from DB if not in session
+    if (!ctx.session.user.telegramId && ctx.from) {
+      const user = await User.findOne({ telegramId: ctx.from.id });
+      if (user) {
+        ctx.session.user = user.toObject(); // Convert mongoose doc to plain object
+      }
+    }
     return next();
   });
   
@@ -700,8 +711,7 @@ function buildMenu(ctx, buttons, clickedData) {
     )
   );
 }
-function askSkillLevel(ctx) {
-  const lang = ctx.session.user.language;
+function askSkillLevel(ctx, lang = "en") {
   return ctx.reply(
     TEXT.askSkillLevel[lang],
     Markup.inlineKeyboard([
@@ -1871,7 +1881,7 @@ async function handleRelatedFile(ctx, draft) {
 
 function askFieldsPage(ctx, page) {
   const user = ctx.session.user || {};
-  const lang = user.language || "en";
+  const lang = user.language || "en"; // Get language from user session
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
   const keyboard = [];
@@ -1891,7 +1901,7 @@ function askFieldsPage(ctx, page) {
   if (nav.length) keyboard.push(nav);
   
   return ctx.reply(
-    TEXT.fieldsIntro[lang],
+    TEXT.fieldsIntro[lang], // Use the correct language
     Markup.inlineKeyboard(keyboard)
   );
 }
@@ -1936,11 +1946,11 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   await ctx.answerCbQuery();
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft || !draft.fields.length) {
-    const lang = ctx.session.user.language;
+    const lang = ctx.session?.user?.language || "en";
     return ctx.reply(lang === "am" ? "ቢያንስ አንድ መስክ ይምረጡ" : "Select at least one field before proceeding.");
   }
 
-  const lang = ctx.session.user.language;
+  const lang = ctx.session?.user?.language || "en";
   const selectedText = `${TEXT.fieldsSelected[lang]} ${draft.fields.join(", ")}`;
   
   // Edit the message to show the selections and disabled buttons
@@ -1948,8 +1958,8 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
     selectedText,
     Markup.inlineKeyboard([
       [
-        Markup.button.callback(TEXT.fieldsAddMore[lang], "_DISABLED_ADD_MORE", { disabled: true }),
-        Markup.button.callback(`✔ ${TEXT.fieldsDone[lang]}`, "_DISABLED_DONE", { disabled: true })
+        Markup.button.callback(TEXT.fieldsAddMore[lang], "_DISABLED_ADD_MORE"),
+        Markup.button.callback(`✔ ${TEXT.fieldsDone[lang]}`, "_DISABLED_DONE")
       ]
     ])
   );
@@ -1969,8 +1979,15 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
     return;
   }
 
+  // Ensure taskFlow exists in session
+  ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "skillLevel";
-  return askSkillLevel(ctx);
+  
+  // Get user for language
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const userLang = user?.language || "en";
+  
+  return askSkillLevel(ctx, userLang);
 });
 bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
