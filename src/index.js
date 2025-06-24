@@ -1599,23 +1599,13 @@ bot.action("POST_TASK", async (ctx) => {
   // Ensure taskFlow exists
   ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "description";
-  if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Initialize session properly
-  ctx.session = ctx.session || {};
-  ctx.session.user = {  // Store essential user data
-    telegramId: user.telegramId,
-    language: user.language || "en"  // Default to English if not set
-  };
-
-  // Edit the existing message to show disabled buttons
+  // Edit the existing message to show disabled buttons - STACKED VERTICALLY
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
-      [
-        Markup.button.callback(`✔ ${TEXT.postTaskBtn[ctx.session.user.language]}`, "_DISABLED_POST_TASK"),
-        Markup.button.callback(TEXT.findTaskBtn[ctx.session.user.language], "_DISABLED_FIND_TASK"),
-        Markup.button.callback(TEXT.editProfileBtn[ctx.session.user.language], "_DISABLED_EDIT_PROFILE")
-      ]
+      [Markup.button.callback(`✔ ${TEXT.postTaskBtn[user.language]}`, "_DISABLED_POST_TASK")],
+      [Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK")],
+      [Markup.button.callback(TEXT.editProfileBtn[user.language], "_DISABLED_EDIT_PROFILE")]
     ]
   });
 
@@ -1629,7 +1619,7 @@ bot.action("POST_TASK", async (ctx) => {
     draftId: draft._id.toString()
   };
 
-  const prompt = TEXT.descriptionPrompt[ctx.session.user.language];
+  const prompt = TEXT.descriptionPrompt[user.language];
   return ctx.reply(prompt);
 });
 // ─────────── “Edit Task” Entry Point ───────────
