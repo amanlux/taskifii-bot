@@ -502,17 +502,17 @@ function buildPreviewText(draft, user) {
   const lang = user?.language || "en";
   const lines = [];
 
-  lines.push("*🚀 Task is open!*");
+  lines.push(lang === "am" ? "*🚀 ተግዳሮቱ ተከፍቷል!*" : "*🚀 Task is open!*");
   lines.push("");
 
   // Description
-  lines.push(`*Description:* ${draft.description}`);
+  lines.push(lang === "am" ? `*መግለጫ:* ${draft.description}` : `*Description:* ${draft.description}`);
   lines.push("");
 
   // Fields → hashtags
   if (draft.fields.length) {
     const tags = draft.fields.map(f => `#${f.replace(/\s+/g, "")}`).join(" ");
-    lines.push(`*Fields:* ${tags}`);
+    lines.push(lang === "am" ? `*ስራ መስኮች:* ${tags}` : `*Fields:* ${tags}`);
     lines.push("");
   }
 
@@ -523,21 +523,33 @@ function buildPreviewText(draft, user) {
       : draft.skillLevel === "Intermediate"
         ? "🟡"
         : "🔴";
-    lines.push(`*Skill Level Required:* ${emoji} ${draft.skillLevel}`);
+    const levelText = lang === "am" 
+      ? draft.skillLevel === "Beginner" ? "ጀማሪ" 
+        : draft.skillLevel === "Intermediate" ? "መካከለኛ" 
+        : "ሙያተኛ"
+      : draft.skillLevel;
+    lines.push(lang === "am" 
+      ? `*የሚያስፈልገው የስልጠና ደረጃ:* ${emoji} ${levelText}`
+      : `*Skill Level Required:* ${emoji} ${levelText}`);
     lines.push("");
   }
 
   // Payment Fee
   if (draft.paymentFee != null) {
-    lines.push(`*Payment Fee:* ${draft.paymentFee} birr`);
+    lines.push(lang === "am" 
+      ? `*የክፍያ መጠን:* ${draft.paymentFee} ብር` 
+      : `*Payment Fee:* ${draft.paymentFee} birr`);
     lines.push("");
   }
 
   // Time to Complete
   if (draft.timeToComplete != null) {
-    lines.push(`*Time to Complete:* ${draft.timeToComplete} hour(s)`);
+    lines.push(lang === "am" 
+      ? `*ለመጨረስ የሚፈጅበት ጊዜ:* ${draft.timeToComplete} ሰዓት(ዎች)` 
+      : `*Time to Complete:* ${draft.timeToComplete} hour(s)`);
     lines.push("");
   }
+
 
   
   // Revision Time
@@ -615,7 +627,12 @@ function buildPreviewText(draft, user) {
 //  Helper: buildButton
 //    - If highlighted=true, prefix with ✔ and set callbackData to a no-op
 // ------------------------------------
+// Always ensure buttons have text property
 function buildButton(textObj, callbackData, lang, highlighted = false) {
+  if (!textObj || !textObj[lang]) {
+    console.error("Missing text for button:", textObj, "lang:", lang);
+    return Markup.button.callback("Error", `_ERROR_${callbackData}`);
+  }
   if (highlighted) {
     return Markup.button.callback(`✔ ${textObj[lang]}`, `_DISABLED_${callbackData}`);
   }
@@ -1853,25 +1870,30 @@ async function handleRelatedFile(ctx, draft) {
 
 
 function askFieldsPage(ctx, page) {
+  const user = ctx.session.user || {};
+  const lang = user.language || "en";
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
   const keyboard = [];
+  
   for (let i = start; i < end; i++) {
     const f = ALL_FIELDS[i];
-    keyboard.push([ Markup.button.callback(f, `TASK_FIELD_${i}`) ]);
+    keyboard.push([Markup.button.callback(f, `TASK_FIELD_${i}`)]);
   }
+  
   const nav = [];
-  if (page > 0) nav.push(Markup.button.callback("⬅️ Prev", `TASK_FIELDS_PAGE_${page-1}`));
-  if (end < ALL_FIELDS.length) nav.push(Markup.button.callback("➡️ Next", `TASK_FIELDS_PAGE_${page+1}`));
+  if (page > 0) {
+    nav.push(Markup.button.callback("⬅️ " + (lang === "am" ? "ቀዳሚ" : "Prev"), `TASK_FIELDS_PAGE_${page-1}`));
+  }
+  if (end < ALL_FIELDS.length) {
+    nav.push(Markup.button.callback(lang === "am" ? "ቀጣይ ➡️" : "Next ➡️", `TASK_FIELDS_PAGE_${page+1}`));
+  }
   if (nav.length) keyboard.push(nav);
-  // If user already has at least one:
-  // We’ll check in DB:
-  const lang = ctx.session.user.language;
+  
   return ctx.reply(
     TEXT.fieldsIntro[lang],
     Markup.inlineKeyboard(keyboard)
   );
-
 }
 
 bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
@@ -1889,7 +1911,9 @@ bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
     await draft.save();
   }
 
-  const lang = ctx.session?.user?.language || "en";
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  
   try { await ctx.deleteMessage(); } catch(_) {}
   
   return ctx.reply(
