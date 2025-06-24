@@ -3081,7 +3081,8 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.editing = {
     field: "bankReplacing",
-    bankIndex: index
+    bankIndex: index,
+    adminMessageId: user.adminMessageId
   };
 
   // Create buttons for each bank entry with the selected one highlighted
@@ -3092,7 +3093,7 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
     )];
   });
 
-  // Add additional options - maintaining the same visibility rules as EDIT_BANKS
+  // Add additional options - maintaining consistent layout
   const actionButtons = [];
   
   // Only show Add button if less than 10 banks
@@ -3105,7 +3106,7 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
     actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")]);
   }
   
-  // Add Done button
+  // Always show Done button
   actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")]);
 
   try {
@@ -3199,15 +3200,33 @@ bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
   // Send success message
   await ctx.reply(TEXT.profileUpdated[user.language]);
 
-  // Return to bank edit menu with updated profile
-  const menu = Markup.inlineKeyboard([
-    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
-    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
-  ]);
+  // Return to bank edit menu with updated buttons
+  const bankButtons = user.bankDetails.map((bank, index) => {
+    return [Markup.button.callback(
+      `${index + 1}. ${bank.bankName} (${bank.accountNumber})`, 
+      `EDIT_BANK_${index}`
+    )];
+  });
 
-  return ctx.reply(buildProfileText(user), menu);
+  // Add additional options with proper visibility
+  const actionButtons = [];
+  
+  if (user.bankDetails.length < 10) {
+    actionButtons.push([Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK")]);
+  }
+  
+  if (user.bankDetails.length > 1) {
+    actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")]);
+  }
+  
+  actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")]);
+
+  return ctx.reply(
+    TEXT.editBankPrompt[user.language],
+    Markup.inlineKeyboard([...bankButtons, ...actionButtons])
+  );
 });
+Ke
 
 
 
@@ -3382,32 +3401,6 @@ bot.action("REMOVE_BANK", async (ctx) => {
     );
   }
 
-  // Highlight "Remove Bank" and disable all buttons
-  try {
-    const bankButtons = user.bankDetails.map((bank, index) => {
-      return [Markup.button.callback(
-        `${index + 1}. ${bank.bankName} (${bank.accountNumber})`,
-        "_DISABLED_BANK_ENTRY"
-      )];
-    });
-
-    // Add disabled action buttons
-    const disabledButtons = [];
-    if (user.bankDetails.length < 10) {
-      disabledButtons.push([Markup.button.callback(TEXT.addBankBtn[user.language], "_DISABLED_ADD_BANK")]);
-    }
-    disabledButtons.push([
-      Markup.button.callback(`✔ ${TEXT.removeBankBtn[user.language]}`, "_DISABLED_REMOVE_BANK"),
-      Markup.button.callback(TEXT.backBtn[user.language], "BANK_REMOVE_BACK")
-    ]);
-
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [...bankButtons, ...disabledButtons]
-    });
-  } catch (err) {
-    console.error("Error editing message markup:", err);
-  }
-
   // Create buttons for each bank entry with remove option
   const removeButtons = user.bankDetails.map((bank, index) => {
     return [Markup.button.callback(
@@ -3416,18 +3409,23 @@ bot.action("REMOVE_BANK", async (ctx) => {
     )];
   });
 
-  // Add back button
+  // Add back button (maintain consistent naming)
   removeButtons.push([
     Markup.button.callback(TEXT.backBtn[user.language], "BANK_REMOVE_BACK")
   ]);
 
-  return ctx.reply(
-    user.language === "am" 
-      ? "ለማስወገድ የሚፈልጉትን የባንክ መግለጫ ይምረጡ:" 
-      : "Select which bank entry you'd like to remove:",
-    Markup.inlineKeyboard(removeButtons)
-  );
+  try {
+    await ctx.editMessageText(
+      user.language === "am" 
+        ? "ለማስወገድ የሚፈልጉትን የባንክ መግለጫ ይምረጡ:" 
+        : "Select which bank entry you'd like to remove:",
+      Markup.inlineKeyboard(removeButtons)
+    );
+  } catch (err) {
+    console.error("Error editing message:", err);
+  }
 });
+
 
 
 
@@ -3466,7 +3464,7 @@ bot.action("BANK_REMOVE_BACK", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
-  // Return to bank edit menu
+  // Create buttons for each bank entry
   const bankButtons = user.bankDetails.map((bank, index) => {
     return [Markup.button.callback(
       `${index + 1}. ${bank.bankName} (${bank.accountNumber})`, 
@@ -3474,7 +3472,7 @@ bot.action("BANK_REMOVE_BACK", async (ctx) => {
     )];
   });
 
-  // Add additional options
+  // Add additional options with proper visibility
   const actionButtons = [];
   
   if (user.bankDetails.length < 10) {
@@ -3487,11 +3485,16 @@ bot.action("BANK_REMOVE_BACK", async (ctx) => {
   
   actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")]);
 
-  return ctx.editMessageText(
-    TEXT.editBankPrompt[user.language],
-    Markup.inlineKeyboard([...bankButtons, ...actionButtons])
-  );
+  try {
+    await ctx.editMessageText(
+      TEXT.editBankPrompt[user.language],
+      Markup.inlineKeyboard([...bankButtons, ...actionButtons])
+    );
+  } catch (err) {
+    console.error("Error editing message:", err);
+  }
 });
+
 
 // Error handling middleware
 bot.catch((err, ctx) => {
