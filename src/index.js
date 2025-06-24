@@ -3226,7 +3226,7 @@ bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
     Markup.inlineKeyboard([...bankButtons, ...actionButtons])
   );
 });
-Ke
+
 
 
 
