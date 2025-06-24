@@ -3045,18 +3045,21 @@ bot.action("EDIT_BANKS", async (ctx) => {
   // Add additional options
   const actionButtons = [];
   
-  // Only show Add button if less than 10 banks
-  if (user.bankDetails.length < 10) {
-    actionButtons.push([Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK")]);
-  }
+  // Always show Add button but disable if at limit
+  actionButtons.push([
+    Markup.button.callback(
+      user.bankDetails.length >= 10 ? `❌ ${TEXT.addBankBtn[user.language]}` : TEXT.addBankBtn[user.language],
+      user.bankDetails.length >= 10 ? "_DISABLED_ADD_BANK" : "ADD_BANK"
+    ),
+    Markup.button.callback(
+      user.bankDetails.length <= 1 ? `❌ ${TEXT.removeBankBtn[user.language]}` : TEXT.removeBankBtn[user.language],
+      user.bankDetails.length <= 1 ? "_DISABLED_REMOVE_BANK" : "REMOVE_BANK"
+    )
+  ]);
   
-  // Only show Remove button if more than 1 bank
-  if (user.bankDetails.length > 1) {
-    actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")]);
-  }
-  
-  // Add Done button
-  actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")]);
+  actionButtons.push([
+    Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")
+  ]);
 
   return ctx.reply(
     TEXT.editBankPrompt[user.language],
@@ -3096,18 +3099,20 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
   // Add additional options - maintaining consistent layout
   const actionButtons = [];
   
-  // Only show Add button if less than 10 banks
-  if (user.bankDetails.length < 10) {
-    actionButtons.push([Markup.button.callback(TEXT.addBankBtn[user.language], "_DISABLED_ADD_BANK")]);
-  }
+  actionButtons.push([
+    Markup.button.callback(
+      user.bankDetails.length >= 10 ? `❌ ${TEXT.addBankBtn[user.language]}` : TEXT.addBankBtn[user.language],
+      "_DISABLED_ADD_BANK"
+    ),
+    Markup.button.callback(
+      user.bankDetails.length <= 1 ? `❌ ${TEXT.removeBankBtn[user.language]}` : TEXT.removeBankBtn[user.language],
+      "_DISABLED_REMOVE_BANK"
+    )
+  ]);
   
-  // Only show Remove button if more than 1 bank
-  if (user.bankDetails.length > 1) {
-    actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")]);
-  }
-  
-  // Always show Done button
-  actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")]);
+  actionButtons.push([
+    Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")
+  ]);
 
   try {
     await ctx.editMessageReplyMarkup({
@@ -3116,7 +3121,6 @@ bot.action(/EDIT_BANK_(\d+)/, async (ctx) => {
   } catch (err) {
     console.error("Error editing message markup:", err);
   }
-
   return ctx.reply(
     user.language === "am" 
       ? "እባክዎ አዲሱን የባንክ መግለጫ በ `BankName,AccountNumber` ቅጥ ይጻፉ።" 
@@ -3143,6 +3147,7 @@ bot.action("ADD_BANK", async (ctx) => {
   ctx.session.editing = { field: "bankAdding" };
 
   // Create buttons for each bank entry
+  
   const bankButtons = user.bankDetails.map((bank, index) => {
     return [Markup.button.callback(
       `${index + 1}. ${bank.bankName} (${bank.accountNumber})`,
@@ -3150,19 +3155,23 @@ bot.action("ADD_BANK", async (ctx) => {
     )];
   });
 
-  // Add additional options - maintaining the same visibility rules
+  // Add additional options
   const actionButtons = [];
   
-  // Highlight Add button and disable it
-  actionButtons.push([Markup.button.callback(`✔ ${TEXT.addBankBtn[user.language]}`, "_DISABLED_ADD_BANK")]);
+  actionButtons.push([
+    Markup.button.callback(
+      `✔ ${TEXT.addBankBtn[user.language]}`,
+      "_DISABLED_ADD_BANK"
+    ),
+    Markup.button.callback(
+      user.bankDetails.length <= 1 ? `❌ ${TEXT.removeBankBtn[user.language]}` : TEXT.removeBankBtn[user.language],
+      "_DISABLED_REMOVE_BANK"
+    )
+  ]);
   
-  // Only show Remove button if more than 1 bank
-  if (user.bankDetails.length > 1) {
-    actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "_DISABLED_REMOVE_BANK")]);
-  }
-  
-  // Add Done button
-  actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")]);
+  actionButtons.push([
+    Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "_DISABLED_BANK_EDIT_DONE")
+  ]);
 
   try {
     await ctx.editMessageReplyMarkup({
@@ -3208,27 +3217,29 @@ bot.action(/REMOVE_BANK_(\d+)/, async (ctx) => {
     )];
   });
 
-  // Add additional options with proper visibility
+  // Add additional options
   const actionButtons = [];
   
-  // Only show Add button if less than 10 banks
-  if (user.bankDetails.length < 10) {
-    actionButtons.push([Markup.button.callback(TEXT.addBankBtn[user.language], "ADD_BANK")]);
-  }
+  actionButtons.push([
+    Markup.button.callback(
+      user.bankDetails.length >= 10 ? `❌ ${TEXT.addBankBtn[user.language]}` : TEXT.addBankBtn[user.language],
+      user.bankDetails.length >= 10 ? "_DISABLED_ADD_BANK" : "ADD_BANK"
+    ),
+    Markup.button.callback(
+      user.bankDetails.length <= 1 ? `❌ ${TEXT.removeBankBtn[user.language]}` : TEXT.removeBankBtn[user.language],
+      user.bankDetails.length <= 1 ? "_DISABLED_REMOVE_BANK" : "REMOVE_BANK"
+    )
+  ]);
   
-  // Only show Remove button if more than 1 bank
-  if (user.bankDetails.length > 1) {
-    actionButtons.push([Markup.button.callback(TEXT.removeBankBtn[user.language], "REMOVE_BANK")]);
-  }
-  
-  actionButtons.push([Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")]);
+  actionButtons.push([
+    Markup.button.callback(TEXT.bankEditDoneBtn[user.language], "BANK_EDIT_DONE")
+  ]);
 
   return ctx.reply(
     TEXT.editBankPrompt[user.language],
     Markup.inlineKeyboard([...bankButtons, ...actionButtons])
   );
 });
-
 
 
 
