@@ -3630,6 +3630,50 @@ bot.action("BANK_REMOVE_BACK", async (ctx) => {
   }
 });
 
+// ─────────── FIND_TASK Handler ───────────
+bot.action("FIND_TASK", async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+
+  // Highlight "Find a Task" and disable all buttons
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [Markup.button.callback(TEXT.postTaskBtn[user.language], "_DISABLED_POST_TASK")],
+      [Markup.button.callback(`✔ ${TEXT.findTaskBtn[user.language]}`, "_DISABLED_FIND_TASK")],
+      [Markup.button.callback(TEXT.editProfileBtn[user.language], "_DISABLED_EDIT_PROFILE")]
+    ]
+  });
+
+  // Get the channel ID from environment variables or use a default
+  const channelId = process.env.CHANNEL_ID || "-1002254896955"; // Replace with your actual channel ID
+  const channelUsername = process.env.CHANNEL_USERNAME || "taskifii_tasks"; // Replace with your channel username if available
+
+  try {
+    // Try to generate a proper channel link
+    const channelLink = channelUsername 
+      ? `https://t.me/${channelUsername}`
+      : `https://t.me/c/${channelId.replace('-100', '')}`;
+    
+    // Send message with the channel link
+    return ctx.reply(
+      user.language === "am" 
+        ? `🔍 ተግዳሮቶችን ለማግኘት ወደ የተግዳሮት ሰርጥ ይሂዱ: ${channelLink}` 
+        : `🔍 To find tasks, visit our tasks channel: ${channelLink}`,
+      { disable_web_page_preview: true }
+    );
+  } catch (err) {
+    console.error("Error generating channel link:", err);
+    // Fallback message if link generation fails
+    return ctx.reply(
+      user.language === "am" 
+        ? "የተግዳሮት ሰርጡን ለማግኘት እባክዎ በቀጥታ ወደ ሰርጣችን ይሂዱ" 
+        : "Please visit our channel directly to find tasks"
+    );
+  }
+});
+
 
 // Error handling middleware
 bot.catch((err, ctx) => {
