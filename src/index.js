@@ -2737,13 +2737,13 @@ bot.action("EDIT_PROFILE", async (ctx) => {
   ctx.session = ctx.session || {};
   ctx.session.editing = ctx.session.editing || {};
 
-  // Highlight "Edit Profile" and disable all buttons
+  // Highlight "Edit Profile" and disable all buttons while maintaining original order
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [Markup.button.callback(`✔ ${TEXT.editProfileBtn[user.language]}`, "_DISABLED_EDIT_PROFILE")],
         [Markup.button.callback(TEXT.postTaskBtn[user.language], "_DISABLED_POST_TASK")],
-        [Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK")]
+        [Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK")],
+        [Markup.button.callback(`✔ ${TEXT.editProfileBtn[user.language]}`, "_DISABLED_EDIT_PROFILE")]
       ]
     });
   } catch (err) {
