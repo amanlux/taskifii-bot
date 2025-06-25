@@ -1907,16 +1907,8 @@ async function handleRelatedFile(ctx, draft) {
 
 
 function askFieldsPage(ctx, page) {
-  // Get user properly like other handlers do
   const user = ctx.session?.user || {};
-  let lang = user.language;
-  
-  // If not in session, get from DB like other handlers
-  if (!lang) {
-    const dbUser = await User.findOne({ telegramId: ctx.from.id });
-    lang = dbUser?.language || "en";
-  }
-
+  const lang = user.language || "en"; // Get language from user session
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
   const keyboard = [];
@@ -1936,7 +1928,7 @@ function askFieldsPage(ctx, page) {
   if (nav.length) keyboard.push(nav);
   
   return ctx.reply(
-    TEXT.fieldsIntro[lang], // Now properly using the correct language
+    TEXT.fieldsIntro[lang], // Use the correct language
     Markup.inlineKeyboard(keyboard)
   );
 }
@@ -3399,7 +3391,7 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
 
   // ─────────── Placeholder Actions ───────────
   //bot.action("POST_TASK", (ctx) => ctx.answerCbQuery());
-  bot.action("FIND_TASK", (ctx) => ctx.answerCbQuery());
+  
   //bot.action("EDIT_PROFILE", (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_BAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
