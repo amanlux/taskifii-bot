@@ -3648,7 +3648,7 @@ bot.action("FIND_TASK", async (ctx) => {
 
   // Get the channel ID from environment variables or use a default
   const channelId = process.env.CHANNEL_ID || "-1002254896955"; // Replace with your actual channel ID
-  const channelUsername = process.env.CHANNEL_USERNAME || "taskifii_tasks"; // Replace with your channel username if available
+  const channelUsername = process.env.CHANNEL_USERNAME || "TaskifiiRemote"; // Replace with your channel username if available
 
   try {
     // Try to generate a proper channel link
