@@ -1928,7 +1928,7 @@ function askFieldsPage(ctx, page) {
   if (nav.length) keyboard.push(nav);
   
   return ctx.reply(
-    TEXT.fieldsIntro[lang], // Use the correct language
+    TEXT.fieldsIntro[lang], // This will use the correct language
     Markup.inlineKeyboard(keyboard)
   );
 }
