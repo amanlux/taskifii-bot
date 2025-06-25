@@ -1624,15 +1624,17 @@ function askSkillLevel(ctx, lang = null) {
 bot.action("POST_TASK", async (ctx) => {
   await ctx.answerCbQuery();
   
-  // Get the user from database (not just session)
+  // Initialize session properly
+  ctx.session = ctx.session || {};
+  ctx.session.user = ctx.session.user || {};
+  
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return ctx.reply("User not found. Please /start again.");
   
-  // Initialize taskFlow with user's language
-  ctx.session.taskFlow = {
-    step: "description",
-    userLanguage: user.language // Explicitly store language
-  };  
+  // Ensure taskFlow exists
+  ctx.session.taskFlow = ctx.session.taskFlow || {};
+  ctx.session.taskFlow.step = "description";
+  
   // Edit the existing message to show disabled buttons - STACKED VERTICALLY
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
@@ -1905,11 +1907,9 @@ async function handleRelatedFile(ctx, draft) {
 
 
 function askFieldsPage(ctx, page) {
-  // Get language from task flow first, then fall back to session
-  const lang = ctx.session?.taskFlow?.userLanguage || 
-               ctx.session?.user?.language || 
-               "en";
-  
+  const user = ctx.session?.user || {};
+  const lang = ctx.session?.language || "en";
+
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
   const keyboard = [];
@@ -1929,7 +1929,7 @@ function askFieldsPage(ctx, page) {
   if (nav.length) keyboard.push(nav);
   
   return ctx.reply(
-    TEXT.fieldsIntro[lang],
+    TEXT.fieldsIntro[lang], // This will use the correct language
     Markup.inlineKeyboard(keyboard)
   );
 }
