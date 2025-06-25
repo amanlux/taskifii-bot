@@ -765,8 +765,8 @@ function askSkillLevel(ctx, lang = null) {
     `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
     Markup.inlineKeyboard([
       [
-        buildButton({ en: "English", am: "እንግሊዝኛ" }, "LANG_EN", "en", false),
-        buildButton({ en: "Amharic", am: "አማርኛ" }, "LANG_AM", "en", false)
+        Markup.button.callback("English", "LANG_EN"),
+        Markup.button.callback("አማርኛ", "LANG_AM")
       ]
     ])
   );
