@@ -1907,9 +1907,8 @@ async function handleRelatedFile(ctx, draft) {
 
 
 function askFieldsPage(ctx, page) {
-  // Get language from user session or default to English
-  const lang = ctx.session?.user?.language || "en";
-  
+  const user = ctx.session?.user || {};
+  const lang = user.language || "en"; // Get language from user session
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
   const keyboard = [];
@@ -1929,7 +1928,7 @@ function askFieldsPage(ctx, page) {
   if (nav.length) keyboard.push(nav);
   
   return ctx.reply(
-    TEXT.fieldsIntro[lang], // This will use the correct language
+    TEXT.fieldsIntro[lang], // Use the correct language
     Markup.inlineKeyboard(keyboard)
   );
 }
