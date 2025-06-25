@@ -1902,13 +1902,13 @@ async function handleRelatedFile(ctx, draft) {
 
   // Move on to next step for non-edit flow
   ctx.session.taskFlow.step = "fields";
-  return askFieldsPage(ctx, 0, lang); // Pass the language as a parameter
+  return askFieldsPage(ctx, 0);
 }
 
 
-function askFieldsPage(ctx, page, lang = null) {
-  // Use passed language, or get from session, or default to English
-  const userLang = lang || ctx.session?.user?.language || "en";
+function askFieldsPage(ctx, page) {
+  // Get language from user session or default to English
+  const lang = ctx.session?.user?.language || "en";
   
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
@@ -1921,15 +1921,15 @@ function askFieldsPage(ctx, page, lang = null) {
   
   const nav = [];
   if (page > 0) {
-    nav.push(Markup.button.callback("⬅️ " + (userLang === "am" ? "ቀዳሚ" : "Prev"), `TASK_FIELDS_PAGE_${page-1}`));
+    nav.push(Markup.button.callback("⬅️ " + (lang === "am" ? "ቀዳሚ" : "Prev"), `TASK_FIELDS_PAGE_${page-1}`));
   }
   if (end < ALL_FIELDS.length) {
-    nav.push(Markup.button.callback(userLang === "am" ? "ቀጣይ ➡️" : "Next ➡️", `TASK_FIELDS_PAGE_${page+1}`));
+    nav.push(Markup.button.callback(lang === "am" ? "ቀጣይ ➡️" : "Next ➡️", `TASK_FIELDS_PAGE_${page+1}`));
   }
   if (nav.length) keyboard.push(nav);
   
   return ctx.reply(
-    TEXT.fieldsIntro[userLang], // Use the determined language
+    TEXT.fieldsIntro[lang], // This will use the correct language
     Markup.inlineKeyboard(keyboard)
   );
 }
@@ -1968,11 +1968,7 @@ bot.action(/TASK_FIELDS_PAGE_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
   try { await ctx.deleteMessage(); } catch(_) {}
   const page = parseInt(ctx.match[1]);
-  
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-  
-  return askFieldsPage(ctx, page, lang);
+  return askFieldsPage(ctx, page);
 });
 
 bot.action("TASK_FIELDS_DONE", async (ctx) => {
@@ -2012,8 +2008,7 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "skillLevel";
   
-    
-  return askFieldsPage(ctx, 0, lang);
+  return askSkillLevel(ctx, lang);
 });
 bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
