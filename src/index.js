@@ -400,6 +400,107 @@ const TEXT = {
     en: "Selected:",
     am: "የተመረጡ:"
   },
+   applyPrompt: {
+    en: "Please write your application (20-500 characters) explaining what you bring to the table. You can include file attachments like portfolios, but don't forget to add a caption.",
+    am: "እባክዎ የእርስዎን ማመልከቻ ይጻፉ (20-500 ቁምፊ) ስለምታቀርቡት ነገር በመግለጽ። ፖርትፎሊዮ የመሳሰሉ ፋይሎችን ማካተት ይችላሉ፣ ነገር ግን መግለጫ መጨመርዎን አይርሱ።"
+  },
+  applyTooShort: {
+    en: "Please make sure it is greater than 20 characters!",
+    am: "እባክዎ ከ20 ቁምፊ በላይ መሆኑን ያረጋግጡ!"
+  },
+  applyTooLong: {
+    en: "Please make sure it is less than 500 characters!",
+    am: "እባክዎ ከ500 ቁምፊ በታች መሆኑን ያረጋግጡ!"
+  },
+  confirmApply: {
+    en: "Do you want to send this application to the task creator?",
+    am: "ይህን ማመልከቻ ለተግዳሮቱ ፈጣሪ መላክ ይፈልጋሉ?"
+  },
+  confirmYes: {
+    en: "Yes",
+    am: "አዎ"
+  },
+  confirmNo: {
+    en: "No",
+    am: "አይ"
+  },
+  applicationSent: {
+    en: "✅ Your application has been sent to the task creator!",
+    am: "✅ ማመልከቻዎ ለተግዳሮቱ ፈጣሪ ተልኳል!"
+  },
+  applicationDeclined: {
+    en: "The task creator has declined your application. Please apply for other tasks in the channel.",
+    am: "የተግዳሮቱ ፈጣሪ ማመልከቻዎን አልተቀበለም። እባክዎ ለሌሎች ተግዳሮቶች ያመልክቱ።"
+  },
+  applicationAccepted: {
+    en: "You've been selected to do this task! Click 'Do the task' below to confirm or 'Cancel' if you've changed your mind.",
+    am: "ይህን ተግዳሮት ለማከናወን ተመርጠዎታል! ለማረጋገጥ 'ተግዳሮቱን ያከናውኑ' የሚለውን ይጫኑ ወይም አስተሳሰብዎ ከቀየረ 'ሰርዝ' ይጫኑ።"
+  },
+  doTaskBtn: {
+    en: "Do the task",
+    am: "ተግዳሮቱን ያከናውኑ"
+  },
+  cancelBtn: {
+    en: "Cancel",
+    am: "ሰርዝ"
+  },
+  taskCreatorNotified: {
+    en: "✅ {name} has been notified that you've selected them to do the task. We'll notify you when they confirm.",
+    am: "✅ {name} ተግዳሮቱን ለማከናወን መረጡዋቸው ተገልጿቸዋል። ሲያረጋግጡ እንገልጻለን።"
+  },
+  taskDoerCanceled: {
+    en: "{name} has canceled doing the task.",
+    am: "{name} ተግዳሮቱን ለማከናወን እንዳልተስማሙ አሳውቀዋል።"
+  },
+  taskCancelConfirmed: {
+    en: "You've successfully canceled doing this task.",
+    am: "ይህን ተግዳሮት ለማከናወን እንዳልተስማሙ በተሳካ ሁኔታ አሳውቀዋል።"
+  },
+  taskExpiredNoConfirm: {
+    en: "No one confirmed they want to do this task. You can repost it if you'd like.",
+    am: "ይህን ተግዳሮት ለማከናወን የፈለገ ማንም አልነበረም። ከፈለጉ እንደገና ልጥፉት።"
+  },
+  repostTaskBtn: {
+    en: "Repost Task",
+    am: "ተግዳሮቱን እንደገና ልጥፍ"
+  },
+  taskExpiredDoer: {
+    en: "Your time to confirm and start doing the task has expired.",
+    am: "ተግዳሮቱን ለማከናወን ያለዎት ጊዜ አልፏል።"
+  },
+  reminderToConfirm: {
+    en: "You have {time} remaining to confirm you want to do this task.",
+    am: "ይህን ተግዳሮት ለማከናወን የሚፈልጉ መሆኑን ለማረጋገጥ {time} ይቀራል።"
+  },
+  taskNoLongerAvailable: {
+    en: "This task is no longer available.",
+    am: "ይህ ተግዳሮት ከተወሰነ ጊዜ በኋላ አልተረከበውም።"
+  },
+  notSelected: {
+    en: "{name} didn't choose you for this task. Better luck next time!",
+    am: "{name} ለዚህ ተግዳሮት አልመረጡዎትም። በሚቀጥለው ጊዜ ይስማሙ!"
+  },
+  chooseDoerReminder: {
+    en: "You have {time} remaining to choose a task doer before the offer expires.",
+    am: "አቅራቢያው ከመቆሙ በፊት ተግዳሮት አከናዋኝ ለመምረጥ {time} ይቀራል።"
+  },
+  noApplicants: {
+    en: "No one applied to do this task. You can repost it if you'd like.",
+    am: "ለዚህ ተግዳሮት ማመልከቻ የላከ ማንም አልነበረም። ከፈለጉ እንደገና ልጥፉት።"
+  },
+  acceptBtn: {
+    en: "Accept",
+    am: "ተቀበል"
+  },
+  declineBtn: {
+    en: "Decline",
+    am: "አትቀበል"
+  },
+  taskStarted: {
+    en: "✅ {name} has confirmed they'll do the task!",
+    am: "✅ {name} ተግዳሮቱን ለማከናወን እንደሚጀምሩ አረጋግጠዋል!"
+  },
+
 
   
   
@@ -3817,6 +3918,412 @@ bot.action("FIND_TASK", async (ctx) => {
     );
   }
 });
+
+bot.action(/APPLY_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const task = await Task.findById(taskId);
+  
+  if (!task || task.status !== "Open") {
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
+    return ctx.reply(TEXT.taskNoLongerAvailable[lang]);
+  }
+  
+  // Initialize application session
+  ctx.session.application = {
+    taskId: task._id.toString(),
+    step: "applicationText"
+  };
+  
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  
+  return ctx.reply(TEXT.applyPrompt[lang]);
+});
+
+bot.on("text", async (ctx, next) => {
+  if (!ctx.session?.application || ctx.session.application.step !== "applicationText") {
+    return next();
+  }
+  
+  const text = ctx.message.text?.trim();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  
+  if (text.length < 20) {
+    return ctx.reply(TEXT.applyTooShort[lang]);
+  }
+  
+  if (text.length > 500) {
+    return ctx.reply(TEXT.applyTooLong[lang]);
+  }
+  
+  ctx.session.application.applicationText = text;
+  ctx.session.application.step = "confirmApplication";
+  
+  return ctx.reply(
+    TEXT.confirmApply[lang],
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.confirmYes[lang], "CONFIRM_APPLY")],
+      [Markup.button.callback(TEXT.confirmNo[lang], "CANCEL_APPLY")]
+    ])
+  );
+});
+
+bot.action("CONFIRM_APPLY", async (ctx) => {
+  await ctx.answerCbQuery();
+  
+  const { taskId, applicationText } = ctx.session.application || {};
+  if (!taskId || !applicationText) {
+    return ctx.reply("Application error. Please try again.");
+  }
+  
+  const task = await Task.findById(taskId);
+  const applicant = await User.findOne({ telegramId: ctx.from.id });
+  const creator = await User.findById(task.creator);
+  
+  if (!task || !applicant || !creator) {
+    return ctx.reply("Error processing application.");
+  }
+  
+  // Build application post
+  const fields = applicant.stats.fieldStats 
+    ? Object.entries(applicant.stats.fieldStats)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([field]) => field)
+        .join(", ")
+    : "No field stats available";
+  
+  const ratingText = applicant.stats.ratingCount > 0
+    ? `${applicant.stats.averageRating.toFixed(1)} ★ (${applicant.stats.ratingCount})`
+    : "N/A ★ (0)";
+  
+  const banksList = applicant.bankDetails.map(b => b.bankName).join(", ");
+  
+  const applicationPost = [
+    `*Applicant:* ${applicant.fullName}`,
+    `*Total Earned:* ${applicant.stats.totalEarned.toFixed(2)} birr`,
+    `*Top Fields:* ${fields}`,
+    `*Rating:* ${ratingText}`,
+    `*Banks Accepted:* ${banksList}`,
+    `*Application:* ${applicationText}`
+  ].join("\n\n");
+  
+  // Send to task creator
+  const buttons = Markup.inlineKeyboard([
+    [Markup.button.callback(TEXT.acceptBtn[creator.language || "en"], `ACCEPT_${task._id}_${applicant._id}`)],
+    [Markup.button.callback(TEXT.declineBtn[creator.language || "en"], `DECLINE_${task._id}_${applicant._id}`)]
+  ]);
+  
+  await ctx.telegram.sendMessage(
+    creator.telegramId,
+    applicationPost,
+    { parse_mode: "Markdown", reply_markup: buttons.reply_markup }
+  );
+  
+  // Add applicant to task
+  task.applicants.push({
+    userId: applicant._id,
+    applicationText,
+    status: "Pending"
+  });
+  await task.save();
+  
+  // Notify applicant
+  const lang = applicant.language || "en";
+  await ctx.reply(TEXT.applicationSent[lang]);
+  
+  delete ctx.session.application;
+});
+
+bot.action(/ACCEPT_(.+)_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const applicantId = ctx.match[2];
+  
+  const task = await Task.findById(taskId);
+  const applicant = await User.findById(applicantId);
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  
+  if (!task || !applicant || !creator) {
+    return ctx.reply("Error processing acceptance.");
+  }
+  
+  // Update task status
+  task.status = "Accepted";
+  task.acceptedApplicant = applicantId;
+  await task.save();
+  
+  // Update applicant status in task
+  const applicantIndex = task.applicants.findIndex(a => a.userId.toString() === applicantId);
+  if (applicantIndex !== -1) {
+    task.applicants[applicantIndex].status = "Accepted";
+    await task.save();
+  }
+  
+  // Notify task creator
+  const creatorLang = creator.language || "en";
+  await ctx.reply(
+    TEXT.taskCreatorNotified[creatorLang].replace("{name}", applicant.fullName)
+  );
+  
+  // Notify applicant
+  const applicantLang = applicant.language || "en";
+  const buttons = Markup.inlineKeyboard([
+    [Markup.button.callback(TEXT.doTaskBtn[applicantLang], `DO_TASK_${task._id}`)],
+    [Markup.button.callback(TEXT.cancelBtn[applicantLang], `CANCEL_TASK_${task._id}`)]
+  ]);
+  
+  await ctx.telegram.sendMessage(
+    applicant.telegramId,
+    TEXT.applicationAccepted[applicantLang],
+    { reply_markup: buttons.reply_markup }
+  );
+  
+  // Set up expiry timer
+  const expiryHours = task.expiryHours;
+  const expiryTime = new Date(task.createdAt.getTime() + expiryHours * 3600 * 1000);
+  const now = new Date();
+  const remainingMs = expiryTime - now;
+  
+  if (remainingMs > 0) {
+    // Schedule reminders
+    const reminderIntervals = [0.2, 0.4, 0.6, 0.8].map(p => remainingMs * p);
+    
+    reminderIntervals.forEach(interval => {
+      setTimeout(async () => {
+        const updatedTask = await Task.findById(taskId);
+        if (updatedTask.status === "Accepted") {
+          const updatedApplicant = await User.findById(applicantId);
+          const lang = updatedApplicant.language || "en";
+          const remaining = Math.ceil((expiryTime - new Date()) / (3600 * 1000));
+          
+          await ctx.telegram.sendMessage(
+            updatedApplicant.telegramId,
+            TEXT.reminderToConfirm[lang].replace("{time}", `${remaining} hours`)
+          );
+        }
+      }, interval);
+    });
+    
+    // Schedule expiry
+    setTimeout(async () => {
+      const expiredTask = await Task.findById(taskId);
+      if (expiredTask.status === "Accepted") {
+        expiredTask.status = "Expired";
+        await expiredTask.save();
+        
+        // Notify creator
+        const creatorLang = creator.language || "en";
+        const creatorButtons = Markup.inlineKeyboard([
+          [Markup.button.callback(TEXT.repostTaskBtn[creatorLang], `REPOST_${expiredTask._id}`)]
+        ]);
+        
+        await ctx.telegram.sendMessage(
+          creator.telegramId,
+          TEXT.taskExpiredNoConfirm[creatorLang],
+          { reply_markup: creatorButtons.reply_markup }
+        );
+        
+        // Notify applicant
+        const applicantLang = applicant.language || "en";
+        await ctx.telegram.sendMessage(
+          applicant.telegramId,
+          TEXT.taskExpiredDoer[applicantLang]
+        );
+      }
+    }, remainingMs);
+  }
+});
+
+bot.action(/DECLINE_(.+)_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const applicantId = ctx.match[2];
+  
+  const task = await Task.findById(taskId);
+  const applicant = await User.findById(applicantId);
+  
+  if (!task || !applicant) {
+    return ctx.reply("Error processing decline.");
+  }
+  
+  // Update applicant status in task
+  const applicantIndex = task.applicants.findIndex(a => a.userId.toString() === applicantId);
+  if (applicantIndex !== -1) {
+    task.applicants[applicantIndex].status = "Declined";
+    await task.save();
+  }
+  
+  // Notify applicant
+  const lang = applicant.language || "en";
+  await ctx.telegram.sendMessage(
+    applicant.telegramId,
+    TEXT.applicationDeclined[lang]
+  );
+  
+  // Edit original message to show declined
+  try {
+    await ctx.editMessageText(
+      `❌ DECLINED\n\n${ctx.callbackQuery.message.text}`,
+      { parse_mode: "Markdown" }
+    );
+    
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          Markup.button.callback(TEXT.acceptBtn[ctx.session.user?.language || "en"], `_DISABLED_ACCEPT_${taskId}_${applicantId}`),
+          Markup.button.callback(`✔ ${TEXT.declineBtn[ctx.session.user?.language || "en"]}`, `_DISABLED_DECLINE_${taskId}_${applicantId}`)
+        ]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message:", err);
+  }
+});
+
+bot.action(/DO_TASK_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  
+  const task = await Task.findById(taskId);
+  const doer = await User.findOne({ telegramId: ctx.from.id });
+  const creator = await User.findById(task.creator);
+  
+  if (!task || !doer || !creator) {
+    return ctx.reply("Error processing task confirmation.");
+  }
+  
+  // Update task status
+  task.status = "In Progress";
+  await task.save();
+  
+  // Notify creator
+  const creatorLang = creator.language || "en";
+  await ctx.telegram.sendMessage(
+    creator.telegramId,
+    TEXT.taskStarted[creatorLang].replace("{name}", doer.fullName)
+  );
+  
+  // Notify doer
+  const doerLang = doer.language || "en";
+  await ctx.reply(
+    `✅ ${TEXT.taskStarted[doerLang].replace("{name}", "You")}`,
+    Markup.removeKeyboard()
+  );
+  
+  // Edit original buttons to show confirmation
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          Markup.button.callback(`✔ ${TEXT.doTaskBtn[doerLang]}`, `_DISABLED_DO_TASK_${taskId}`),
+          Markup.button.callback(TEXT.cancelBtn[doerLang], `_DISABLED_CANCEL_TASK_${taskId}`)
+        ]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message:", err);
+  }
+});
+
+bot.action(/CANCEL_TASK_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  
+  const task = await Task.findById(taskId);
+  const doer = await User.findOne({ telegramId: ctx.from.id });
+  const creator = await User.findById(task.creator);
+  
+  if (!task || !doer || !creator) {
+    return ctx.reply("Error processing task cancellation.");
+  }
+  
+  // Update task status
+  task.status = "Canceled";
+  await task.save();
+  
+  // Notify creator
+  const creatorLang = creator.language || "en";
+  await ctx.telegram.sendMessage(
+    creator.telegramId,
+    TEXT.taskDoerCanceled[creatorLang].replace("{name}", doer.fullName)
+  );
+  
+  // Notify doer
+  const doerLang = doer.language || "en";
+  await ctx.reply(
+    TEXT.taskCancelConfirmed[doerLang],
+    Markup.removeKeyboard()
+  );
+  
+  // Edit original buttons to show cancellation
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          Markup.button.callback(TEXT.doTaskBtn[doerLang], `_DISABLED_DO_TASK_${taskId}`),
+          Markup.button.callback(`✔ ${TEXT.cancelBtn[doerLang]}`, `_DISABLED_CANCEL_TASK_${taskId}`)
+        ]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message:", err);
+  }
+});
+
+bot.action(/REPOST_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  
+  const task = await Task.findById(taskId);
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  
+  if (!task || !creator) {
+    return ctx.reply("Error reposting task.");
+  }
+  
+  // Create new draft from task
+  const draft = await TaskDraft.create({
+    creatorTelegramId: creator.telegramId,
+    description: task.description,
+    relatedFile: task.relatedFile,
+    fields: task.fields,
+    skillLevel: task.skillLevel,
+    paymentFee: task.paymentFee,
+    timeToComplete: task.timeToComplete,
+    revisionTime: task.revisionTime,
+    penaltyPerHour: task.latePenalty,
+    expiryHours: task.expiryHours,
+    exchangeStrategy: task.exchangeStrategy
+  });
+  
+  // Show preview with edit/post options
+  const lang = creator.language || "en";
+  const preview = buildPreviewText(draft, creator);
+  
+  await ctx.reply(
+    preview,
+    Markup.inlineKeyboard([
+      [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+      [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+    ], { parse_mode: "Markdown" })
+  );
+  
+  // Edit original message to show reposted
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(`✔ ${TEXT.repostTaskBtn[lang]}`, `_DISABLED_REPOST_${taskId}`)]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message:", err);
+  }
+});
+
 
 
 // Error handling middleware
