@@ -506,8 +506,8 @@ function buildPreviewText(draft, user) {
   const lang = user?.language || "en";
   const lines = [];
 
-  lines.push(lang === "am" ? "*🚀 ተግዳሮቱ ተከፍቷል!*" : "*🚀 Task is open!*");
-  lines.push("");
+  //lines.push(lang === "am" ? "*🚀 ተግዳሮቱ ተከፍቷል!*" : "*🚀 Task is open!*");
+  //lines.push("");
 
   // Description
   lines.push(lang === "am" ? `*መግለጫ:* ${draft.description}` : `*Description:* ${draft.description}`);
@@ -579,15 +579,22 @@ function buildPreviewText(draft, user) {
 
   // Expiry
   if (draft.expiryHours != null) {
-    const expiryTs = new Date(Date.now() + draft.expiryHours*3600*1000);
-    const formatted = expiryTs.toLocaleString("en-US", {
-      timeZone: "Africa/Addis_Ababa",
-      month: "short", day: "numeric", year: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true
-    }) + " GMT+3";
-    lines.push(`*Expires At:* ${formatted}`);
+    if (isPosted) {
+      // For posted tasks, show exact expiry time
+      const expiryTs = new Date(Date.now() + draft.expiryHours*3600*1000);
+      const formatted = expiryTs.toLocaleString("en-US", {
+        timeZone: "Africa/Addis_Ababa",
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true
+      }) + " GMT+3";
+      lines.push(`*Expires At:* ${formatted}`);
+    } else {
+      // For draft preview, just show hours
+      lines.push(`*Expires In:* ${draft.expiryHours} hour(s)`);
+    }
     lines.push("");
   }
+
 
   // Exchange Strategy
   if (draft.exchangeStrategy) {
@@ -2701,7 +2708,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   });
   // Post to channel
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
-  const preview = buildPreviewText(draft, user);
+  const preview = buildPreviewText(draft, user, true); // Add true for isPosted
   const sent = await ctx.telegram.sendMessage(channelId, preview, {
     parse_mode: "Markdown",
     reply_markup: Markup.inlineKeyboard([
