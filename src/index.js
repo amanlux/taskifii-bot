@@ -2940,12 +2940,19 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   // Post to channel using English version
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
-  const sent = await ctx.telegram.sendMessage(channelId, preview, {
-    parse_mode: "Markdown",
-    reply_markup: Markup.inlineKeyboard([
-      [Markup.button.callback("Apply", `APPLY_${task._id}`)]
-    ])
-  });
+
+  // Create the inline keyboard markup correctly
+  const applyButton = Markup.button.callback("Apply", `APPLY_${task._id}`);
+  const keyboard = Markup.inlineKeyboard([applyButton]);
+
+  const sent = await ctx.telegram.sendMessage(
+    channelId,
+    preview,
+    {
+      parse_mode: "Markdown",
+      reply_markup: keyboard.reply_markup
+    }
+  );
 
   // Store the channel message ID with the task
   task.channelMessageId = sent.message_id;
