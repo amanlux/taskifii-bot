@@ -506,9 +506,6 @@ function buildPreviewText(draft, user) {
   const lang = user?.language || "en";
   const lines = [];
 
-  //lines.push(lang === "am" ? "*🚀 ተግዳሮቱ ተከፍቷል!*" : "*🚀 Task is open!*");
-  //lines.push("");
-
   // Description
   lines.push(lang === "am" ? `*መግለጫ:* ${draft.description}` : `*Description:* ${draft.description}`);
   lines.push("");
@@ -554,22 +551,136 @@ function buildPreviewText(draft, user) {
     lines.push("");
   }
 
+  // Revision Time
+  if (draft.revisionTime != null) {
+    const rev = draft.revisionTime;
+    const revText = lang === "am"
+      ? Number.isInteger(rev)
+        ? `${rev} ሰዓት(ዎች)`
+        : `${Math.round(rev * 60)} ደቂቃ(ዎች)`
+      : Number.isInteger(rev)
+        ? `${rev} hour(s)`
+        : `${Math.round(rev * 60)} minute(s)`;
+    lines.push(lang === "am" 
+      ? `*የማሻሻል ጊዜ:* ${revText}` 
+      : `*Revision Time:* ${revText}`);
+    lines.push("");
+  }
 
+  // Penalty per Hour
+  if (draft.penaltyPerHour != null) {
+    lines.push(lang === "am" 
+      ? `*በተዘገየ ሰዓት የሚቀነስ ቅጣት:* ${draft.penaltyPerHour} ብር` 
+      : `*Penalty per Hour (late):* ${draft.penaltyPerHour} birr`);
+    lines.push("");
+  }
+
+  // Expiry
+  if (draft.expiryHours != null) {
+    const expiryTs = new Date(Date.now() + draft.expiryHours*3600*1000);
+    const formatted = expiryTs.toLocaleString("en-US", {
+      timeZone: "Africa/Addis_Ababa",
+      month: "short", day: "numeric", year: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true
+    }) + " GMT+3";
+    lines.push(lang === "am" 
+      ? `*የማብቂያ ጊዜ:* ${formatted}` 
+      : `*Expires At:* ${formatted}`);
+    lines.push("");
+  }
+
+  // Exchange Strategy
+  if (draft.exchangeStrategy) {
+    let desc = "";
+    if (draft.exchangeStrategy === "100%") {
+      desc = TEXT.exchangeStrategyDesc100[lang];
+    } else if (draft.exchangeStrategy === "30:40:30") {
+      desc = TEXT.exchangeStrategyDesc304030[lang];
+    } else {
+      desc = TEXT.exchangeStrategyDesc5050[lang];
+    }
+    lines.push(lang === "am" 
+      ? `*የክፍያ-ተግዳሮት ልውውጥ ስልት:* ${desc}` 
+      : `*Exchange Strategy:* ${desc}`);
+    lines.push("");
+  }
+
+  // Banks Accepted
+  if (user.bankDetails && user.bankDetails.length) {
+    const names = user.bankDetails.map(b => b.bankName).join(", ");
+    lines.push(lang === "am" 
+      ? `*ተቀባይነት ያላቸው ባንኮች:* ${names}` 
+      : `*Banks Accepted:* ${names}`);
+    lines.push("");
+  }
+
+  // Creator stats
+  const ratingText = user.stats.ratingCount > 0
+    ? `${user.stats.averageRating.toFixed(1)} ★ (${user.stats.ratingCount} ${lang === "am" ? "ግምገማዎች" : "ratings"})`
+    : `N/A ★ (0 ${lang === "am" ? "ግምገማዎች" : "ratings"})`;
   
+  lines.push(lang === "am" 
+    ? `*ፈጣሪ አጠቃላይ የተሰራው:* ${user.stats.totalEarned.toFixed(2)} ብር` 
+    : `*Creator Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
+  lines.push(lang === "am" 
+    ? `*ፈጣሪ አጠቃላይ የተከፈለው:* ${user.stats.totalSpent.toFixed(2)} ብር` 
+    : `*Creator Total Spent:* ${user.stats.totalSpent.toFixed(2)} birr`);
+  lines.push(lang === "am" 
+    ? `*ፈጣሪ ደረጃ:* ${ratingText}` 
+    : `*Creator Rating:* ${ratingText}`);
+  lines.push("");
+
+  return lines.join("\n");
+}
+
+function buildChannelPostText(draft, user) {
+  const lines = [];
+
+  // Always use English for channel posts
+  lines.push(`*Description:* ${draft.description}`);
+  lines.push("");
+
+  // Fields → hashtags
+  if (draft.fields.length) {
+    const tags = draft.fields.map(f => `#${f.replace(/\s+/g, "")}`).join(" ");
+    lines.push(`*Fields:* ${tags}`);
+    lines.push("");
+  }
+
+  // Skill Level
+  if (draft.skillLevel) {
+    const emoji = draft.skillLevel === "Beginner"
+      ? "🟢"
+      : draft.skillLevel === "Intermediate"
+        ? "🟡"
+        : "🔴";
+    lines.push(`*Skill Level Required:* ${emoji} ${draft.skillLevel}`);
+    lines.push("");
+  }
+
+  // Payment Fee
+  if (draft.paymentFee != null) {
+    lines.push(`*Payment Fee:* ${draft.paymentFee} birr`);
+    lines.push("");
+  }
+
+  // Time to Complete
+  if (draft.timeToComplete != null) {
+    lines.push(`*Time to Complete:* ${draft.timeToComplete} hour(s)`);
+    lines.push("");
+  }
+
   // Revision Time
   if (draft.revisionTime != null) {
     const rev = draft.revisionTime;
     if (Number.isInteger(rev)) {
-      // whole hours
       lines.push(`*Revision Time:* ${rev} hour(s)`);
     } else {
-      // decimal → minutes
       const minutes = Math.round(rev * 60);
       lines.push(`*Revision Time:* ${minutes} minute(s)`);
     }
     lines.push("");
   }
-
 
   // Penalty per Hour
   if (draft.penaltyPerHour != null) {
@@ -610,17 +721,19 @@ function buildPreviewText(draft, user) {
     lines.push("");
   }
 
-  // ─── New: Creator stats ───────────────────────
-  lines.push(`*Creator Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
-  lines.push(`*Creator Total Spent:*  ${user.stats.totalSpent.toFixed(2)} birr`);
+  // Creator stats
   const ratingText = user.stats.ratingCount > 0
     ? `${user.stats.averageRating.toFixed(1)} ★ (${user.stats.ratingCount} ratings)`
     : `N/A ★ (0 ratings)`;
-  lines.push(`*Creator Rating:*     ${ratingText}`);
+  
+  lines.push(`*Creator Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
+  lines.push(`*Creator Total Spent:* ${user.stats.totalSpent.toFixed(2)} birr`);
+  lines.push(`*Creator Rating:* ${ratingText}`);
   lines.push("");
 
   return lines.join("\n");
 }
+
 
   // Optionally include user stats (earned/spent/avg rating) if desired:
   // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
@@ -2677,12 +2790,13 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   try { await ctx.deleteMessage(); } catch(_) {}
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) return ctx.reply("Draft expired.");
-  // Build Task document
+  
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return ctx.reply("User not found.");
+  
   const now = new Date();
   const expiryDate = new Date(now.getTime() + draft.expiryHours*3600*1000);
-  // Create Task in DB
+  
   const task = await Task.create({
     creator: user._id,
     description: draft.description,
@@ -2699,24 +2813,32 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     applicants: [],
     stages: []
   });
-  // Post to channel
+
+  // Post to channel using English version
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
-  const preview = buildPreviewText(draft, user);
+  const preview = buildChannelPostText(draft, user);
   const sent = await ctx.telegram.sendMessage(channelId, preview, {
     parse_mode: "Markdown",
     reply_markup: Markup.inlineKeyboard([
       [Markup.button.callback("Apply", `APPLY_${task._id}`)]
     ])
   });
-  // 👉 Store the message_id so we can edit this exact message later
+
   user.adminProfileMsgId = sent.message_id;
   await user.save();
 
-  // Notify creator with Cancel Task button
-  await ctx.reply("✅ Your task is live!", Markup.inlineKeyboard([
-    [Markup.button.callback("Cancel Task", `CANCEL_${task._id}`)]
-  ]));
-  // Delete draft
+  // Notify creator in their language
+  const lang = user.language || "en";
+  await ctx.reply(
+    lang === "am" ? "✅ ተግዳሮትዎ ተለቀቀ!" : "✅ Your task is live!",
+    Markup.inlineKeyboard([
+      [Markup.button.callback(
+        lang === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", 
+        `CANCEL_${task._id}`
+      )]
+    ])
+  );
+  
   await TaskDraft.findByIdAndDelete(draft._id);
 });
 
