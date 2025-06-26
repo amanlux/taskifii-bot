@@ -2846,13 +2846,22 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     ])
   });
 
+  // Store the channel message ID with the task
+  task.channelMessageId = sent.message_id;
+  await task.save();
+  
   user.adminProfileMsgId = sent.message_id;
   await user.save();
   
   // Delete the draft
   await TaskDraft.findByIdAndDelete(draft._id);
   
-  // Don't send any additional messages - just leave the preview with disabled buttons
+  // Send confirmation message to user
+  const confirmationText = user.language === "am" 
+    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
+    : `✅ Task posted successfully!\n\nOther users can now apply. `;
+  
+  return ctx.reply(confirmationText);
 });
 
 function buildProfileText(user, showCongrats = false) {
