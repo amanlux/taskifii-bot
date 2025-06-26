@@ -4330,7 +4330,139 @@ bot.action(/REPOST_(.+)/, async (ctx) => {
     console.error("Error editing message:", err);
   }
 });
+// ─────────── APPLY TO TASK ───────────
+bot.action(/APPLY_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found. Please /start again.");
 
+  const task = await Task.findById(taskId);
+  if (!task) {
+    return ctx.reply(
+      user.language === "am" 
+        ? "ይህ ተግዳሮት አልተገኘም። እባክዎ ሌላ ተግዳሮት ይምረጡ።" 
+        : "This task is no longer available. Please select another task."
+    );
+  }
+
+  // Initialize session for application flow
+  ctx.session.taskFlow = {
+    step: "apply",
+    taskId: taskId,
+    application: {
+      text: null,
+      files: []
+    }
+  };
+
+  return ctx.reply(
+    TEXT.applyPrompt[user.language],
+    Markup.inlineKeyboard([[Markup.button.callback(TEXT.skipBtn[user.language], "APPLY_SKIP_FILE")]])
+  );
+});
+
+// ─────────── HANDLE APPLICATION TEXT ───────────
+bot.on('text', async (ctx, next) => {
+  if (!ctx.session?.taskFlow || ctx.session.taskFlow.step !== "apply") {
+    return next();
+  }
+
+  const text = ctx.message.text.trim();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  if (text.length < 20) {
+    return ctx.reply(TEXT.applyTooShort[lang]);
+  }
+  if (text.length > 500) {
+    return ctx.reply(TEXT.applyTooLong[lang]);
+  }
+
+  ctx.session.taskFlow.application.text = text;
+  ctx.session.taskFlow.step = "applyConfirm";
+
+  return ctx.reply(
+    TEXT.confirmApply[lang],
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.confirmYes[lang], "APPLY_CONFIRM_YES")],
+      [Markup.button.callback(TEXT.confirmNo[lang], "APPLY_CONFIRM_NO")]
+    ])
+  );
+});
+
+// ─────────── HANDLE APPLICATION FILES ───────────
+bot.on(['photo', 'document'], async (ctx, next) => {
+  if (!ctx.session?.taskFlow || ctx.session.taskFlow.step !== "apply") {
+    return next();
+  }
+
+  const fileId = ctx.message.photo 
+    ? ctx.message.photo[ctx.message.photo.length - 1].file_id 
+    : ctx.message.document.file_id;
+
+  ctx.session.taskFlow.application.files.push(fileId);
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  return ctx.reply(
+    TEXT.applyPrompt[lang],
+    Markup.inlineKeyboard([[Markup.button.callback(TEXT.skipBtn[lang], "APPLY_SKIP_FILE")]])
+  );
+});
+
+// ─────────── APPLICATION CONFIRMATION ───────────
+bot.action("APPLY_CONFIRM_YES", async (ctx) => {
+  await ctx.answerCbQuery();
+  const { taskFlow } = ctx.session;
+  if (!taskFlow || !taskFlow.taskId) {
+    return ctx.reply("Session expired. Please try again.");
+  }
+
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const task = await Task.findById(taskFlow.taskId);
+
+  // Add application to task
+  task.applicants.push({
+    userId: user._id,
+    text: taskFlow.application.text,
+    files: taskFlow.application.files,
+    createdAt: new Date()
+  });
+  await task.save();
+
+  // Notify creator
+  const creator = await User.findById(task.creator);
+  if (creator) {
+    const lang = creator.language || "en";
+    await ctx.telegram.sendMessage(
+      creator.telegramId,
+      `📩 New application for your task:\n\n${taskFlow.application.text}`,
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback(TEXT.acceptBtn[lang], `APPLICATION_ACCEPT_${task._id}_${user._id}`),
+          Markup.button.callback(TEXT.declineBtn[lang], `APPLICATION_DECLINE_${task._id}_${user._id}`)
+        ]
+      ])
+    );
+  }
+
+  // Clear session
+  delete ctx.session.taskFlow;
+
+  return ctx.reply(TEXT.applicationSent[user.language]);
+});
+
+bot.action("APPLY_CONFIRM_NO", async (ctx) => {
+  await ctx.answerCbQuery();
+  delete ctx.session.taskFlow;
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  return ctx.reply(
+    user.language === "am" 
+      ? "ማመልከቻው ተሰርዟል።" 
+      : "Application canceled."
+  );
+});
 
 
 // Error handling middleware
