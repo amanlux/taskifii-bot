@@ -2785,13 +2785,37 @@ bot.action("EDIT_exchangeStrategy", async (ctx) => {
 
 bot.action("TASK_POST_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
-  try { await ctx.deleteMessage(); } catch(_) {}
+  
+  // Get the draft and user
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) return ctx.reply("Draft expired.");
+  if (!draft) {
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
+    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+  }
   
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return ctx.reply("User not found.");
   
+  // Highlight "Post Task" and disable both buttons in the preview message
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(
+          user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", 
+          "_DISABLED_TASK_EDIT"
+        )],
+        [Markup.button.callback(
+          `✔ ${user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task"}`,
+          "_DISABLED_TASK_POST_CONFIRM"
+        )]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
+
+  // Create the task
   const now = new Date();
   const expiryDate = new Date(now.getTime() + draft.expiryHours*3600*1000);
   
@@ -2824,20 +2848,11 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
 
   user.adminProfileMsgId = sent.message_id;
   await user.save();
-
-  // Notify creator in their language
-  const lang = user.language || "en";
-  await ctx.reply(
-    lang === "am" ? "✅ ተግዳሮትዎ ተለቀቀ!" : "✅ Your task is live!",
-    Markup.inlineKeyboard([
-      [Markup.button.callback(
-        lang === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", 
-        `CANCEL_${task._id}`
-      )]
-    ])
-  );
   
+  // Delete the draft
   await TaskDraft.findByIdAndDelete(draft._id);
+  
+  // Don't send any additional messages - just leave the preview with disabled buttons
 });
 
 function buildProfileText(user, showCongrats = false) {
