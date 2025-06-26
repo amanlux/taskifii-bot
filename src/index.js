@@ -575,17 +575,11 @@ function buildPreviewText(draft, user) {
     lines.push("");
   }
 
-  // Expiry
+  // Expiry - Show hours remaining in preview
   if (draft.expiryHours != null) {
-    const expiryTs = new Date(Date.now() + draft.expiryHours*3600*1000);
-    const formatted = expiryTs.toLocaleString("en-US", {
-      timeZone: "Africa/Addis_Ababa",
-      month: "short", day: "numeric", year: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true
-    }) + " GMT+3";
     lines.push(lang === "am" 
-      ? `*የማብቂያ ጊዜ:* ${formatted}` 
-      : `*Expires At:* ${formatted}`);
+      ? `*የማብቂያ ጊዜ:* ${draft.expiryHours} ሰዓት(ዎች)` 
+      : `*Expires In:* ${draft.expiryHours} hour(s)`);
     lines.push("");
   }
 
@@ -688,13 +682,17 @@ function buildChannelPostText(draft, user) {
     lines.push("");
   }
 
-  // Expiry
+  // Expiry - Show absolute time in channel post
   if (draft.expiryHours != null) {
-    const expiryTs = new Date(Date.now() + draft.expiryHours*3600*1000);
+    const expiryTs = new Date(Date.now() + draft.expiryHours * 3600 * 1000);
     const formatted = expiryTs.toLocaleString("en-US", {
       timeZone: "Africa/Addis_Ababa",
-      month: "short", day: "numeric", year: "numeric",
-      hour: "numeric", minute: "2-digit", hour12: true
+      month: "short", 
+      day: "numeric", 
+      year: "numeric",
+      hour: "numeric", 
+      minute: "2-digit", 
+      hour12: true
     }) + " GMT+3";
     lines.push(`*Expires At:* ${formatted}`);
     lines.push("");
