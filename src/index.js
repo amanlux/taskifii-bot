@@ -628,11 +628,16 @@ function buildPreviewText(draft, user) {
 }
 
 function buildChannelPostText(draft, user) {
+  if (!draft || !user) return "Error: Missing task or user data";
+  
   const lines = [];
-
+  
   // Always use English for channel posts
-  lines.push(`*Description:* ${draft.description}`);
-  lines.push("");
+  if (draft.description) {
+    lines.push(`*Description:* ${draft.description}`);
+    lines.push("");
+  }
+
 
   // Fields → hashtags
   if (draft.fields.length) {
@@ -2852,24 +2857,6 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return ctx.reply("User not found.");
-  
-  // Highlight "Post Task" and disable both buttons in the preview message
-  try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [Markup.button.callback(
-          user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", 
-          "_DISABLED_TASK_EDIT"
-        )],
-        [Markup.button.callback(
-          `✔ ${user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task"}`,
-          "_DISABLED_TASK_POST_CONFIRM"
-        )]
-      ]
-    });
-  } catch (err) {
-    console.error("Error editing message markup:", err);
-  }
 
   // Create the task
   const now = new Date();
@@ -2884,7 +2871,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     paymentFee: draft.paymentFee,
     timeToComplete: draft.timeToComplete,
     revisionTime: draft.revisionTime,
-    latePenalty: draft.penaltyPerHour,
+    penaltyPerHour: draft.penaltyPerHour,
     expiry: expiryDate,
     exchangeStrategy: draft.exchangeStrategy,
     status: "Open",
@@ -2892,41 +2879,42 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     stages: []
   });
 
-  // Post to channel using English version
+  // Post to channel using the draft data
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
-  const preview = buildChannelPostText(draft, user);
-  const postText = buildChannelPostText(ctx.session.newTask);
+  const postText = buildChannelPostText(draft, user);
 
-  const sent = await bot.telegram.sendMessage(
-    process.env.TASKS_CHANNEL_ID,
-    postText,
-    {
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.url(
-          ctx.session.newTask.language === "am" ? "ያመልክቱ" : "Apply",
-          `https://t.me/${ctx.botInfo.username}?start=cmd_apply_${ctx.session.newTask.taskId}`
-        )]
-      ])
-    }
-  );
+  try {
+    const sent = await ctx.telegram.sendMessage(
+      channelId,
+      postText,
+      {
+        parse_mode: "Markdown",
+        reply_markup: Markup.inlineKeyboard([
+          [Markup.button.url(
+            user.language === "am" ? "ያመልክቱ" : "Apply", 
+            `https://t.me/${ctx.botInfo.username}?start=cmd_apply_${task._id}`
+          )]
+        ]).reply_markup
+      }
+    );
 
-
-  // Store the channel message ID with the task
-  task.channelMessageId = sent.message_id;
-  await task.save();
-  
-  user.adminProfileMsgId = sent.message_id;
-  await user.save();
-  
-  // Delete the draft
-  await TaskDraft.findByIdAndDelete(draft._id);
-  
-  // Send confirmation message to user
-  const confirmationText = user.language === "am" 
-    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
-    : `✅ Task posted successfully!\n\nOther users can now apply. `;
-  
-  return ctx.reply(confirmationText);
+    // Store the channel message ID with the task
+    task.channelMessageId = sent.message_id;
+    await task.save();
+    
+    // Delete the draft
+    await TaskDraft.findByIdAndDelete(draft._id);
+    
+    // Send confirmation message to user
+    const confirmationText = user.language === "am" 
+      ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
+      : `✅ Task posted successfully!\n\nOther users can now apply.`;
+    
+    return ctx.reply(confirmationText);
+  } catch (err) {
+    console.error("Failed to post task to channel:", err);
+    return ctx.reply("Failed to post task. Please try again.");
+  }
 });
 
 function buildProfileText(user, showCongrats = false) {
