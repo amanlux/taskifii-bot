@@ -1770,35 +1770,37 @@ bot.action("POST_TASK", async (ctx) => {
 });
 
 //  ➤ 1st step: catch Apply button clicks
-//  ➤ 1st step: catch Apply button clicks
 bot.action(/^APPLY_(.+)$/, async ctx => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
 
-  // Initialize session if not exists
-  ctx.session = ctx.session || {};
-  
-  // Initialize the apply flow
-  ctx.session.applyFlow = { 
-    taskId, 
-    step: "awaiting_pitch" 
-  };
-  
+  // Send the “apply” deep-link command so the user sees it in private chat
+  // (this also kicks them out of the channel into 1:1)
+  const deepLink = `/apply_${taskId}`;
+  await ctx.telegram.sendMessage(
+    ctx.from.id,
+    lang === "am"
+      ? `ግባብን ለመጀመር፤ እባክዎ ይጻፉ: ${deepLink}`
+      : `To start your application, please send: ${deepLink}`
+  );
+});
+//  ➤ 2nd step: when user sends /apply_<taskId>, ask for their 20–500-char pitch
+bot.hears(/^\/apply_(.+)$/, async ctx => {
+  const taskId = ctx.match[1];
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  // Save flow state
+  ctx.session.applyFlow = { taskId, step: "awaiting_pitch" };
+
   // Send bilingual prompt
   const prompt = lang === "am"
     ? "እባክዎ ለዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
     : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
-  
-  // Send the user directly to the bot chat and prompt for their pitch
-  await ctx.telegram.sendMessage(
-    ctx.from.id,
-    prompt
-  );
+  await ctx.reply(prompt);
 });
-//  ➤ 2nd step: when user sends /apply_<taskId>, ask for their 20–500-char pitch
-
 
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
@@ -1850,8 +1852,6 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   ctx.session = ctx.session || {};
   ctx.session.user = ctx.session.user || {};
   
-  const flow = ctx.session.applyFlow;
-  if (!flow || flow.step !== "awaiting_pitch") return;
   if (!ctx.session.taskFlow) return next();
   const { step, draftId } = ctx.session.taskFlow;
   if (!draftId) {
