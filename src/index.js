@@ -2916,35 +2916,48 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     stages: []
   });
 
-  // Post to channel using English version
+  // Build the channel post text
+  const channelText = buildChannelPostText(draft, user);
+  
+  // Post to channel
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
-  const preview = buildChannelPostText(draft, user);
-  // Choose bilingual label (“Apply / ያመልክቱ”)
-  const applyLabel = `Apply / ያመልክቱ`;
-  const sent = await ctx.telegram.sendMessage(channelId, preview, {
-    parse_mode: "Markdown",
-    reply_markup: Markup.inlineKeyboard([
-      [ Markup.button.callback(applyLabel, `APPLY_${task._id}`) ]
-    ])
-  });
+  try {
+    const sent = await ctx.telegram.sendMessage(
+      channelId,
+      channelText,
+      {
+        parse_mode: "Markdown",
+        reply_markup: Markup.inlineKeyboard([
+          [Markup.button.callback("Apply / ያመልክቱ", `APPLY_${task._id}`)]
+        ])
+      }
+    );
 
-
-  // Store the channel message ID with the task
-  task.channelMessageId = sent.message_id;
-  await task.save();
-  
-  user.adminProfileMsgId = sent.message_id;
-  await user.save();
-  
-  // Delete the draft
-  await TaskDraft.findByIdAndDelete(draft._id);
-  
-  // Send confirmation message to user
-  const confirmationText = user.language === "am" 
-    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
-    : `✅ Task posted successfully!\n\nOther users can now apply. `;
-  
-  return ctx.reply(confirmationText);
+    // Store the channel message ID with the task
+    task.channelMessageId = sent.message_id;
+    await task.save();
+    
+    // Also store in user if needed
+    user.adminProfileMsgId = sent.message_id;
+    await user.save();
+    
+    // Delete the draft
+    await TaskDraft.findByIdAndDelete(draft._id);
+    
+    // Send confirmation message to user
+    const confirmationText = user.language === "am" 
+      ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
+      : `✅ Task posted successfully!\n\nOther users can now apply.`;
+    
+    return ctx.reply(confirmationText);
+    
+  } catch (err) {
+    console.error("Failed to post to channel:", err);
+    const errorText = user.language === "am" 
+      ? "❌ ተግዳሮቱን ለመለጠፍ አልተቻለም። እባክዎ ቆይተው እንደገና ይሞክሩ።"
+      : "❌ Failed to post task. Please try again later.";
+    return ctx.reply(errorText);
+  }
 });
 
 function buildProfileText(user, showCongrats = false) {
