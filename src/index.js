@@ -2895,15 +2895,19 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   // Post to channel using English version
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
-  const sent = await ctx.telegram.sendMessage(channelId, preview, {
-    parse_mode: "Markdown",
-    reply_markup: Markup.inlineKeyboard([
-      [Markup.button.url(
-        user.language === "am" ? "ያመልክቱ" : "Apply", 
-        `https://t.me/${ctx.botInfo.username}?start=cmd_apply_${task._id}`
-      )]
-    ])
-  });
+  const sent = await bot.telegram.sendMessage(
+    process.env.TASKS_CHANNEL_ID,
+    postText,
+    {
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.url(
+          ctx.session.newTask.language === "am" ? "ያመልክቱ" : "Apply",
+          `https://t.me/${ctx.botInfo.username}?start=cmd_apply_${ctx.session.newTask.taskId}`
+        )]
+      ])
+    }
+  );
+
 
   // Store the channel message ID with the task
   task.channelMessageId = sent.message_id;
