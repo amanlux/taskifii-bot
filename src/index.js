@@ -2520,17 +2520,41 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
   }
 }
 
+
+
 const Task = require('./models/Task');
 
 async function migratePenaltyFields() {
+  // First add the new field if it doesn't exist
+  await Task.updateMany(
+    { penaltyPerHour: { $exists: false } },
+    { $set: { penaltyPerHour: 0 } } // Default value
+  );
+  
+  // Then migrate data from latePenalty to penaltyPerHour
   await Task.updateMany(
     { latePenalty: { $exists: true } },
-    { $rename: { 'latePenalty': 'penaltyPerHour' } }
+    { $set: { penaltyPerHour: '$latePenalty' } }
   );
-  console.log('Migration complete');
+  
+  // Finally, remove the old field
+  await Task.updateMany(
+    {},
+    { $unset: { latePenalty: "" } }
+  );
+    // Add this to your migration script
+  await Task.updateMany(
+    { penaltyPerHour: { $exists: false } },
+    { $set: { penaltyPerHour: 0 } } // Set default value
+  );
+  
+  console.log('Penalty field migration complete');
 }
 
-migratePenaltyFields();
+// Run the migration when the bot starts
+migratePenaltyFields().catch(err => {
+  console.error('Migration failed:', err);
+});
 
 
 bot.action(/TASK_EX_(.+)/, async (ctx) => {
