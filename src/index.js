@@ -785,6 +785,7 @@ function startBot() {
   const { session } = require('telegraf');
   
   // Add this session initialization middleware
+  bot.use(session());
   bot.use(async (ctx, next) => {
     // Initialize session if not exists
     ctx.session = ctx.session || {};
@@ -799,8 +800,6 @@ function startBot() {
     
     return next();
   });
-  
-  bot.use(session());
   /**
  * Build an inline keyboard with:
  *  – ✅ prefix on the clicked button
@@ -1777,8 +1776,14 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
 
-  // Initialize the apply flow directly
-  ctx.session.applyFlow = { taskId, step: "awaiting_pitch" };
+  // Initialize session if not exists
+  ctx.session = ctx.session || {};
+  
+  // Initialize the apply flow
+  ctx.session.applyFlow = { 
+    taskId, 
+    step: "awaiting_pitch" 
+  };
   
   // Send bilingual prompt
   const prompt = lang === "am"
@@ -1839,10 +1844,14 @@ bot.action("TASK_EDIT", async (ctx) => {
 });
 
 
-bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
+bot.on(['text','photo','document','video','audio'], async ctx => {
   // Initialize session if not exists
   ctx.session = ctx.session || {};
-  ctx.session.user = ctx.session.user || {};
+  
+  const flow = ctx.session.applyFlow;
+  if (!flow || flow.step !== "awaiting_pitch") return;
+  
+
   
   if (!ctx.session.taskFlow) return next();
   const { step, draftId } = ctx.session.taskFlow;
