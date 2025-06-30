@@ -400,22 +400,6 @@ const TEXT = {
     en: "Selected:",
     am: "የተመረጡ:"
   },
-  applyBtn: {
-    en: "Apply",
-    am: "ማመልከት"
-  },
-  askApplicationText: {
-    en: "Please write why you're the best fit for this task (20-500 characters). You can attach files like portfolios, but don't forget to include a caption with your text.",
-    am: "እባክዎ ለዚህ ተግዳሮት በተሻለ ሁኔታ ለመስራት የሚችሉበትን ምክንያት ይጻᡉ (20-500 ቁምፊዎች)። ፖርትፎሊዮ ወይም ሌሎች ፋይሎችን ማያያዝ ይችላሉ፣ ግን ከጽሑፍዎ ጋር መግለጫ እንደሚጨምሩ ያረጋግጡ።"
-  },
-  applicationTextTooShort: {
-    en: "Please make sure it is greater than 20 characters!",
-    am: "እባክዎ ከ20 ቁምፊዎች በላይ መሆኑን ያረጋግጡ!"
-  },
-  applicationTextTooLong: {
-    en: "Please make sure it is less than 500 characters!",
-    am: "እባክዎ ከ500 ቁምፊዎች በታች መሆኑን ያረጋግጡ!"
-  },
 
   
   
@@ -745,16 +729,7 @@ function buildChannelPostText(draft, user) {
   lines.push(`*Creator Rating:* ${ratingText}`);
   lines.push("");
 
-  // Join all lines and ensure it doesn't exceed Telegram's limit
-  let postText = lines.join("\n");
-  if (postText.length > 4000) {
-    // If too long, truncate the description
-    const overflow = postText.length - 4000;
-    postText = lines[0].substring(0, lines[0].length - overflow - 3) + "...\n" + 
-               lines.slice(1).join("\n");
-  }
-  
-  return postText;
+  return lines.join("\n");
 }
 
 
@@ -1793,6 +1768,40 @@ bot.action("POST_TASK", async (ctx) => {
   const prompt = TEXT.descriptionPrompt[user.language];
   return ctx.reply(prompt);
 });
+
+//  ➤ 1st step: catch Apply button clicks
+bot.action(/^APPLY_(.+)$/, async ctx => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  // Send the “apply” deep-link command so the user sees it in private chat
+  // (this also kicks them out of the channel into 1:1)
+  const deepLink = `/apply_${taskId}`;
+  await ctx.telegram.sendMessage(
+    ctx.from.id,
+    lang === "am"
+      ? `ግባብን ለመጀመር፤ እባክዎ ይጻፉ: ${deepLink}`
+      : `To start your application, please send: ${deepLink}`
+  );
+});
+//  ➤ 2nd step: when user sends /apply_<taskId>, ask for their 20–500-char pitch
+bot.hears(/^\/apply_(.+)$/, async ctx => {
+  const taskId = ctx.match[1];
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  // Save flow state
+  ctx.session.applyFlow = { taskId, step: "awaiting_pitch" };
+
+  // Send bilingual prompt
+  const prompt = lang === "am"
+    ? "እባክዎ ለዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+    : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+  await ctx.reply(prompt);
+});
+
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
@@ -1836,114 +1845,6 @@ bot.action("TASK_EDIT", async (ctx) => {
     Markup.inlineKeyboard(buttons)
   );
 });
-
-// Handle Apply button clicks from channel posts
-bot.action(/^APPLY_(.+)/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const taskId = ctx.match[1];
-  const task = await Task.findById(taskId);
-  
-  if (!task) {
-    return ctx.reply("This task is no longer available.");
-  }
-
-  // Get user's language preference
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-
-  // Initialize application session
-  ctx.session.application = {
-    taskId: task._id.toString(),
-    step: "applicationText"
-  };
-
-  // Ask for application text
-  return ctx.reply(TEXT.askApplicationText[lang]);
-});
-
-// Handle application text input
-bot.on(['text', 'photo', 'document', 'video', 'audio'], async (ctx, next) => {
-  if (!ctx.session?.application) return next();
-  
-  const { step, taskId } = ctx.session.application;
-  const task = await Task.findById(taskId);
-  if (!task) {
-    delete ctx.session.application;
-    return ctx.reply("This task is no longer available.");
-  }
-
-  // Get user's language preference
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-
-  if (step === "applicationText") {
-    // For text messages
-    if (ctx.message.text) {
-      const text = ctx.message.text.trim();
-      
-      if (text.length < 20) {
-        return ctx.reply(TEXT.applicationTextTooShort[lang]);
-      }
-      
-      if (text.length > 500) {
-        return ctx.reply(TEXT.applicationTextTooLong[lang]);
-      }
-      
-      // Store the application text
-      ctx.session.application.text = text;
-      ctx.session.application.step = "nextStep"; // We'll implement this later
-      return ctx.reply("Application text received! Next step..."); // Temporary message
-    }
-    // For media with captions
-    else if (ctx.message.caption) {
-      const caption = ctx.message.caption.trim();
-      
-      if (caption.length < 20) {
-        return ctx.reply(TEXT.applicationTextTooShort[lang]);
-      }
-      
-      if (caption.length > 500) {
-        return ctx.reply(TEXT.applicationTextTooLong[lang]);
-      }
-      
-      // Store media and caption
-      ctx.session.application.text = caption;
-      ctx.session.application.media = {
-        fileId: getFileIdFromMessage(ctx.message),
-        fileType: getFileTypeFromMessage(ctx.message)
-      };
-      ctx.session.application.step = "nextStep"; // We'll implement this later
-      return ctx.reply("Application received! Next step..."); // Temporary message
-    }
-    // For media without captions
-    else {
-      return ctx.reply(
-        lang === "am" 
-          ? "እባክዎ የፋይል መግለጫ (caption) ያስገቡ (20-500 ቁምፊዎች)." 
-          : "Please provide a caption for your file (20-500 characters)."
-      );
-    }
-  }
-  
-  return next();
-});
-
-// Helper functions to get file info from message
-function getFileIdFromMessage(message) {
-  if (message.photo) return message.photo[message.photo.length - 1].file_id;
-  if (message.document) return message.document.file_id;
-  if (message.video) return message.video.file_id;
-  if (message.audio) return message.audio.file_id;
-  return null;
-}
-
-function getFileTypeFromMessage(message) {
-  if (message.photo) return "photo";
-  if (message.document) return "document";
-  if (message.video) return "video";
-  if (message.audio) return "audio";
-  return null;
-}
 
 
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
@@ -2072,6 +1973,52 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
   // Original behavior for non-edit flow
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
+});
+
+
+bot.on("message", async ctx => {
+  const flow = ctx.session.applyFlow;
+  if (!flow || flow.step !== "awaiting_pitch") return;
+
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  // extract text (message text or caption)
+  let text = (ctx.message.text || "").trim();
+  if (!text && ctx.message.caption) text = ctx.message.caption.trim();
+
+  // validation
+  if (!text || text.length < 20) {
+    const err = lang === "am"
+      ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
+      : "Please make sure it is greater than 20 characters!";
+    return ctx.reply(err);
+  }
+  if (text.length > 500) {
+    const err = lang === "am"
+      ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
+      : "Please make sure it is less than 500 characters!";
+    return ctx.reply(err);
+  }
+
+  // Passed validation
+  flow.pitch = text;
+  // optionally capture file_id if there was media
+  if (ctx.message.photo) {
+    flow.attachment = ctx.message.photo.slice(-1)[0].file_id;
+  } else if (ctx.message.document) {
+    flow.attachment = ctx.message.document.file_id;
+  }
+  // mark complete for now
+  delete ctx.session.applyFlow;
+
+  // Acknowledge
+  const replyOk = lang === "am"
+    ? "✅ መልእክትዎ ተቀበልናል።"
+    : "✅ Got it! Your application message has been saved.";
+  await ctx.reply(replyOk);
+
+  // Next steps: you can now combine flow.pitch and flow.attachment into your final apply post...
 });
 
 
@@ -2972,20 +2919,15 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   // Post to channel using English version
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
-  // In the TASK_POST_CONFIRM action handler, update the channel post creation:
-  // In TASK_POST_CONFIRM, wrap the sendMessage in a try-catch:
-  try {
-    const sent = await ctx.telegram.sendMessage(channelId, preview, {
-      parse_mode: "Markdown",
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback(TEXT.applyBtn[user.language], `APPLY_${task._id}`)]
-      ])
-    });
-    console.log("Task posted to channel:", sent);
-  } catch (err) {
-    console.error("Failed to post task to channel:", err);
-    return ctx.reply("Failed to post task to channel. Please try again.");
-  }
+  // Choose bilingual label (“Apply / ያመልክቱ”)
+  const applyLabel = `Apply / ያመልክቱ`;
+  const sent = await ctx.telegram.sendMessage(channelId, preview, {
+    parse_mode: "Markdown",
+    reply_markup: Markup.inlineKeyboard([
+      [ Markup.button.callback(applyLabel, `APPLY_${task._id}`) ]
+    ])
+  });
+
 
   // Store the channel message ID with the task
   task.channelMessageId = sent.message_id;
