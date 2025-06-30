@@ -745,7 +745,16 @@ function buildChannelPostText(draft, user) {
   lines.push(`*Creator Rating:* ${ratingText}`);
   lines.push("");
 
-  return lines.join("\n");
+  // Join all lines and ensure it doesn't exceed Telegram's limit
+  let postText = lines.join("\n");
+  if (postText.length > 4000) {
+    // If too long, truncate the description
+    const overflow = postText.length - 4000;
+    postText = lines[0].substring(0, lines[0].length - overflow - 3) + "...\n" + 
+               lines.slice(1).join("\n");
+  }
+  
+  return postText;
 }
 
 
@@ -2964,12 +2973,19 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
   // In the TASK_POST_CONFIRM action handler, update the channel post creation:
-  const sent = await ctx.telegram.sendMessage(channelId, preview, {
-    parse_mode: "Markdown",
-    reply_markup: Markup.inlineKeyboard([
-      [Markup.button.callback(TEXT.applyBtn[user.language], `APPLY_${task._id}`)]
-    ])
-  });
+  // In TASK_POST_CONFIRM, wrap the sendMessage in a try-catch:
+  try {
+    const sent = await ctx.telegram.sendMessage(channelId, preview, {
+      parse_mode: "Markdown",
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback(TEXT.applyBtn[user.language], `APPLY_${task._id}`)]
+      ])
+    });
+    console.log("Task posted to channel:", sent);
+  } catch (err) {
+    console.error("Failed to post task to channel:", err);
+    return ctx.reply("Failed to post task to channel. Please try again.");
+  }
 
   // Store the channel message ID with the task
   task.channelMessageId = sent.message_id;
