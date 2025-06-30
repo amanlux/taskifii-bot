@@ -400,6 +400,22 @@ const TEXT = {
     en: "Selected:",
     am: "የተመረጡ:"
   },
+  applyBtn: {
+    en: "Apply",
+    am: "ማመልከት"
+  },
+  askApplicationText: {
+    en: "Please write why you're the best fit for this task (20-500 characters). You can attach files like portfolios, but don't forget to include a caption with your text.",
+    am: "እባክዎ ለዚህ ተግዳሮት በተሻለ ሁኔታ ለመስራት የሚችሉበትን ምክንያት ይጻᡉ (20-500 ቁምፊዎች)። ፖርትፎሊዮ ወይም ሌሎች ፋይሎችን ማያያዝ ይችላሉ፣ ግን ከጽሑፍዎ ጋር መግለጫ እንደሚጨምሩ ያረጋግጡ።"
+  },
+  applicationTextTooShort: {
+    en: "Please make sure it is greater than 20 characters!",
+    am: "እባክዎ ከ20 ቁምፊዎች በላይ መሆኑን ያረጋግጡ!"
+  },
+  applicationTextTooLong: {
+    en: "Please make sure it is less than 500 characters!",
+    am: "እባክዎ ከ500 ቁምፊዎች በታች መሆኑን ያረጋግጡ!"
+  },
 
   
   
@@ -628,16 +644,11 @@ function buildPreviewText(draft, user) {
 }
 
 function buildChannelPostText(draft, user) {
-  if (!draft || !user) return "Error: Missing task or user data";
-  
   const lines = [];
-  
-  // Always use English for channel posts
-  if (draft.description) {
-    lines.push(`*Description:* ${draft.description}`);
-    lines.push("");
-  }
 
+  // Always use English for channel posts
+  lines.push(`*Description:* ${draft.description}`);
+  lines.push("");
 
   // Fields → hashtags
   if (draft.fields.length) {
@@ -781,53 +792,11 @@ mongoose
     console.error("❌ MongoDB connection error:", err);
     process.exit(1);
   });
-
-const { Scenes } = require("telegraf");
-
-// 1. Define the scene
-const applyScene = new Scenes.BaseScene("APPLY_SCENE");
-applyScene.enter((ctx) => {
-  const lang = ctx.session?.user?.language || "en";
-  ctx.session.applyFlow = {
-    taskId: ctx.scene.state.taskId,
-    step: "intro"
-  };
-  return ctx.reply(
-    lang === "am"
-      ? "ምን ማምጣት እንደምትችሉ አሳዩ። (20–500 ቁምፊ)፣ ፋይል መስቀመጥ ከተለቀቀ ካፕሽን ጋር ይችላሉ።"
-      : "Please tell us what you bring to the table (20–500 chars). You may attach files with captions."
-  );
-});
-
-applyScene.on(["text", "document", "photo", "video"], async (ctx) => {
-  const lang = ctx.session?.user?.language || "en";
-  const replyText = ctx.message.caption || ctx.message.text || "";
-
-  if (replyText.length < 20) {
-    return ctx.reply(lang === "am" ? "እባክዎ ከ20 ቁምፊ በላይ ያስገቡ!" : "Please make sure it is greater than 20 characters!");
-  }
-  if (replyText.length > 500) {
-    return ctx.reply(lang === "am" ? "እባክዎ ከ500 ቁምፊ በታች ይሁን!" : "Please make sure it is less than 500 characters!");
-  }
-
-  ctx.session.applyFlow.firstReply = {
-    text: replyText,
-    file: ctx.message.document || ctx.message.photo || ctx.message.video || null
-  };
-
-  ctx.session.applyFlow.step = "secondQuestion";
-  await ctx.reply(lang === "am" ? "መጀመሪያ መልስ ተቀባይነት አግኝቷል።" : "First reply saved.");
-  return ctx.scene.leave();
-});
-
-// 2. Register the scene
-const stage = new Scenes.Stage([applyScene]);
 // ------------------------------------
 //  Main Bot Logic
 // ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
-  bot.use(stage.middleware());
   mongoose.set('strictQuery', false); // Add this line to suppress Mongoose warning
   const { session } = require('telegraf');
   
@@ -892,14 +861,7 @@ function askSkillLevel(ctx, lang = null) {
 
   // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
-  
-  const payload = ctx.startPayload;
-  if (payload?.startsWith("cmd_apply_")) {
-    const taskId = payload.replace("cmd_apply_", "");
-    return ctx.scene.enter("APPLY_SCENE", { taskId });
-  }
   const tgId = ctx.from.id;
-  
   let user = await User.findOne({ telegramId: tgId });
 
   if (user) {
@@ -1866,13 +1828,114 @@ bot.action("TASK_EDIT", async (ctx) => {
   );
 });
 
-// Add this new command handler:
-bot.command("apply", async (ctx) => {
-  const parts = ctx.message.text.trim().split(" ");
-  const taskId = parts[1];
-  if (!taskId) return ctx.reply("Missing Task ID!");
-  return ctx.scene.enter("APPLY_SCENE", { taskId });
+// Handle Apply button clicks from channel posts
+bot.action(/^APPLY_(.+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const task = await Task.findById(taskId);
+  
+  if (!task) {
+    return ctx.reply("This task is no longer available.");
+  }
+
+  // Get user's language preference
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  // Initialize application session
+  ctx.session.application = {
+    taskId: task._id.toString(),
+    step: "applicationText"
+  };
+
+  // Ask for application text
+  return ctx.reply(TEXT.askApplicationText[lang]);
 });
+
+// Handle application text input
+bot.on(['text', 'photo', 'document', 'video', 'audio'], async (ctx, next) => {
+  if (!ctx.session?.application) return next();
+  
+  const { step, taskId } = ctx.session.application;
+  const task = await Task.findById(taskId);
+  if (!task) {
+    delete ctx.session.application;
+    return ctx.reply("This task is no longer available.");
+  }
+
+  // Get user's language preference
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  if (step === "applicationText") {
+    // For text messages
+    if (ctx.message.text) {
+      const text = ctx.message.text.trim();
+      
+      if (text.length < 20) {
+        return ctx.reply(TEXT.applicationTextTooShort[lang]);
+      }
+      
+      if (text.length > 500) {
+        return ctx.reply(TEXT.applicationTextTooLong[lang]);
+      }
+      
+      // Store the application text
+      ctx.session.application.text = text;
+      ctx.session.application.step = "nextStep"; // We'll implement this later
+      return ctx.reply("Application text received! Next step..."); // Temporary message
+    }
+    // For media with captions
+    else if (ctx.message.caption) {
+      const caption = ctx.message.caption.trim();
+      
+      if (caption.length < 20) {
+        return ctx.reply(TEXT.applicationTextTooShort[lang]);
+      }
+      
+      if (caption.length > 500) {
+        return ctx.reply(TEXT.applicationTextTooLong[lang]);
+      }
+      
+      // Store media and caption
+      ctx.session.application.text = caption;
+      ctx.session.application.media = {
+        fileId: getFileIdFromMessage(ctx.message),
+        fileType: getFileTypeFromMessage(ctx.message)
+      };
+      ctx.session.application.step = "nextStep"; // We'll implement this later
+      return ctx.reply("Application received! Next step..."); // Temporary message
+    }
+    // For media without captions
+    else {
+      return ctx.reply(
+        lang === "am" 
+          ? "እባክዎ የፋይል መግለጫ (caption) ያስገቡ (20-500 ቁምፊዎች)." 
+          : "Please provide a caption for your file (20-500 characters)."
+      );
+    }
+  }
+  
+  return next();
+});
+
+// Helper functions to get file info from message
+function getFileIdFromMessage(message) {
+  if (message.photo) return message.photo[message.photo.length - 1].file_id;
+  if (message.document) return message.document.file_id;
+  if (message.video) return message.video.file_id;
+  if (message.audio) return message.audio.file_id;
+  return null;
+}
+
+function getFileTypeFromMessage(message) {
+  if (message.photo) return "photo";
+  if (message.document) return "document";
+  if (message.video) return "video";
+  if (message.audio) return "audio";
+  return null;
+}
+
 
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   // Initialize session if not exists
@@ -2522,40 +2585,6 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
 
 
 
-const Task = require('./models/Task');
-
-async function migratePenaltyFields() {
-  // First add the new field if it doesn't exist
-  await Task.updateMany(
-    { penaltyPerHour: { $exists: false } },
-    { $set: { penaltyPerHour: 0 } } // Default value
-  );
-  
-  // Then migrate data from latePenalty to penaltyPerHour
-  await Task.updateMany(
-    { latePenalty: { $exists: true } },
-    { $set: { penaltyPerHour: '$latePenalty' } }
-  );
-  
-  // Finally, remove the old field
-  await Task.updateMany(
-    {},
-    { $unset: { latePenalty: "" } }
-  );
-    // Add this to your migration script
-  await Task.updateMany(
-    { penaltyPerHour: { $exists: false } },
-    { $set: { penaltyPerHour: 0 } } // Set default value
-  );
-  
-  console.log('Penalty field migration complete');
-}
-
-// Run the migration when the bot starts
-migratePenaltyFields().catch(err => {
-  console.error('Migration failed:', err);
-});
-
 
 bot.action(/TASK_EX_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -2891,6 +2920,24 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return ctx.reply("User not found.");
+  
+  // Highlight "Post Task" and disable both buttons in the preview message
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(
+          user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", 
+          "_DISABLED_TASK_EDIT"
+        )],
+        [Markup.button.callback(
+          `✔ ${user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task"}`,
+          "_DISABLED_TASK_POST_CONFIRM"
+        )]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing message markup:", err);
+  }
 
   // Create the task
   const now = new Date();
@@ -2905,7 +2952,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     paymentFee: draft.paymentFee,
     timeToComplete: draft.timeToComplete,
     revisionTime: draft.revisionTime,
-    penaltyPerHour: draft.penaltyPerHour, // Using penaltyPerHour instead of latePenalty
+    latePenalty: draft.penaltyPerHour,
     expiry: expiryDate,
     exchangeStrategy: draft.exchangeStrategy,
     status: "Open",
@@ -2913,42 +2960,33 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     stages: []
   });
 
-  // Post to channel using the draft data
+  // Post to channel using English version
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
-  const postText = buildChannelPostText(draft, user);
+  const preview = buildChannelPostText(draft, user);
+  // In the TASK_POST_CONFIRM action handler, update the channel post creation:
+  const sent = await ctx.telegram.sendMessage(channelId, preview, {
+    parse_mode: "Markdown",
+    reply_markup: Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.applyBtn[user.language], `APPLY_${task._id}`)]
+    ])
+  });
 
-  try {
-    const sent = await ctx.telegram.sendMessage(
-      channelId,
-      postText,
-      {
-        parse_mode: "Markdown",
-        reply_markup: Markup.inlineKeyboard([
-          [Markup.button.url(
-            user.language === "am" ? "ያመልክቱ" : "Apply", 
-            `https://t.me/${ctx.botInfo.username}?start=cmd_apply_${task._id}`
-          )]
-        ]).reply_markup
-      }
-    );
-
-    // Store the channel message ID with the task
-    task.channelMessageId = sent.message_id;
-    await task.save();
-    
-    // Delete the draft
-    await TaskDraft.findByIdAndDelete(draft._id);
-    
-    // Send confirmation message to user
-    const confirmationText = user.language === "am" 
-      ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
-      : `✅ Task posted successfully!\n\nOther users can now apply.`;
-    
-    return ctx.reply(confirmationText);
-  } catch (err) {
-    console.error("Failed to post task to channel:", err);
-    return ctx.reply("Failed to post task. Please try again.");
-  }
+  // Store the channel message ID with the task
+  task.channelMessageId = sent.message_id;
+  await task.save();
+  
+  user.adminProfileMsgId = sent.message_id;
+  await user.save();
+  
+  // Delete the draft
+  await TaskDraft.findByIdAndDelete(draft._id);
+  
+  // Send confirmation message to user
+  const confirmationText = user.language === "am" 
+    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
+    : `✅ Task posted successfully!\n\nOther users can now apply. `;
+  
+  return ctx.reply(confirmationText);
 });
 
 function buildProfileText(user, showCongrats = false) {
