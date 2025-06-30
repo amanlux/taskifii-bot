@@ -2520,7 +2520,17 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
   }
 }
 
+const Task = require('./models/Task');
 
+async function migratePenaltyFields() {
+  await Task.updateMany(
+    { latePenalty: { $exists: true } },
+    { $rename: { 'latePenalty': 'penaltyPerHour' } }
+  );
+  console.log('Migration complete');
+}
+
+migratePenaltyFields();
 
 
 bot.action(/TASK_EX_(.+)/, async (ctx) => {
@@ -2871,7 +2881,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     paymentFee: draft.paymentFee,
     timeToComplete: draft.timeToComplete,
     revisionTime: draft.revisionTime,
-    penaltyPerHour: draft.penaltyPerHour,
+    penaltyPerHour: draft.penaltyPerHour, // Using penaltyPerHour instead of latePenalty
     expiry: expiryDate,
     exchangeStrategy: draft.exchangeStrategy,
     status: "Open",
