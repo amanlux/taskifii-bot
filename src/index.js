@@ -2876,7 +2876,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return ctx.reply("User not found.");
-  
+
   // Highlight "Post Task" and disable both buttons in the preview message
   try {
     await ctx.editMessageReplyMarkup({
@@ -2897,7 +2897,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
 
   // Create the task
   const now = new Date();
-  const expiryDate = new Date(now.getTime() + draft.expiryHours*3600*1000);
+  const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
   
   const task = await Task.create({
     creator: user._id,
@@ -2916,48 +2916,49 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     stages: []
   });
 
-  // Build the channel post text
-  const channelText = buildChannelPostText(draft, user);
-  
-  // Post to channel
+  // Post to channel - FIXED VERSION WITH PROPER INLINE KEYBOARD
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
+  const preview = buildChannelPostText(draft, user);
+  
+  // Create the inline keyboard correctly
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback(
+      user.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ", 
+      `APPLY_${task._id}`
+    )]
+  ]);
+
   try {
-    const sent = await ctx.telegram.sendMessage(
-      channelId,
-      channelText,
-      {
-        parse_mode: "Markdown",
-        reply_markup: Markup.inlineKeyboard([
-          [Markup.button.callback("Apply / ያመልክቱ", `APPLY_${task._id}`)]
-        ])
-      }
-    );
+    // Send to channel with proper keyboard attachment
+    const sent = await ctx.telegram.sendMessage(channelId, preview, {
+      parse_mode: "Markdown",
+      ...keyboard // This spreads the reply_markup correctly
+    });
 
     // Store the channel message ID with the task
     task.channelMessageId = sent.message_id;
     await task.save();
     
-    // Also store in user if needed
     user.adminProfileMsgId = sent.message_id;
     await user.save();
-    
-    // Delete the draft
-    await TaskDraft.findByIdAndDelete(draft._id);
-    
-    // Send confirmation message to user
-    const confirmationText = user.language === "am" 
-      ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
-      : `✅ Task posted successfully!\n\nOther users can now apply.`;
-    
-    return ctx.reply(confirmationText);
-    
   } catch (err) {
-    console.error("Failed to post to channel:", err);
-    const errorText = user.language === "am" 
-      ? "❌ ተግዳሮቱን ለመለጠፍ አልተቻለም። እባክዎ ቆይተው እንደገና ይሞክሩ።"
-      : "❌ Failed to post task. Please try again later.";
-    return ctx.reply(errorText);
+    console.error("Failed to post task to channel:", err);
+    const lang = user?.language || "en";
+    return ctx.reply(lang === "am" 
+      ? "❌ ተግዳሮቱን ለማስቀመጥ አልተቻለም። እባክዎ ቆይተው እንደገና ይሞክሩ።" 
+      : "❌ Failed to post task. Please wait and try again."
+    );
   }
+
+  // Delete the draft
+  await TaskDraft.findByIdAndDelete(draft._id);
+  
+  // Send confirmation message to user
+  const confirmationText = user.language === "am" 
+    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።` 
+    : `✅ Task posted successfully!\n\nOther users can now apply.`;
+  
+  return ctx.reply(confirmationText);
 });
 
 function buildProfileText(user, showCongrats = false) {
