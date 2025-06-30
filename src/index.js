@@ -785,7 +785,6 @@ function startBot() {
   const { session } = require('telegraf');
   
   // Add this session initialization middleware
-  bot.use(session());
   bot.use(async (ctx, next) => {
     // Initialize session if not exists
     ctx.session = ctx.session || {};
@@ -800,6 +799,8 @@ function startBot() {
     
     return next();
   });
+  
+  bot.use(session());
   /**
  * Build an inline keyboard with:
  *  – ✅ prefix on the clicked button
