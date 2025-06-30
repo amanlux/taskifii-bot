@@ -1844,15 +1844,13 @@ bot.action("TASK_EDIT", async (ctx) => {
 });
 
 
-bot.on(['text','photo','document','video','audio'], async ctx => {
+bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   // Initialize session if not exists
   ctx.session = ctx.session || {};
+  ctx.session.user = ctx.session.user || {};
   
   const flow = ctx.session.applyFlow;
   if (!flow || flow.step !== "awaiting_pitch") return;
-  
-
-  
   if (!ctx.session.taskFlow) return next();
   const { step, draftId } = ctx.session.taskFlow;
   if (!draftId) {
