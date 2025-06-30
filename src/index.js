@@ -2895,6 +2895,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   // Post to channel using English version
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
+  const postText = buildChannelPostText(ctx.session.newTask);
+
   const sent = await bot.telegram.sendMessage(
     process.env.TASKS_CHANNEL_ID,
     postText,
