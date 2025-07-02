@@ -845,42 +845,61 @@ function askSkillLevel(ctx, lang = null) {
 
   // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
-  const tgId = ctx.from.id;
-  let user = await User.findOne({ telegramId: tgId });
+    const startPayload = ctx.startPayload; // This will be "apply_<taskId>" if coming from the deep link
+    
+    if (startPayload && startPayload.startsWith('apply_')) {
+      const taskId = startPayload.split('_')[1];
+      // Handle the apply flow directly
+      const user = await User.findOne({ telegramId: ctx.from.id });
+      const lang = user?.language || "en";
+      
+      // Save flow state
+      ctx.session.applyFlow = { taskId, step: "awaiting_pitch" };
 
-  if (user) {
-    // Reset all fields
-    user.fullName = null;
-    user.phone = null;
-    user.email = null;
-    user.bankDetails = [];
-    user.stats = {
-      totalEarned: 0,
-      totalSpent: 0,
-      averageRating: 0,
-      ratingCount: 0
-    };
-    user.onboardingStep = "language";
-    user.createdAt = Date.now();
-    await user.save();
-  } else {
-    user = new User({
-      telegramId: tgId,
-      onboardingStep: "language"
-    });
-    await user.save();
-  }
+      // Send bilingual prompt
+      const prompt = lang === "am"
+        ? "እባክዎ �ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+        : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+      return ctx.reply(prompt);
+    } else {
+      // Original onboarding flow
+      const tgId = ctx.from.id;
+      let user = await User.findOne({ telegramId: tgId });
 
-  // Send language selection
-  return ctx.reply(
-    `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
-    Markup.inlineKeyboard([
-      [
-        Markup.button.callback("English", "LANG_EN"),
-        Markup.button.callback("አማርኛ", "LANG_AM")
-      ]
-    ])
-  );
+      if (user) {
+        // Reset all fields
+        user.fullName = null;
+        user.phone = null;
+        user.email = null;
+        user.bankDetails = [];
+        user.stats = {
+          totalEarned: 0,
+          totalSpent: 0,
+          averageRating: 0,
+          ratingCount: 0
+        };
+        user.onboardingStep = "language";
+        user.createdAt = Date.now();
+        await user.save();
+      } else {
+        user = new User({
+          telegramId: tgId,
+          onboardingStep: "language"
+        });
+        await user.save();
+      }
+
+      // Send language selection
+      return ctx.reply(
+        `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback("English", "LANG_EN"),
+            Markup.button.callback("አማርኛ", "LANG_AM")
+          ]
+        ])
+      );
+    }
   });
 
   // ─────────── Language Selection ───────────
@@ -2920,11 +2939,12 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
   
-  // Create the inline keyboard correctly
+  
+  // Replace the current APPLY button creation with this:
   const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback(
+    [Markup.button.url(
       user.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ", 
-      `APPLY_${task._id}`
+      `https://t.me/${ctx.botInfo.username}?start=apply_${task._id}`
     )]
   ]);
 
