@@ -858,7 +858,7 @@ function askSkillLevel(ctx, lang = null) {
 
       // Send bilingual prompt
       const prompt = lang === "am"
-        ? "እባክዎ �ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+        ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
         : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
       return ctx.reply(prompt);
     } else {
@@ -1789,13 +1789,14 @@ bot.action("POST_TASK", async (ctx) => {
 });
 
 //  ➤ 1st step: catch Apply button clicks
+// Replace this handler:
 bot.action(/^APPLY_(.+)$/, async ctx => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
 
-  // Send the “apply” deep-link command so the user sees it in private chat
+  // Send the "apply" deep-link command so the user sees it in private chat
   // (this also kicks them out of the channel into 1:1)
   const deepLink = `/apply_${taskId}`;
   await ctx.telegram.sendMessage(
@@ -1804,6 +1805,41 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       ? `ግባብን ለመጀመር፤ እባክዎ ይጻፉ: ${deepLink}`
       : `To start your application, please send: ${deepLink}`
   );
+});
+
+// With this improved version:
+bot.action(/^APPLY_(.+)$/, async ctx => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  try {
+    // Automatically send the /start command with the apply payload
+    await ctx.telegram.sendMessage(
+      ctx.from.id,
+      lang === "am" 
+        ? "ወደ አመልካች ሂደት እየተዛወርክ ነው..." 
+        : "Redirecting you to the application process..."
+    );
+    
+    // This will automatically trigger the start handler with the payload
+    await ctx.telegram.sendMessage(
+      ctx.from.id,
+      `/start apply_${taskId}`,
+      { parse_mode: "Markdown" }
+    );
+  } catch (err) {
+    console.error("Failed to redirect user:", err);
+    // Fallback to the old method if automatic sending fails
+    const deepLink = `/apply_${taskId}`;
+    await ctx.telegram.sendMessage(
+      ctx.from.id,
+      lang === "am"
+        ? `ግባብን ለመጀመር፤ እባክዎ ይጻፉ: ${deepLink}`
+        : `To start your application, please send: ${deepLink}`
+    );
+  }
 });
 //  ➤ 2nd step: when user sends /apply_<taskId>, ask for their 20–500-char pitch
 bot.hears(/^\/apply_(.+)$/, async ctx => {
