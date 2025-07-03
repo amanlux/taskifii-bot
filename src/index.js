@@ -1406,79 +1406,81 @@ bot.action("TASK_EDIT", async (ctx) => {
 
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   // ─────────── 1. Check if this is part of an application flow ───────────
+  // In the application flow section of the consolidated handler:
   if (ctx.session?.applyFlow?.step === "awaiting_pitch") {
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || "en";
+      const user = await User.findOne({ telegramId: ctx.from.id });
+      const lang = user?.language || "en";
 
-    // extract text (message text or caption)
-    let text = (ctx.message.text || "").trim();
-    if (!text && ctx.message.caption) text = ctx.message.caption.trim();
+      // extract text (message text or caption)
+      let text = (ctx.message.text || "").trim();
+      if (!text && ctx.message.caption) text = ctx.message.caption.trim();
 
-    // validation
-    if (!text || text.length < 20) {
-      const err = lang === "am"
-        ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
-        : "Please make sure your message is at least 20 characters!";
-      return ctx.reply(err);
-    }
-    if (text.length > 500) {
-      const err = lang === "am"
-        ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
-        : "Please keep your message under 500 characters!";
-      return ctx.reply(err);
-    }
-
-    // Get the task being applied to
-    const task = await Task.findById(ctx.session.applyFlow.taskId);
-    if (!task) {
-      delete ctx.session.applyFlow;
-      return ctx.reply(lang === "am" 
-        ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-        : "❌ This task is no longer available.");
-    }
-
-    // Save the application
-    const application = {
-      applicantId: user._id,
-      pitch: text,
-      attachment: ctx.message.photo?.[0]?.file_id || 
-                 ctx.message.document?.file_id ||
-                 ctx.message.video?.file_id ||
-                 ctx.message.audio?.file_id,
-      createdAt: new Date()
-    };
-
-    task.applicants.push(application);
-    await task.save();
-
-    // Notify task creator
-    try {
-      const creator = await User.findById(task.creator);
-      if (creator) {
-        const creatorLang = creator.language || "en";
-        const applicantName = user.fullName || `@${user.username}` || "Anonymous";
-        
-        const notificationText = creatorLang === "am"
-          ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\nተግዳሮት: ${task.description.substring(0, 50)}...\n\nአመልካች: ${applicantName}\nመልእክት: ${text.substring(0, 100)}...`
-          : `📩 New applicant for your task!\n\nTask: ${task.description.substring(0, 50)}...\n\nApplicant: ${applicantName}\nMessage: ${text.substring(0, 100)}...`;
-
-        await ctx.telegram.sendMessage(
-          creator.telegramId,
-          notificationText,
-          { parse_mode: "Markdown" }
-        );
+      // validation
+      if (!text || text.length < 20) {
+          const err = lang === "am"
+              ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
+              : "Please make sure your message is at least 20 characters!";
+          return ctx.reply(err);
       }
-    } catch (err) {
-      console.error("Failed to notify task creator:", err);
-    }
+      if (text.length > 500) {
+          const err = lang === "am"
+              ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
+              : "Please keep your message under 500 characters!";
+          return ctx.reply(err);
+      }
 
-    // Confirm to applicant
-    const confirmationText = lang === "am"
-      ? "✅ ማመልከቻዎ ተቀብልናል! የተግዳሮቱ ባለቤት በቅርቡ ያግኝዎታል።"
-      : "✅ Application received! The task creator will contact you soon.";
+      // Get the task being applied to
+      const task = await Task.findById(ctx.session.applyFlow.taskId);
+      if (!task) {
+          delete ctx.session.applyFlow;
+          return ctx.reply(lang === "am" 
+              ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+              : "❌ This task is no longer available.");
+      }
 
-    delete ctx.session.applyFlow;
-    return ctx.reply(confirmationText);
+      // Save the application - updated to match your exact schema
+      const application = {
+          user: user._id,  // Must be ObjectId reference to User
+          coverText: text, // Required field
+          file: ctx.message.photo?.[0]?.file_id || 
+              ctx.message.document?.file_id ||
+              ctx.message.video?.file_id ||
+              ctx.message.audio?.file_id || null,
+          status: "Pending" // Default status
+          // createdAt is automatically added by Mongoose
+      };
+
+      task.applicants.push(application);
+      await task.save();
+
+      // Rest of the notification code...
+      try {
+          const creator = await User.findById(task.creator);
+          if (creator) {
+              const creatorLang = creator.language || "en";
+              const applicantName = user.fullName || `@${user.username}` || "Anonymous";
+              
+              const notificationText = creatorLang === "am"
+                  ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\nተግዳሮት: ${task.description.substring(0, 50)}...\n\nአመልካች: ${applicantName}\nመልእክት: ${text.substring(0, 100)}...`
+                  : `📩 New applicant for your task!\n\nTask: ${task.description.substring(0, 50)}...\n\nApplicant: ${applicantName}\nMessage: ${text.substring(0, 100)}...`;
+
+              await ctx.telegram.sendMessage(
+                  creator.telegramId,
+                  notificationText,
+                  { parse_mode: "Markdown" }
+              );
+          }
+      } catch (err) {
+          console.error("Failed to notify task creator:", err);
+      }
+
+      // Confirm to applicant
+      const confirmationText = lang === "am"
+          ? "✅ ማመልከቻዎ ተቀብልናል! የተግዳሮቱ ባለቤት በቅርቡ ያግኝዎታል።"
+          : "✅ Application received! The task creator will contact you soon.";
+
+      delete ctx.session.applyFlow;
+      return ctx.reply(confirmationText);
   }
 
   // ─────────── 2. Skip if in task flow ───────────
