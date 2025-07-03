@@ -400,7 +400,6 @@ const TEXT = {
     en: "Selected:",
     am: "የተመረጡ:"
   },
-  
 
   
   
@@ -1791,35 +1790,33 @@ bot.action("POST_TASK", async (ctx) => {
 
 //  ➤ 1st step: catch Apply button clicks
 
-bot.action(/^APPLY_(.+)$/, async (ctx) => {
+bot.action(/^APPLY_(.+)$/, async ctx => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const user = await User.findOne({ telegramId: ctx.from.id });
-  
-  if (!user) {
-    return ctx.reply("Please complete your profile first with /start");
-  }
+  const lang = user?.language || "en";
 
-  const lang = user.language || "en";
-  
   try {
-    // Initialize application flow in session
-    ctx.session.applyFlow = {
-      taskId,
-      step: "awaiting_pitch"
-    };
-
-    const prompt = lang === "am" 
-      ? "እባክዎ ለዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-      : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
-
-    return ctx.reply(prompt);
-  } catch (err) {
-    console.error("Error in APPLY handler:", err);
-    return ctx.reply(
+    await ctx.telegram.sendMessage(
+      ctx.from.id,
       lang === "am" 
-        ? "ስህተት ተፈጥሯል። እባክዎ ቆይተው እንደገና ይሞክሩ።" 
-        : "An error occurred. Please wait and try again."
+        ? "ወደ አመልካች ሂደት እየተዛወርክ ነው..." 
+        : "Redirecting you to the application process..."
+    );
+    
+    await ctx.telegram.sendMessage(
+      ctx.from.id,
+      `/start apply_${taskId}`,
+      { parse_mode: "Markdown" }
+    );
+  } catch (err) {
+    console.error("Failed to redirect user:", err);
+    const deepLink = `/apply_${taskId}`;
+    await ctx.telegram.sendMessage(
+      ctx.from.id,
+      lang === "am"
+        ? `ግባብን ለመጀመር፤ እባክዎ ይጻፉ: ${deepLink}`
+        : `To start your application, please send: ${deepLink}`
     );
   }
 });
@@ -1896,114 +1893,117 @@ bot.action("TASK_EDIT", async (ctx) => {
 });
 
 
-bot.on(['text', 'photo', 'document', 'video', 'audio'], async (ctx, next) => {
-  // Handle application pitches first
+bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
+  // Check if this is part of an application flow
   if (ctx.session?.applyFlow?.step === "awaiting_pitch") {
     const user = await User.findOne({ telegramId: ctx.from.id });
-    if (!user) {
-      delete ctx.session.applyFlow;
-      return ctx.reply("Please complete your profile first with /start");
-    }
+    const lang = user?.language || "en";
 
-    const lang = user.language || "en";
+    // extract text (message text or caption)
     let text = (ctx.message.text || "").trim();
     if (!text && ctx.message.caption) text = ctx.message.caption.trim();
 
-    // Validation
+    // validation
     if (!text || text.length < 20) {
-      return ctx.reply(
-        lang === "am"
-          ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
-          : "Please make sure your message is at least 20 characters!"
-      );
+      const err = lang === "am"
+        ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
+        : "Please make sure your message is at least 20 characters!";
+      return ctx.reply(err);
     }
     if (text.length > 500) {
-      return ctx.reply(
-        lang === "am"
-          ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
-          : "Please keep your message under 500 characters!"
-      );
+      const err = lang === "am"
+        ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
+        : "Please keep your message under 500 characters!";
+      return ctx.reply(err);
     }
 
+    // Get the task being applied to
+    const task = await Task.findById(ctx.session.applyFlow.taskId);
+    if (!task) {
+      delete ctx.session.applyFlow;
+      return ctx.reply(lang === "am" 
+        ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+        : "❌ This task is no longer available.");
+    }
+
+    // Save the application
+    const application = {
+      applicantId: user._id,
+      pitch: text,
+      attachment: ctx.message.photo?.[0]?.file_id || 
+                 ctx.message.document?.file_id ||
+                 ctx.message.video?.file_id ||
+                 ctx.message.audio?.file_id,
+      createdAt: new Date()
+    };
+
+    task.applicants.push(application);
+    await task.save();
+
+    // Notify task creator
     try {
-      const task = await Task.findById(ctx.session.applyFlow.taskId);
-      if (!task) {
-        delete ctx.session.applyFlow;
-        return ctx.reply(
-          lang === "am" 
-            ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-            : "❌ This task is no longer available."
+      const creator = await User.findById(task.creator);
+      if (creator) {
+        const creatorLang = creator.language || "en";
+        const applicantName = user.fullName || `@${user.username}` || "Anonymous";
+        
+        const notificationText = creatorLang === "am"
+          ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\nተግዳሮት: ${task.description.substring(0, 50)}...\n\nአመልካች: ${applicantName}\nመልእክት: ${text.substring(0, 100)}...`
+          : `📩 New applicant for your task!\n\nTask: ${task.description.substring(0, 50)}...\n\nApplicant: ${applicantName}\nMessage: ${text.substring(0, 100)}...`;
+
+        await ctx.telegram.sendMessage(
+          creator.telegramId,
+          notificationText,
+          { parse_mode: "Markdown" }
         );
       }
-
-      // Get file ID if media was attached
-      let fileId = null;
-      if (ctx.message.photo) {
-        fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-      } else if (ctx.message.document) {
-        fileId = ctx.message.document.file_id;
-      } else if (ctx.message.video) {
-        fileId = ctx.message.video.file_id;
-      } else if (ctx.message.audio) {
-        fileId = ctx.message.audio.file_id;
-      }
-
-      // Create application object matching your ApplicantSchema
-      const newApplication = {
-        user: user._id,
-        coverText: text,
-        file: fileId,
-        status: "Pending"
-      };
-
-      // Add to task's applicants array
-      task.applicants.push(newApplication);
-      await task.save();
-
-      // Notify task creator
-      try {
-        const creator = await User.findById(task.creator);
-        if (creator) {
-          const creatorLang = creator.language || "en";
-          const applicantName = user.fullName || `@${user.username}` || "Anonymous";
-          
-          const notificationText = creatorLang === "am"
-            ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\nተግዳሮት: ${task.description.substring(0, 50)}...\n\nአመልካች: ${applicantName}\nመልእክት: ${text.substring(0, 100)}...`
-            : `📩 New applicant for your task!\n\nTask: ${task.description.substring(0, 50)}...\n\nApplicant: ${applicantName}\nMessage: ${text.substring(0, 100)}...`;
-
-          await ctx.telegram.sendMessage(
-            creator.telegramId,
-            notificationText,
-            { parse_mode: "Markdown" }
-          );
-        }
-      } catch (notifyErr) {
-        console.error("Failed to notify creator:", notifyErr);
-        // Continue even if notification fails
-      }
-
-      // Confirm to applicant
-      const confirmationText = lang === "am"
-        ? "✅ ማመልከቻዎ ተቀብልናል! የተግዳሮቱ ባለቤት በቅርቡ ያግኝዎታል።"
-        : "✅ Application received! The task creator will contact you soon.";
-
-      delete ctx.session.applyFlow;
-      return ctx.reply(confirmationText);
     } catch (err) {
-      console.error("Error processing application:", err);
-      delete ctx.session.applyFlow;
-      return ctx.reply(
-        lang === "am"
-          ? "❌ ማመልከቻውን ለማስቀመጥ አልተቻለም። እባክዎ ቆይተው እንደገና ይሞክሩ።"
-          : "❌ Failed to save application. Please wait and try again."
-      );
+      console.error("Failed to notify task creator:", err);
     }
+
+    // Confirm to applicant
+    const confirmationText = lang === "am"
+      ? "✅ ማመልከቻዎ ተቀብልናል! የተግዳሮቱ ባለቤት በቅርቡ ያግኝዎታል።"
+      : "✅ Application received! The task creator will contact you soon.";
+
+    delete ctx.session.applyFlow;
+    return ctx.reply(confirmationText);
   }
 
-  // If not handling an application, proceed to other handlers
-  return next();
-});
+  // Original task flow handling
+  if (!ctx.session.taskFlow) return next();
 
+  const { step, draftId } = ctx.session.taskFlow;
+  if (!draftId) {
+    delete ctx.session.taskFlow;
+    return ctx.reply("Session expired. Please click Post a Task again.");
+  }
+  const draft = await TaskDraft.findById(draftId);
+  if (!draft) {
+    delete ctx.session.taskFlow;
+    return ctx.reply("Draft expired. Please click Post a Task again.");
+  }
+  switch(step) {
+    case "description":
+      return handleDescription(ctx, draft);
+    case "relatedFile":
+      return handleRelatedFile(ctx, draft);
+    case "paymentFee":
+      return handlePaymentFee(ctx, draft);
+    case "timeToComplete":
+      return handleTimeToComplete(ctx, draft);
+    case "revisionTime":
+      return handleRevisionTime(ctx, draft);
+    case "penaltyPerHour":
+      return handlePenaltyPerHour(ctx, draft);
+    case "expiryHours":
+      return handleExpiryHours(ctx, draft);
+    // steps driven by callbacks (fields, skill level, exchangeStrategy) are in bot.action
+    default:
+      delete ctx.session.taskFlow;
+      return ctx.reply("Unexpected error. Please start again.");
+  }
+});
 
 async function handleDescription(ctx, draft) {
   const text = ctx.message.text?.trim();

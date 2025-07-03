@@ -36,6 +36,8 @@ const TaskSchema = new Schema(
     acceptedDoer:     { type: Schema.Types.ObjectId, ref: "User", default: null },
     stages:           { type: [StageSchema], default: [] },
     channelMessageId: { type: Number }  // if you store the message id after posting
+  
+  
   },
   { timestamps: true }
 );
