@@ -400,6 +400,14 @@ const TEXT = {
     en: "Selected:",
     am: "የተመረጡ:"
   },
+    acceptBtn: {
+    en: "Accept",
+    am: "ተቀበል"
+  },
+  declineBtn: {
+    en: "Decline",
+    am: "አትቀበል"
+  },
   
 
   
@@ -1359,6 +1367,38 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
   return ctx.reply(prompt);
 });
 
+// Dummy handler for Accept button
+bot.action(/^APPLICANT_ACCEPT_(.+)_(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const taskId = ctx.match[1];
+    const userId = ctx.match[2];
+    
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
+    
+    await ctx.reply(
+        lang === "am" 
+            ? "ተግዳሮቱን ለመቀበል ተጠይቋል። ይህ ተግባር አሁንም በማሰራጨት ላይ ነው።" 
+            : "Application accepted. This feature is still in development."
+    );
+});
+
+// Dummy handler for Decline button
+bot.action(/^APPLICANT_DECLINE_(.+)_(.+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const taskId = ctx.match[1];
+    const userId = ctx.match[2];
+    
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
+    
+    await ctx.reply(
+        lang === "am" 
+            ? "ተግዳሮቱን ለመቀበል እምቢ ተብሎበታል። ይህ ተግባር አሁንም በማሰራጨት ላይ ነው።" 
+            : "Application declined. This feature is still in development."
+    );
+});
+
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
@@ -1455,19 +1495,65 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
 
       // Rest of the notification code...
       try {
+          // Get the task creator's language
           const creator = await User.findById(task.creator);
           if (creator) {
               const creatorLang = creator.language || "en";
               const applicantName = user.fullName || `@${user.username}` || "Anonymous";
               
+              // Get applicant's stats (fields they've worked on most)
+              const frequentFields = await Task.aggregate([
+                  { $match: { "applicants.user": user._id, "applicants.status": "Completed" } },
+                  { $unwind: "$fields" },
+                  { $group: { _id: "$fields", count: { $sum: 1 } } },
+                  { $sort: { count: -1 } },
+                  { $limit: 5 }
+              ]);
+              
+              const topFields = frequentFields.length > 0 
+                  ? frequentFields.map(f => f._id).join(", ")
+                  : creatorLang === "am" ? "የተሰሩ ተግዳሮቶች የሉም" : "No completed tasks";
+              
+              // Build the notification message
               const notificationText = creatorLang === "am"
-                  ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\nተግዳሮት: ${task.description.substring(0, 50)}...\n\nአመልካች: ${applicantName}\nመልእክት: ${text.substring(0, 100)}...`
-                  : `📩 New applicant for your task!\n\nTask: ${task.description.substring(0, 50)}...\n\nApplicant: ${applicantName}\nMessage: ${text.substring(0, 100)}...`;
+                  ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\n` +
+                    `ተግዳሮት: ${task.description.substring(0, 50)}...\n\n` +
+                    `አመልካች: ${applicantName}\n` +
+                    `ጠቅላላ የተሰሩ ተግዳሮቶች: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
+                    `ተደጋጋሚ የስራ መስኮች: ${topFields}\n` +
+                    `ደረጃ: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)\n` +
+                    `ተቀባይነት ያላቸው ባንኮች: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
+                    `መልእክት: ${text.substring(0, 100)}...`
+                  : `📩 New applicant for your task!\n\n` +
+                    `Task: ${task.description.substring(0, 50)}...\n\n` +
+                    `Applicant: ${applicantName}\n` +
+                    `Total earned: ${user.stats.totalEarned.toFixed(2)} birr\n` +
+                    `Frequent fields: ${topFields}\n` +
+                    `Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)\n` +
+                    `Accepted banks: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
+                    `Message: ${text.substring(0, 100)}...`;
+
+              // Add Accept/Decline buttons
+              const buttons = Markup.inlineKeyboard([
+                  [
+                      Markup.button.callback(
+                          TEXT.acceptBtn[creatorLang], 
+                          `APPLICANT_ACCEPT_${task._id}_${user._id}`
+                      ),
+                      Markup.button.callback(
+                          TEXT.declineBtn[creatorLang], 
+                          `APPLICANT_DECLINE_${task._id}_${user._id}`
+                      )
+                  ]
+              ]);
 
               await ctx.telegram.sendMessage(
                   creator.telegramId,
                   notificationText,
-                  { parse_mode: "Markdown" }
+                  { 
+                      parse_mode: "Markdown", 
+                      reply_markup: buttons.reply_markup 
+                  }
               );
           }
       } catch (err) {
