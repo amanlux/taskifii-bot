@@ -1789,25 +1789,7 @@ bot.action("POST_TASK", async (ctx) => {
 });
 
 //  ➤ 1st step: catch Apply button clicks
-// Replace this handler:
-bot.action(/^APPLY_(.+)$/, async ctx => {
-  await ctx.answerCbQuery();
-  const taskId = ctx.match[1];
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
 
-  // Send the "apply" deep-link command so the user sees it in private chat
-  // (this also kicks them out of the channel into 1:1)
-  const deepLink = `/apply_${taskId}`;
-  await ctx.telegram.sendMessage(
-    ctx.from.id,
-    lang === "am"
-      ? `ግባብን ለመጀመር፤ እባክዎ ይጻፉ: ${deepLink}`
-      : `To start your application, please send: ${deepLink}`
-  );
-});
-
-// With this improved version:
 bot.action(/^APPLY_(.+)$/, async ctx => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
@@ -1815,7 +1797,6 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
   const lang = user?.language || "en";
 
   try {
-    // Automatically send the /start command with the apply payload
     await ctx.telegram.sendMessage(
       ctx.from.id,
       lang === "am" 
@@ -1823,7 +1804,6 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
         : "Redirecting you to the application process..."
     );
     
-    // This will automatically trigger the start handler with the payload
     await ctx.telegram.sendMessage(
       ctx.from.id,
       `/start apply_${taskId}`,
@@ -1831,7 +1811,6 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     );
   } catch (err) {
     console.error("Failed to redirect user:", err);
-    // Fallback to the old method if automatic sending fails
     const deepLink = `/apply_${taskId}`;
     await ctx.telegram.sendMessage(
       ctx.from.id,
@@ -1845,9 +1824,9 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
 bot.hears(/^\/apply_(.+)$/, async ctx => {
   const taskId = ctx.match[1];
   const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
+  if (!user) return ctx.reply("Please complete your profile first with /start");
 
-  // Verify task exists
+  const lang = user.language || "en";
   const task = await Task.findById(taskId);
   if (!task) {
     return ctx.reply(lang === "am" 
@@ -1855,18 +1834,18 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       : "❌ This task is no longer available.");
   }
 
-  // Save flow state
-  ctx.session.applyFlow = { 
-    taskId, 
+  // Initialize application flow
+  ctx.session.applyFlow = {
+    taskId,
     step: "awaiting_pitch",
-    taskMessageId: ctx.message?.message_id // Store the original message ID if available
+    taskMessageId: ctx.message?.message_id
   };
 
-  // Send bilingual prompt
   const prompt = lang === "am"
     ? "እባክዎ ለዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
     : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
-  await ctx.reply(prompt);
+  
+  return ctx.reply(prompt);
 });
 
 // ─────────── “Edit Task” Entry Point ───────────
@@ -1915,30 +1894,31 @@ bot.action("TASK_EDIT", async (ctx) => {
 
 
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
-  // Check if this is part of an application flow
+  // Handle application pitches first
   if (ctx.session?.applyFlow?.step === "awaiting_pitch") {
     const user = await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || "en";
+    if (!user) {
+      delete ctx.session.applyFlow;
+      return ctx.reply("Please complete your profile first with /start");
+    }
 
-    // extract text (message text or caption)
+    const lang = user.language || "en";
     let text = (ctx.message.text || "").trim();
     if (!text && ctx.message.caption) text = ctx.message.caption.trim();
 
-    // validation
+    // Validation
     if (!text || text.length < 20) {
-      const err = lang === "am"
+      return ctx.reply(lang === "am"
         ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
-        : "Please make sure your message is at least 20 characters!";
-      return ctx.reply(err);
+        : "Please make sure your message is at least 20 characters!");
     }
     if (text.length > 500) {
-      const err = lang === "am"
+      return ctx.reply(lang === "am"
         ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
-        : "Please keep your message under 500 characters!";
-      return ctx.reply(err);
+        : "Please keep your message under 500 characters!");
     }
 
-    // Get the task being applied to
+    // Get the task
     const task = await Task.findById(ctx.session.applyFlow.taskId);
     if (!task) {
       delete ctx.session.applyFlow;
@@ -1947,17 +1927,27 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
         : "❌ This task is no longer available.");
     }
 
-    // Save the application
+    // Get file ID if media was attached
+    let fileId = null;
+    if (ctx.message.photo) {
+      fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+    } else if (ctx.message.document) {
+      fileId = ctx.message.document.file_id;
+    } else if (ctx.message.video) {
+      fileId = ctx.message.video.file_id;
+    } else if (ctx.message.audio) {
+      fileId = ctx.message.audio.file_id;
+    }
+
+    // Create application object matching your schema
     const application = {
-      applicantId: user._id,
-      pitch: text,
-      attachment: ctx.message.photo?.[0]?.file_id || 
-                 ctx.message.document?.file_id ||
-                 ctx.message.video?.file_id ||
-                 ctx.message.audio?.file_id,
-      createdAt: new Date()
+      user: user._id,
+      coverText: text,
+      file: fileId,
+      status: "Pending"
     };
 
+    // Add to task's applicants array
     task.applicants.push(application);
     await task.save();
 
