@@ -1368,13 +1368,23 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
 });
 
 // Dummy handler for Accept button
-bot.action(/^APPLICANT_ACCEPT_(.+)_(.+)$/, async (ctx) => {
+// Updated handler for Accept button
+bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
-    const taskId = ctx.match[1];
-    const userId = ctx.match[2];
+    const taskShortId = ctx.match[1];
+    const userShortId = ctx.match[2];
     
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || "en";
+    // Find the full task and user IDs
+    const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
+    const users = await User.find({ _id: { $regex: userShortId + '$' } });
+    
+    if (tasks.length === 0 || users.length === 0) {
+        return ctx.reply("Error: Could not find task or user.");
+    }
+    
+    const task = tasks[0];
+    const user = users[0];
+    const lang = ctx.from.language_code === 'am' ? 'am' : 'en';
     
     await ctx.reply(
         lang === "am" 
@@ -1383,14 +1393,23 @@ bot.action(/^APPLICANT_ACCEPT_(.+)_(.+)$/, async (ctx) => {
     );
 });
 
-// Dummy handler for Decline button
-bot.action(/^APPLICANT_DECLINE_(.+)_(.+)$/, async (ctx) => {
+// Updated handler for Decline button
+bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
-    const taskId = ctx.match[1];
-    const userId = ctx.match[2];
+    const taskShortId = ctx.match[1];
+    const userShortId = ctx.match[2];
     
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || "en";
+    // Find the full task and user IDs
+    const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
+    const users = await User.find({ _id: { $regex: userShortId + '$' } });
+    
+    if (tasks.length === 0 || users.length === 0) {
+        return ctx.reply("Error: Could not find task or user.");
+    }
+    
+    const task = tasks[0];
+    const user = users[0];
+    const lang = ctx.from.language_code === 'am' ? 'am' : 'en';
     
     await ctx.reply(
         lang === "am" 
@@ -1496,6 +1515,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       // Rest of the notification code...
       try {
           // Get the task creator's language
+          // Get the task creator's language
           const creator = await User.findById(task.creator);
           if (creator) {
               const creatorLang = creator.language || "en";
@@ -1533,28 +1553,42 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
                     `Accepted banks: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
                     `Message: ${text.substring(0, 100)}...`;
 
+              // Use shorter IDs for callback data
+              const taskShortId = task._id.toString().substring(18, 24); // Last 6 chars of ObjectId
+              const userShortId = user._id.toString().substring(18, 24); // Last 6 chars of ObjectId
+              
               // Add Accept/Decline buttons
               const buttons = Markup.inlineKeyboard([
                   [
                       Markup.button.callback(
                           TEXT.acceptBtn[creatorLang], 
-                          `APPLICANT_ACCEPT_${task._id}_${user._id}`
+                          `ACCEPT_${taskShortId}_${userShortId}`
                       ),
                       Markup.button.callback(
                           TEXT.declineBtn[creatorLang], 
-                          `APPLICANT_DECLINE_${task._id}_${user._id}`
+                          `DECLINE_${taskShortId}_${userShortId}`
                       )
                   ]
               ]);
 
-              await ctx.telegram.sendMessage(
-                  creator.telegramId,
-                  notificationText,
-                  { 
-                      parse_mode: "Markdown", 
-                      reply_markup: buttons.reply_markup 
-                  }
-              );
+              try {
+                  await ctx.telegram.sendMessage(
+                      creator.telegramId,
+                      notificationText,
+                      { 
+                          parse_mode: "Markdown", 
+                          reply_markup: buttons.reply_markup 
+                      }
+                  );
+              } catch (err) {
+                  console.error("Failed to send notification:", err);
+                  // Fallback without buttons if still failing
+                  await ctx.telegram.sendMessage(
+                      creator.telegramId,
+                      notificationText,
+                      { parse_mode: "Markdown" }
+                  );
+              }
           }
       } catch (err) {
           console.error("Failed to notify task creator:", err);
