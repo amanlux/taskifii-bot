@@ -400,34 +400,7 @@ const TEXT = {
     en: "Selected:",
     am: "የተመረጡ:"
   },
-   applyPitchTooShort: {
-    en: "Please make sure your message is at least 20 characters!",
-    am: "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
-  },
-  applyPitchTooLong: {
-    en: "Please keep your message under 500 characters!",
-    am: "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
-  },
-  confirmApplyPost: {
-    en: "Do you want to send this application to the task creator?",
-    am: "ይህን ማመልከቻ ለተግዳሮቱ ፈጣሪ መላክ ይፈልጋሉ?"
-  },
-  confirmYesBtn: {
-    en: "Yes",
-    am: "አዎን"
-  },
-  confirmNoBtn: {
-    en: "No",
-    am: "አይ"
-  },
-  applySent: {
-    en: "✅ Application sent to the task creator!",
-    am: "✅ ማመልከቻው ለተግዳሮቱ ፈጣሪ ተልኳል!"
-  },
-  applyCancelled: {
-    en: "Application cancelled.",
-    am: "ማመልከቻው ተሰርዟል።"
-  },
+  
 
   
   
@@ -1815,211 +1788,7 @@ bot.action("POST_TASK", async (ctx) => {
   const prompt = TEXT.descriptionPrompt[user.language];
   return ctx.reply(prompt);
 });
-bot.action("APPLY_CONFIRM_YES", async (ctx) => {
-  await ctx.answerCbQuery();
-  const applyFlow = ctx.session?.applyFlow;
-  if (!applyFlow) return;
 
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  if (!user) return ctx.reply("User not found.");
-
-  const lang = user.language || "en";
-  const task = await Task.findById(applyFlow.taskId);
-  if (!task) {
-    delete ctx.session.applyFlow;
-    return ctx.reply(lang === "am" 
-      ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-      : "❌ This task is no longer available.");
-  }
-
-  // Get the task creator
-  const creator = await User.findById(task.creator);
-  if (!creator) {
-    delete ctx.session.applyFlow;
-    return ctx.reply(lang === "am" 
-      ? "❌ የተግዳሮቱ ፈጣሪ አልተገኙም።" 
-      : "❌ Task creator not found.");
-  }
-
-  // Build the application post
-  const applicantName = user.fullName || `@${user.username}` || "Anonymous";
-  
-  // Get top 5 most frequent task fields (or all if less than 5)
-  const topFields = user.stats.fieldStats 
-    ? Object.entries(user.stats.fieldStats)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([field]) => field)
-    : [];
-  
-  const fieldsText = topFields.length > 0 
-    ? topFields.map(f => `#${f.replace(/\s+/g, "")}`).join(" ")
-    : lang === "am" ? "ምንም የተመረጡ መስኮች የሉም" : "No selected fields";
-
-  const ratingText = user.stats.ratingCount > 0
-    ? `${user.stats.averageRating.toFixed(1)} ★ (${user.stats.ratingCount} ${lang === "am" ? "ግምገማዎች" : "ratings"})`
-    : `N/A ★ (0 ${lang === "am" ? "ግምገማዎች" : "ratings"})`;
-
-  const banksText = user.bankDetails && user.bankDetails.length
-    ? user.bankDetails.map(b => b.bankName).join(", ")
-    : lang === "am" ? "ምንም ባንኮች የሉም" : "No banks";
-
-  const applyText = lang === "am" 
-    ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\n` +
-      `ተግዳሮት: ${task.description.substring(0, 50)}...\n\n` +
-      `አመልካች: ${applicantName}\n` +
-      `የተሰሩ ተግዳሮቶች: ${user.stats.tasksCompleted || 0}\n` +
-      `የተሰሩ መስኮች: ${fieldsText}\n` +
-      `ደረጃ: ${ratingText}\n` +
-      `ባንኮች: ${banksText}\n` +
-      `ጠቅላላ የተሰሩ ብር: ${user.stats.totalEarned.toFixed(2)} ብር\n\n` +
-      `መልእክት: ${applyFlow.pitch.substring(0, 200)}...`
-    : `📩 New applicant for your task!\n\n` +
-      `Task: ${task.description.substring(0, 50)}...\n\n` +
-      `Applicant: ${applicantName}\n` +
-      `Tasks Completed: ${user.stats.tasksCompleted || 0}\n` +
-      `Top Fields: ${fieldsText}\n` +
-      `Rating: ${ratingText}\n` +
-      `Banks: ${banksText}\n` +
-      `Total Earned: ${user.stats.totalEarned.toFixed(2)} birr\n\n` +
-      `Message: ${applyFlow.pitch.substring(0, 200)}...`;
-
-  // Send to task creator with Accept/Decline buttons
-  const buttons = Markup.inlineKeyboard([
-    [
-      Markup.button.callback(
-        lang === "am" ? "መቀበል" : "Accept", 
-        `APPLY_ACCEPT_${task._id}_${user._id}`
-      ),
-      Markup.button.callback(
-        lang === "am" ? "አለመቀበል" : "Decline", 
-        `APPLY_DECLINE_${task._id}_${user._id}`
-      )
-    ]
-  ]);
-
-  try {
-    // Send to task creator
-    await ctx.telegram.sendMessage(
-      creator.telegramId,
-      applyText,
-      { 
-        parse_mode: "Markdown",
-        reply_markup: buttons.reply_markup 
-      }
-    );
-
-    // Confirm to applicant
-    await ctx.reply(TEXT.applySent[lang]);
-  } catch (err) {
-    console.error("Failed to send application:", err);
-    await ctx.reply(
-      lang === "am" 
-        ? "❌ ማመልከቻውን ለመላክ አልተቻለም። እባክዎ ቆይተው እንደገና ይሞክሩ።"
-        : "❌ Failed to send application. Please wait and try again."
-    );
-  }
-
-  delete ctx.session.applyFlow;
-});
-
-bot.action("APPLY_CONFIRM_NO", async (ctx) => {
-  await ctx.answerCbQuery();
-  const lang = ctx.session.user?.language || "en";
-  delete ctx.session.applyFlow;
-  return ctx.reply(TEXT.applyCancelled[lang]);
-});
-bot.action(/^APPLY_ACCEPT_(.+)_(.+)$/, async ctx => {
-  await ctx.answerCbQuery();
-  const [taskId, applicantId] = ctx.match.slice(1);
-  const task = await Task.findById(taskId);
-  const applicant = await User.findById(applicantId);
-  const creator = await User.findOne({ telegramId: ctx.from.id });
-
-  if (!task || !applicant || !creator) {
-    return ctx.reply("Error processing application.");
-  }
-
-  const lang = creator.language || "en";
-
-  // Update task status and selected applicant
-  task.status = "In Progress";
-  task.selectedApplicant = applicantId;
-  await task.save();
-
-  // Notify applicant
-  const applicantLang = applicant.language || "en";
-  const notificationText = applicantLang === "am"
-    ? `🎉 ማመልከቻዎ ተቀባይነት አግኝቷል!\n\n` +
-      `ተግዳሮት: ${task.description.substring(0, 50)}...\n\n` +
-      `አሁን ከተግዳሮቱ ፈጣሪ ጋር በቀጥታ መስራት ይችላሉ።`
-    : `🎉 Your application has been accepted!\n\n` +
-      `Task: ${task.description.substring(0, 50)}...\n\n` +
-      `You can now work directly with the task creator.`;
-
-  try {
-    await ctx.telegram.sendMessage(
-      applicant.telegramId,
-      notificationText,
-      { parse_mode: "Markdown" }
-    );
-
-    // Edit original message to show accepted
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(
-          lang === "am" ? "✔ ተቀብሏል" : "✔ Accepted",
-          "_DISABLED_APPLY_ACCEPTED"
-        )
-      ]]
-    });
-  } catch (err) {
-    console.error("Failed to notify applicant:", err);
-  }
-});
-
-bot.action(/^APPLY_DECLINE_(.+)_(.+)$/, async ctx => {
-  await ctx.answerCbQuery();
-  const [taskId, applicantId] = ctx.match.slice(1);
-  const task = await Task.findById(taskId);
-  const applicant = await User.findById(applicantId);
-
-  if (!task || !applicant) {
-    return ctx.reply("Error processing application.");
-  }
-
-  const lang = ctx.session.user?.language || "en";
-
-  // Notify applicant
-  const applicantLang = applicant.language || "en";
-  const notificationText = applicantLang === "am"
-    ? `❌ ማመልከቻዎ አልተቀበለም።\n\n` +
-      `ተግዳሮት: ${task.description.substring(0, 50)}...\n\n` +
-      `ለሌሎች አጋጣሚዎች ዝግጁ ይሁኑ።`
-    : `❌ Your application was declined.\n\n` +
-      `Task: ${task.description.substring(0, 50)}...\n\n` +
-      `Be ready for other opportunities.`;
-
-  try {
-    await ctx.telegram.sendMessage(
-      applicant.telegramId,
-      notificationText,
-      { parse_mode: "Markdown" }
-    );
-
-    // Edit original message to show declined
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(
-          lang === "am" ? "✔ አልተቀበለም" : "✔ Declined",
-          "_DISABLED_APPLY_DECLINED"
-        )
-      ]]
-    });
-  } catch (err) {
-    console.error("Failed to notify applicant:", err);
-  }
-});
 //  ➤ 1st step: catch Apply button clicks
 
 bot.action(/^APPLY_(.+)$/, async ctx => {
@@ -2138,39 +1907,72 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     // validation
     if (!text || text.length < 20) {
       const err = lang === "am"
-        ? TEXT.applyPitchTooShort.am
-        : TEXT.applyPitchTooShort.en;
+        ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
+        : "Please make sure your message is at least 20 characters!";
       return ctx.reply(err);
     }
     if (text.length > 500) {
       const err = lang === "am"
-        ? TEXT.applyPitchTooLong.am
-        : TEXT.applyPitchTooLong.en;
+        ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
+        : "Please keep your message under 500 characters!";
       return ctx.reply(err);
     }
 
-    // Store the pitch and any attachments in session
-    ctx.session.applyFlow.pitch = text;
-    ctx.session.applyFlow.attachment = ctx.message.photo?.[0]?.file_id || 
-                                      ctx.message.document?.file_id ||
-                                      ctx.message.video?.file_id ||
-                                      ctx.message.audio?.file_id;
-    ctx.session.applyFlow.step = "confirm_send";
+    // Get the task being applied to
+    const task = await Task.findById(ctx.session.applyFlow.taskId);
+    if (!task) {
+      delete ctx.session.applyFlow;
+      return ctx.reply(lang === "am" 
+        ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+        : "❌ This task is no longer available.");
+    }
 
-    // Ask for confirmation to send
-    return ctx.reply(
-      TEXT.confirmApplyPost[lang],
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback(TEXT.confirmYesBtn[lang], "APPLY_CONFIRM_YES"),
-          Markup.button.callback(TEXT.confirmNoBtn[lang], "APPLY_CONFIRM_NO")
-        ]
-      ])
-    );
+    // Save the application
+    const application = {
+      applicantId: user._id,
+      pitch: text,
+      attachment: ctx.message.photo?.[0]?.file_id || 
+                 ctx.message.document?.file_id ||
+                 ctx.message.video?.file_id ||
+                 ctx.message.audio?.file_id,
+      createdAt: new Date()
+    };
+
+    task.applicants.push(application);
+    await task.save();
+
+    // Notify task creator
+    try {
+      const creator = await User.findById(task.creator);
+      if (creator) {
+        const creatorLang = creator.language || "en";
+        const applicantName = user.fullName || `@${user.username}` || "Anonymous";
+        
+        const notificationText = creatorLang === "am"
+          ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\nተግዳሮት: ${task.description.substring(0, 50)}...\n\nአመልካች: ${applicantName}\nመልእክት: ${text.substring(0, 100)}...`
+          : `📩 New applicant for your task!\n\nTask: ${task.description.substring(0, 50)}...\n\nApplicant: ${applicantName}\nMessage: ${text.substring(0, 100)}...`;
+
+        await ctx.telegram.sendMessage(
+          creator.telegramId,
+          notificationText,
+          { parse_mode: "Markdown" }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to notify task creator:", err);
+    }
+
+    // Confirm to applicant
+    const confirmationText = lang === "am"
+      ? "✅ ማመልከቻዎ ተቀብልናል! የተግዳሮቱ ባለቤት በቅርቡ ያግኝዎታል።"
+      : "✅ Application received! The task creator will contact you soon.";
+
+    delete ctx.session.applyFlow;
+    return ctx.reply(confirmationText);
   }
+
   // Original task flow handling
   if (!ctx.session.taskFlow) return next();
-
   const { step, draftId } = ctx.session.taskFlow;
   if (!draftId) {
     delete ctx.session.taskFlow;
