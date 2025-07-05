@@ -853,6 +853,7 @@ function askSkillLevel(ctx, lang = null) {
 
 
   // ─────────── /start Handler ───────────
+  // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
     // Initialize session
     ctx.session = ctx.session || {};
@@ -865,17 +866,24 @@ function askSkillLevel(ctx, lang = null) {
       
       // Check if user exists and has completed onboarding
       if (!user || user.onboardingStep !== "completed") {
-        const lang = user?.language || "en";
-        const message = lang === "am" 
-          ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
-          : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+        // Store the task ID in session for later use after registration
+        ctx.session.pendingTaskId = taskId;
         
-        return ctx.reply(message, Markup.inlineKeyboard([
-          [Markup.button.callback("/start", "START_REGISTRATION")]
-        ]));
+        // Send language selection with custom message
+        return ctx.reply(
+          "To apply for tasks, you need to complete your Taskifii profile first.\n\n" +
+          "ተግዳሮቶችን ለመመዝገብ በመጀመሪያ የ Taskifii መመዝገቢያ ሂደትዎን ማጠናቀቅ አለብዎት።\n\n" +
+          `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
+          Markup.inlineKeyboard([
+            [
+              Markup.button.callback("English", "LANG_EN"),
+              Markup.button.callback("አማርኛ", "LANG_AM")
+            ]
+          ])
+        );
       }
 
-      // Initialize applyFlow in session
+      // Existing flow for registered users
       ctx.session.applyFlow = {
         taskId,
         step: "awaiting_pitch"
@@ -1211,64 +1219,82 @@ function askSkillLevel(ctx, lang = null) {
 
   // ─── AGE VERIFICATION Actions ────────────────────────────────────
   bot.action("AGE_YES", async (ctx) => {
-  await ctx.answerCbQuery();
-  const tgId = ctx.from.id;
-  const user = await User.findOne({ telegramId: tgId });
-  if (!user) return ctx.reply("Unexpected error. Please /start again.");
+    await ctx.answerCbQuery();
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
+    if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-  // Highlight "Yes I am"; disable "No I'm not"
-  await ctx.editMessageReplyMarkup({
-    inline_keyboard: [[
-      Markup.button.callback(`✔ ${TEXT.ageYesBtn[user.language]}`, `_DISABLED_AGE_YES`),
-      Markup.button.callback(`${TEXT.ageNoBtn[user.language]}`, `_DISABLED_AGE_NO`)
-    ]]
-  });
+    // Highlight "Yes I am"; disable "No I'm not"
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(`✔ ${TEXT.ageYesBtn[user.language]}`, `_DISABLED_AGE_YES`),
+        Markup.button.callback(`${TEXT.ageNoBtn[user.language]}`, `_DISABLED_AGE_NO`)
+      ]]
+    });
 
-  user.onboardingStep = "completed";
-  
-  // Build and send user profile WITH congratulations
-  const menu = Markup.inlineKeyboard([
-    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
-    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
-  ]);
-  
-  // Send profile WITH congratulations (showCongrats = true)
-  await ctx.reply(buildProfileText(user, true), menu);
-
-  // Send new post to Admin Channel with 4 buttons
-  const adminText = buildAdminProfileText(user);
-  const adminButtons = Markup.inlineKeyboard([
-    [
-      Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
-      Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
-    ],
-    [
-      Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
-      Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
-    ]
-  ]);
-
-  try {
-    const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is correct
-    const sentMessage = await ctx.telegram.sendMessage(
-      ADMIN_CHANNEL,
-      adminText,
-      { 
-        parse_mode: "Markdown", 
-        reply_markup: adminButtons.reply_markup 
-      }
-    );
+    user.onboardingStep = "completed";
     
-    // Store admin message ID for future edits
-    user.adminMessageId = sentMessage.message_id;
-    await user.save(); // Make sure to save after setting adminMessageId
+    // Check if there's a pending task to apply for
+    if (ctx.session?.pendingTaskId) {
+      const taskId = ctx.session.pendingTaskId;
+      delete ctx.session.pendingTaskId;
+      
+      // Initialize apply flow
+      ctx.session.applyFlow = {
+        taskId,
+        step: "awaiting_pitch"
+      };
+
+      const prompt = user.language === "am"
+        ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና �ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+        : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+      
+      return ctx.reply(prompt);
+    }
+
+    // Build and send user profile WITH congratulations
+    const menu = Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+      [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+      [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+    ]);
     
-    console.log(`Saved adminMessageId ${sentMessage.message_id} for user ${user._id}`);
-  } catch (err) {
-    console.error("Failed to send admin message:", err);
-    await ctx.reply("Profile created, but failed to notify admin. Please contact support.");
-  }
+    // Send profile WITH congratulations (showCongrats = true)
+    await ctx.reply(buildProfileText(user, true), menu);
+
+    // Send new post to Admin Channel with 4 buttons
+    const adminText = buildAdminProfileText(user);
+    const adminButtons = Markup.inlineKeyboard([
+      [
+        Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
+        Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
+      ],
+      [
+        Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
+        Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
+      ]
+    ]);
+
+    try {
+      const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is correct
+      const sentMessage = await ctx.telegram.sendMessage(
+        ADMIN_CHANNEL,
+        adminText,
+        { 
+          parse_mode: "Markdown", 
+          reply_markup: adminButtons.reply_markup 
+        }
+      );
+      
+      // Store admin message ID for future edits
+      user.adminMessageId = sentMessage.message_id;
+      await user.save(); // Make sure to save after setting adminMessageId
+      
+      console.log(`Saved adminMessageId ${sentMessage.message_id} for user ${user._id}`);
+    } catch (err) {
+      console.error("Failed to send admin message:", err);
+      await ctx.reply("Profile created, but failed to notify admin. Please contact support.");
+    }
   });
 
 // In the text handler for name editing:
@@ -1333,46 +1359,49 @@ bot.action("POST_TASK", async (ctx) => {
 
 //  ➤ 1st step: catch Apply button clicks
 
+// ─── Apply Button Handler ───────────────────────────────────
 bot.action(/^APPLY_(.+)$/, async ctx => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-
+  
   // Check if user exists and has completed onboarding
   if (!user || user.onboardingStep !== "completed") {
+    const lang = user?.language || "en";
     const message = lang === "am" 
-      ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
+      ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
       : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
     
+    // Send deep link that will trigger the registration flow
+    const deepLink = `https://t.me/${ctx.botInfo.username}?start=apply_${taskId}`;
+    
     return ctx.reply(message, Markup.inlineKeyboard([
-      [Markup.button.callback("/start", "START_REGISTRATION")]
+      [Markup.button.url(
+        lang === "am" ? "መመዝገቢያ ጀምር / Register" : "Register / መመዝገቢያ ጀምር", 
+        deepLink
+      )]
     ]));
   }
 
-  try {
-    await ctx.telegram.sendMessage(
-      ctx.from.id,
-      lang === "am" 
-        ? "ወደ አመልካች ሂደት እየተዛወርክ ነው..." 
-        : "Redirecting you to the application process..."
-    );
-    
-    await ctx.telegram.sendMessage(
-      ctx.from.id,
-      `/start apply_${taskId}`,
-      { parse_mode: "Markdown" }
-    );
-  } catch (err) {
-    console.error("Failed to redirect user:", err);
-    const deepLink = `/apply_${taskId}`;
-    await ctx.telegram.sendMessage(
-      ctx.from.id,
-      lang === "am"
-        ? `ግባብን ለመጀመር፤ እባክዎ ይጻፉ: ${deepLink}`
-        : `To start your application, please send: ${deepLink}`
-    );
+  // Existing application flow for registered users
+  const lang = user.language || "en";
+  const task = await Task.findById(taskId);
+  if (!task) {
+    return ctx.reply(lang === "am" 
+      ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+      : "❌ This task is no longer available.");
   }
+
+  // Initialize applyFlow in session
+  ctx.session.applyFlow = {
+    taskId,
+    step: "awaiting_pitch"
+  };
+
+  const prompt = lang === "am"
+    ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+    : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+  return ctx.reply(prompt);
 });
 //  ➤ 2nd step: when user sends /apply_<taskId>, ask for their 20–500-char pitch
 bot.hears(/^\/apply_(.+)$/, async ctx => {
