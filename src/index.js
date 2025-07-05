@@ -859,59 +859,30 @@ function askSkillLevel(ctx, lang = null) {
     if (startPayload && startPayload.startsWith('apply_')) {
       const taskId = startPayload.split('_')[1];
       const user = await User.findOne({ telegramId: ctx.from.id });
-      const lang = user?.language || "en";
       
-      // Check if task still exists
-      const task = await Task.findById(taskId);
-      if (!task) {
-        return ctx.reply(
-          lang === "am" 
-            ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-            : "❌ This task is no longer available."
-        );
+      // Check if user exists and has completed onboarding
+      if (!user || user.onboardingStep !== "completed") {
+        const lang = user?.language || "en";
+        const message = lang === "am" 
+          ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
+          : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+        
+        return ctx.reply(message, Markup.inlineKeyboard([
+          [Markup.button.callback("/start", "START_REGISTRATION")]
+        ]));
       }
 
-      // If user doesn't exist or hasn't completed onboarding
-      if (!user || user.onboardingStep !== "completed") {
-        // Store the task ID they tried to apply for
-        ctx.session.pendingApplyTaskId = taskId;
-        
-        // Send appropriate message based on whether they're new or incomplete
-        if (!user) {
-          return ctx.reply(
-            lang === "am" 
-              ? "👋 እንኳን ደህና መጡ Taskifii! ተግዳሮት ለመመዝገብ መጀመሪያ መገለጫዎን ማጠናቀቅ አለቦት። እባክዎ ከታች ያለውን ቁልፍ በመጫን መገለጫዎን ያቀናብሩ።\n\nተግዳሮቱ ከዚህ በኋላም ይገኛል።" 
-              : "👋 Welcome to Taskifii! To apply for tasks, you need to complete your profile first. Please click the button below to set up your profile.\n\nThe task will remain available after setup.",
-            Markup.inlineKeyboard([
-              [Markup.button.callback(
-                lang === "am" ? "መገለጫ ያቀናብሩ" : "Setup Profile", 
-                "DO_SETUP_FROM_APPLY"
-              )]
-            ])
-          );
-        } else {
-          // User exists but didn't complete onboarding
-          return ctx.reply(
-            lang === "am" 
-              ? "🔍 መገለጫዎ እስካሁን አልተጠናቀቀም። ተግዳሮት ለመመዝገብ እባክዎ መጀመሪያ መገለጫዎን ያጠናቅቁ።" 
-              : "🔍 Your profile isn't complete yet. Please finish setting up your profile before applying for tasks.",
-            Markup.inlineKeyboard([
-              [Markup.button.callback(
-                lang === "am" ? "መገለጫ ይጨርሱ" : "Complete Profile", 
-                "RESUME_ONBOARDING"
-              )]
-            ])
-          );
-        }
-      }
+      // Original apply flow for registered users
+      const lang = user.language || "en";
       
-      // Existing apply flow for registered users
+      // Save flow state
       ctx.session.applyFlow = { taskId, step: "awaiting_pitch" };
-      return ctx.reply(
-        lang === "am" 
-          ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።" 
-          : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption."
-      );
+
+      // Send bilingual prompt
+      const prompt = lang === "am"
+        ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+        : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+      return ctx.reply(prompt);
     } else {
       // Original onboarding flow
       const tgId = ctx.from.id;
@@ -940,11 +911,6 @@ function askSkillLevel(ctx, lang = null) {
         await user.save();
       }
 
-      // Clear any pending apply task
-      if (ctx.session?.pendingApplyTaskId) {
-        delete ctx.session.pendingApplyTaskId;
-      }
-
       // Send language selection
       return ctx.reply(
         `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
@@ -956,6 +922,12 @@ function askSkillLevel(ctx, lang = null) {
         ])
       );
     }
+  });
+
+  // Add handler for the /start button
+  bot.action("START_REGISTRATION", async (ctx) => {
+    await ctx.answerCbQuery();
+    return ctx.reply("/start");
   });
 
   // ─────────── Language Selection ───────────
@@ -1234,106 +1206,64 @@ function askSkillLevel(ctx, lang = null) {
 
   // ─── AGE VERIFICATION Actions ────────────────────────────────────
   bot.action("AGE_YES", async (ctx) => {
-    await ctx.answerCbQuery();
-    const tgId = ctx.from.id;
-    const user = await User.findOne({ telegramId: tgId });
-    if (!user) return ctx.reply("Unexpected error. Please /start again.");
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    // Highlight "Yes I am"; disable "No I'm not"
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(`✔ ${TEXT.ageYesBtn[user.language]}`, `_DISABLED_AGE_YES`),
-        Markup.button.callback(`${TEXT.ageNoBtn[user.language]}`, `_DISABLED_AGE_NO`)
-      ]]
-    });
+  // Highlight "Yes I am"; disable "No I'm not"
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [[
+      Markup.button.callback(`✔ ${TEXT.ageYesBtn[user.language]}`, `_DISABLED_AGE_YES`),
+      Markup.button.callback(`${TEXT.ageNoBtn[user.language]}`, `_DISABLED_AGE_NO`)
+    ]]
+  });
 
-    user.onboardingStep = "completed";
-    await user.save();
+  user.onboardingStep = "completed";
+  
+  // Build and send user profile WITH congratulations
+  const menu = Markup.inlineKeyboard([
+    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+  ]);
+  
+  // Send profile WITH congratulations (showCongrats = true)
+  await ctx.reply(buildProfileText(user, true), menu);
+
+  // Send new post to Admin Channel with 4 buttons
+  const adminText = buildAdminProfileText(user);
+  const adminButtons = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
+      Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
+    ],
+    [
+      Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
+      Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
+    ]
+  ]);
+
+  try {
+    const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is correct
+    const sentMessage = await ctx.telegram.sendMessage(
+      ADMIN_CHANNEL,
+      adminText,
+      { 
+        parse_mode: "Markdown", 
+        reply_markup: adminButtons.reply_markup 
+      }
+    );
     
-    // Check if there's a pending apply task
-    if (ctx.session?.pendingApplyTaskId) {
-      const taskId = ctx.session.pendingApplyTaskId;
-      delete ctx.session.pendingApplyTaskId;
-      
-      // Verify task still exists
-      const task = await Task.findById(taskId);
-      if (!task) {
-        const lang = user.language || "en";
-        const menu = Markup.inlineKeyboard([
-          [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
-          [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-          [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
-        ]);
-        
-        return ctx.reply(
-          lang === "am" 
-            ? "✅ መገለጫዎ ተጠናቋል! ይቅርታ፣ ያመለጡበት ተግዳሮት ከማግኘት አልቋል። ከታች ያሉትን አማራጮች ይጠቀሙ።" 
-            : "✅ Profile completed! Sorry, the task you tried to apply for is no longer available. Please use the options below.",
-          menu
-        );
-      }
-      
-      // Redirect them to apply for the task
-      try {
-        await ctx.reply(
-          user.language === "am" 
-            ? "✅ መገለጫዎ ተጠናቋል! አሁን ለተግዳሮቱ መመዝገብ ይችላሉ።" 
-            : "✅ Profile completed! You can now apply for the task.",
-          Markup.inlineKeyboard([
-            [Markup.button.callback(
-              user.language === "am" ? "ወደ ተግዳሮቱ ተመለስ" : "Return to Task", 
-              `APPLY_${taskId}`
-            )],
-            [Markup.button.callback(
-              user.language === "am" ? "ዋና ምናሌ" : "Main Menu", 
-              "SHOW_MAIN_MENU"
-            )]
-          ])
-        );
-      } catch (err) {
-        console.error("Failed to redirect to task:", err);
-      }
-    } else {
-      // Original behavior - show profile with menu
-      const menu = Markup.inlineKeyboard([
-        [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
-        [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
-      ]);
-      
-      await ctx.reply(buildProfileText(user, true), menu);
-    }
-
-    // Send new post to Admin Channel
-    const adminText = buildAdminProfileText(user);
-    const adminButtons = Markup.inlineKeyboard([
-      [
-        Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
-        Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
-      ],
-      [
-        Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
-        Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
-      ]
-    ]);
-
-    try {
-      const ADMIN_CHANNEL = "-1002310380363";
-      const sentMessage = await ctx.telegram.sendMessage(
-        ADMIN_CHANNEL,
-        adminText,
-        { 
-          parse_mode: "Markdown", 
-          reply_markup: adminButtons.reply_markup 
-        }
-      );
-      
-      // Store admin message ID for future edits
-      user.adminMessageId = sentMessage.message_id;
-      await user.save();
-    } catch (err) {
-      console.error("Failed to send admin message:", err);
-    }
+    // Store admin message ID for future edits
+    user.adminMessageId = sentMessage.message_id;
+    await user.save(); // Make sure to save after setting adminMessageId
+    
+    console.log(`Saved adminMessageId ${sentMessage.message_id} for user ${user._id}`);
+  } catch (err) {
+    console.error("Failed to send admin message:", err);
+    await ctx.reply("Profile created, but failed to notify admin. Please contact support.");
+  }
   });
 
 // In the text handler for name editing:
@@ -1404,6 +1334,17 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
 
+  // Check if user exists and has completed onboarding
+  if (!user || user.onboardingStep !== "completed") {
+    const message = lang === "am" 
+      ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
+      : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+    
+    return ctx.reply(message, Markup.inlineKeyboard([
+      [Markup.button.callback("/start", "START_REGISTRATION")]
+    ]));
+  }
+
   try {
     await ctx.telegram.sendMessage(
       ctx.from.id,
@@ -1432,7 +1373,18 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
 bot.hears(/^\/apply_(.+)$/, async ctx => {
   const taskId = ctx.match[1];
   const user = await User.findOne({ telegramId: ctx.from.id });
-  if (!user) return ctx.reply("Please complete your profile first with /start");
+  
+  // Check if user exists and has completed onboarding
+  if (!user || user.onboardingStep !== "completed") {
+    const lang = user?.language || "en";
+    const message = lang === "am" 
+      ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
+      : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+    
+    return ctx.reply(message, Markup.inlineKeyboard([
+      [Markup.button.callback("/start", "START_REGISTRATION")]
+    ]));
+  }
 
   const lang = user.language || "en";
   const task = await Task.findById(taskId);
@@ -1442,6 +1394,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       : "❌ This task is no longer available.");
   }
 
+  // Rest of the original handler...
   // Initialize application flow
   ctx.session.applyFlow = {
     taskId,
@@ -1482,115 +1435,6 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
     );
 });
 
-bot.action("SHOW_MAIN_MENU", async (ctx) => {
-  await ctx.answerCbQuery();
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  if (!user) return ctx.reply("Please /start again.");
-
-  const menu = Markup.inlineKeyboard([
-    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
-    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
-  ]);
-  
-  return ctx.editMessageText(
-    buildProfileText(user, false),
-    menu
-  );
-});
-bot.action("DO_SETUP_FROM_APPLY", async (ctx) => {
-  await ctx.answerCbQuery();
-  const tgId = ctx.from.id;
-  
-  // Initialize session properly
-  ctx.session = ctx.session || {};
-  
-  // Create new user if doesn't exist
-  let user = await User.findOne({ telegramId: tgId });
-  if (!user) {
-    user = new User({
-      telegramId: tgId,
-      onboardingStep: "language"
-    });
-    await user.save();
-  }
-
-  // Send language selection
-  return ctx.reply(
-    `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
-    Markup.inlineKeyboard([
-      [
-        Markup.button.callback("English", "LANG_EN"),
-        Markup.button.callback("አማርኛ", "LANG_AM")
-      ]
-    ])
-  );
-});
-
-bot.action("RESUME_ONBOARDING", async (ctx) => {
-  await ctx.answerCbQuery();
-  const tgId = ctx.from.id;
-  const user = await User.findOne({ telegramId: tgId });
-  if (!user) return ctx.reply("User not found. Please /start again.");
-
-  // Determine where to resume based on onboardingStep
-  switch(user.onboardingStep) {
-    case "language":
-      return ctx.reply(
-        `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback("English", "LANG_EN"),
-            Markup.button.callback("አማርኛ", "LANG_AM")
-          ]
-        ])
-      );
-    case "setupProfile":
-      return ctx.reply(
-        "Please complete your profile setup:",
-        Markup.inlineKeyboard([[buildButton(TEXT.setupProfileBtn, "DO_SETUP", user.language, false)]])
-      );
-    case "fullName":
-      return ctx.reply(user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en);
-    case "phone":
-      return ctx.reply(user.language === "am" ? TEXT.askPhone.am : TEXT.askPhone.en);
-    case "email":
-      return ctx.reply(user.language === "am" ? TEXT.askEmail.am : TEXT.askEmail.en);
-    case "usernameConfirm":
-      const currentHandle = ctx.from.username || "";
-      const promptText = user.language === "am"
-        ? TEXT.askUsername.am.replace("%USERNAME%", currentHandle || "<none>")
-        : TEXT.askUsername.en.replace("%USERNAME%", currentHandle || "<none>");
-      return ctx.reply(
-        promptText,
-        Markup.inlineKeyboard([[Markup.button.callback(
-          user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
-          "USERNAME_KEEP"
-        )]])
-      );
-    case "bankFirst":
-    case "bankMulti":
-      return ctx.reply(user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
-    case "terms":
-      return ctx.reply(
-        user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
-        Markup.inlineKeyboard([
-          [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
-          [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
-        ])
-      );
-    case "age":
-      return ctx.reply(
-        user.language === "am" ? TEXT.askAge.am : TEXT.askAge.en,
-        Markup.inlineKeyboard([[
-          buildButton(TEXT.ageYesBtn, "AGE_YES", user.language, false),
-          buildButton(TEXT.ageNoBtn, "AGE_NO", user.language, false)
-        ]])
-      );
-    default:
-      return ctx.reply("Please complete your profile setup:");
-  }
-});
 // Updated handler for Decline button
 bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
