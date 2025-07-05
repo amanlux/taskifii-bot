@@ -794,6 +794,8 @@ function startBot() {
   const { session } = require('telegraf');
   
   // Add this session initialization middleware
+  // Initialize session properly
+  bot.use(session());
   bot.use(async (ctx, next) => {
     // Initialize session if not exists
     ctx.session = ctx.session || {};
@@ -808,8 +810,6 @@ function startBot() {
     
     return next();
   });
-  
-  bot.use(session());
   /**
  * Build an inline keyboard with:
  *  – ✅ prefix on the clicked button
@@ -854,7 +854,10 @@ function askSkillLevel(ctx, lang = null) {
 
   // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
-    const startPayload = ctx.startPayload; // This will be "apply_<taskId>" if coming from the deep link
+    // Initialize session
+    ctx.session = ctx.session || {};
+    
+    const startPayload = ctx.startPayload;
     
     if (startPayload && startPayload.startsWith('apply_')) {
       const taskId = startPayload.split('_')[1];
@@ -872,13 +875,13 @@ function askSkillLevel(ctx, lang = null) {
         ]));
       }
 
-      // Original apply flow for registered users
-      const lang = user.language || "en";
-      
-      // Save flow state
-      ctx.session.applyFlow = { taskId, step: "awaiting_pitch" };
+      // Initialize applyFlow in session
+      ctx.session.applyFlow = {
+        taskId,
+        step: "awaiting_pitch"
+      };
 
-      // Send bilingual prompt
+      const lang = user.language || "en";
       const prompt = lang === "am"
         ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
         : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
@@ -927,6 +930,8 @@ function askSkillLevel(ctx, lang = null) {
   // Add handler for the /start button
   bot.action("START_REGISTRATION", async (ctx) => {
     await ctx.answerCbQuery();
+    // Initialize session
+    ctx.session = ctx.session || {};
     return ctx.reply("/start");
   });
 
@@ -1506,6 +1511,8 @@ bot.action("TASK_EDIT", async (ctx) => {
 
 
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
+  // Initialize session
+  ctx.session = ctx.session || {};
   // ─────────── 1. Check if this is part of an application flow ───────────
   // In the application flow section of the consolidated handler:
   if (ctx.session?.applyFlow?.step === "awaiting_pitch") {
