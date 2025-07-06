@@ -883,8 +883,8 @@ function askSkillLevel(ctx, lang = null) {
       const lang = user.language || "en";
       return ctx.reply(
         lang === "am" 
-          ? "እርስዎ ቀድሞውኑ የTaskifii መመዝገቢያዎን አጠናቅቀዋል።" 
-          : "You have already completed your Taskifii registration.",
+          ? "አገልግሎት ዝርዝር፡" 
+          : "Menu:",
         Markup.inlineKeyboard([
           [Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK")],
           [Markup.button.callback(TEXT.findTaskBtn[lang], "FIND_TASK")],
