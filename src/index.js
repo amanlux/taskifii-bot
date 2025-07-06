@@ -859,71 +859,49 @@ function askSkillLevel(ctx, lang = null) {
     ctx.session = ctx.session || {};
     
     const startPayload = ctx.startPayload;
-    
+    const tgId = ctx.from.id;
+    let user = await User.findOne({ telegramId: tgId });
+
+    // Check if user exists and has completed onboarding
+    if (user && user.onboardingStep === "completed") {
+      // If there's a start payload for applying to a task, process it
+      if (startPayload && startPayload.startsWith('apply_')) {
+        const taskId = startPayload.split('_')[1];
+        ctx.session.applyFlow = {
+          taskId,
+          step: "awaiting_pitch"
+        };
+
+        const lang = user.language || "en";
+        const prompt = lang === "am"
+          ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+          : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+        return ctx.reply(prompt);
+      }
+      
+      // If no start payload, just notify user they're already registered
+      const lang = user.language || "en";
+      return ctx.reply(
+        lang === "am" 
+          ? "እርስዎ ቀድሞውኑ የTaskifii መመዝገቢያዎን አጠናቅቀዋል።" 
+          : "You have already completed your Taskifii registration.",
+        Markup.inlineKeyboard([
+          [Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK")],
+          [Markup.button.callback(TEXT.findTaskBtn[lang], "FIND_TASK")],
+          [Markup.button.callback(TEXT.editProfileBtn[lang], "EDIT_PROFILE")]
+        ])
+      );
+    }
+
+    // Original onboarding flow for new/uncompleted users
     if (startPayload && startPayload.startsWith('apply_')) {
       const taskId = startPayload.split('_')[1];
-      const user = await User.findOne({ telegramId: ctx.from.id });
+      ctx.session.pendingTaskId = taskId;
       
-      // Check if user exists and has completed onboarding
-      if (!user || user.onboardingStep !== "completed") {
-        // Store the task ID in session for later use after registration
-        ctx.session.pendingTaskId = taskId;
-        
-        // Send language selection with custom message
-        return ctx.reply(
-          "To apply for tasks, you need to complete your Taskifii profile first.\n\n" +
-          "ተግዳሮቶችን ለመመዝገብ በመጀመሪያ የ Taskifii መመዝገቢያ ሂደትዎን ማጠናቀቅ አለብዎት።\n\n" +
-          `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
-          Markup.inlineKeyboard([
-            [
-              Markup.button.callback("English", "LANG_EN"),
-              Markup.button.callback("አማርኛ", "LANG_AM")
-            ]
-          ])
-        );
-      }
-
-      // Existing flow for registered users
-      ctx.session.applyFlow = {
-        taskId,
-        step: "awaiting_pitch"
-      };
-
-      const lang = user.language || "en";
-      const prompt = lang === "am"
-        ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-        : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
-      return ctx.reply(prompt);
-    } else {
-      // Original onboarding flow
-      const tgId = ctx.from.id;
-      let user = await User.findOne({ telegramId: tgId });
-
-      if (user) {
-        // Reset all fields
-        user.fullName = null;
-        user.phone = null;
-        user.email = null;
-        user.bankDetails = [];
-        user.stats = {
-          totalEarned: 0,
-          totalSpent: 0,
-          averageRating: 0,
-          ratingCount: 0
-        };
-        user.onboardingStep = "language";
-        user.createdAt = Date.now();
-        await user.save();
-      } else {
-        user = new User({
-          telegramId: tgId,
-          onboardingStep: "language"
-        });
-        await user.save();
-      }
-
-      // Send language selection
+      // Send language selection with custom message
       return ctx.reply(
+        "To apply for tasks, you need to complete your Taskifii profile first.\n\n" +
+        "ተግዳሮቶችን ለመመዝገብ በመጀመሪያ የ Taskifii መመዝገቢያ ሂደትዎን ማጠናቀቅ አለብዎት።\n\n" +
         `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
         Markup.inlineKeyboard([
           [
@@ -933,6 +911,41 @@ function askSkillLevel(ctx, lang = null) {
         ])
       );
     }
+
+    // Continue with original onboarding flow
+    if (user) {
+      // Reset all fields
+      user.fullName = null;
+      user.phone = null;
+      user.email = null;
+      user.bankDetails = [];
+      user.stats = {
+        totalEarned: 0,
+        totalSpent: 0,
+        averageRating: 0,
+        ratingCount: 0
+      };
+      user.onboardingStep = "language";
+      user.createdAt = Date.now();
+      await user.save();
+    } else {
+      user = new User({
+        telegramId: tgId,
+        onboardingStep: "language"
+      });
+      await user.save();
+    }
+
+    // Send language selection
+    return ctx.reply(
+      `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback("English", "LANG_EN"),
+          Markup.button.callback("አማርኛ", "LANG_AM")
+        ]
+      ])
+    );
   });
 
   // Add handler for the /start button
