@@ -6,7 +6,12 @@ const ApplicantSchema = new Schema({
   user:      { type: Schema.Types.ObjectId, ref: "User", required: true },
   coverText: { type: String, required: true },
   file:      { type: String, default: null },
-  status:    { type: String, enum: ["Pending", "Accepted", "Declined"], default: "Pending" },
+  status:    { 
+    type: String, 
+    enum: ["Pending", "Accepted", "Declined", "Canceled"], // Added "Canceled"
+    default: "Pending" 
+  },
+  createdAt: { type: Date, default: Date.now } // Added createdAt timestamp
 });
 
 const StageSchema = new Schema({
@@ -35,9 +40,8 @@ const TaskSchema = new Schema(
     applicants:       { type: [ApplicantSchema], default: [] },
     acceptedDoer:     { type: Schema.Types.ObjectId, ref: "User", default: null },
     stages:           { type: [StageSchema], default: [] },
-    channelMessageId: { type: Number }  // if you store the message id after posting
-  
-  
+    channelMessageId: { type: Number },
+    lastReminderSent: { type: Date } // Added for reminder tracking
   },
   { timestamps: true }
 );

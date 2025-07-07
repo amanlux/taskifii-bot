@@ -459,7 +459,11 @@ const TEXT = {
   notSelectedNotification: {
     en: "Unfortunately, [creator] didn't choose you to do this task. Better luck next time!",
     am: "ይቅርታ፣ [creator] ይህን ተግዳሮት ለመስራት አልመረጡዎትም። በሚቀጥለው ጊዜ የተሻለ እድል ይኑርዎት!"
-  }
+  },
+  creatorCancelNotification: {
+  en: "[applicant] has canceled doing the task.",
+  am: "[applicant] ተግዳሮቱን ለመስራት እንዳልተስማማ አሳውቋል።"
+  },
   
 
   
@@ -1678,7 +1682,7 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     const creator = await User.findById(task.creator);
     if (creator) {
       const creatorLang = creator.language || "en";
-      const doerName = user.fullName || `@${user.username}` || "Anonymous";
+      const doerName = user.fullName || `@${user.username}` || ctx.from.first_name || "Anonymous";
       const message = TEXT.creatorCancelNotification[creatorLang].replace("[applicant]", doerName);
       
       await ctx.telegram.sendMessage(
