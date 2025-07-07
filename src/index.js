@@ -427,6 +427,38 @@ const TEXT = {
   cancelBtn: {
     en: "Cancel",
     am: "አቋርጥ"
+  },
+  cancelConfirmed: {
+  en: "You have successfully canceled this task.",
+  am: "ተግዳሮቱን በተሳካ ሁኔታ ሰርዘዋል።"
+  },
+  creatorCancelNotification: {
+    en: "[applicant] has canceled doing the task.",
+    am: "[applicant] ተግዳሮቱን ለመስራት እንዳልተስማማ አሳውቋል።"
+  },
+  noConfirmationNotification: {
+    en: "Sadly, none of the accepted task doers confirmed to still wanting to do the task. You can repost the task if you want. Taskifii is sorry for this.",
+    am: "ይቅርታ፣ ምንም ከተቀባዮቹ ተግዳሮት አድራጊዎች ስራውን ለመስራት እንደሚፈልጉ አላረጋገጡም። ከፈለጉ ተግዳሮቱን እንደገና ልጥፉት ይችላሉ። Taskifii ይቅርታ ይጠይቃል።"
+  },
+  doerTimeUpNotification: {
+    en: "Your time to confirm and start doing the task is up.",
+    am: "ተግዳሮቱን ለመስራት የማረጋገጫ ጊዜዎ አልቋል።"
+  },
+  reminderNotification: {
+    en: "Please choose an option before [remaining_time].",
+    am: "እባክዎ ከ[remaining_time] በፊት አንድ አማራጭ ይምረጡ።"
+  },
+  taskNoLongerAvailable: {
+    en: "This task is no longer available.",
+    am: "ይህ ተግዳሮት ከማግኘት አልቋል።"
+  },
+  repostTaskBtn: {
+    en: "Repost Task",
+    am: "ተግዳሮቱን እንደገና ልጥፍ"
+  },
+  notSelectedNotification: {
+    en: "Unfortunately, [creator] didn't choose you to do this task. Better luck next time!",
+    am: "ይቅርታ፣ [creator] ይህን ተግዳሮት ለመስራት አልመረጡዎትም። በሚቀጥለው ጊዜ የተሻለ እድል ይኑርዎት!"
   }
   
 
@@ -1603,12 +1635,317 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 
 bot.action("DO_TASK_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
+  
+  // Highlight Cancel button and disable both
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          Markup.button.callback(TEXT.doTaskBtn[ctx.session.user?.language || "en"], "_DISABLED_DO_TASK")
+        ],
+        [
+          Markup.button.callback(`✔ ${TEXT.cancelBtn[ctx.session.user?.language || "en"]}`, "_DISABLED_CANCEL_TASK")
+        ]
+      ]
+    });
+  } catch (err) {
+    console.error("Error updating buttons:", err);
+  }
+
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
-  return ctx.reply(lang === "am" 
-    ? "የስራ ማረጋገጫ ተሰርዟል። ይህ ባህሪ አሁንም በማሰራጨት ላይ ነው።" 
-    : "Task confirmation canceled. This feature is still in development.");
+  
+  // Notify task doer
+  await ctx.reply(TEXT.cancelConfirmed[lang]);
+  
+  // Find the task where this user was accepted
+  const task = await Task.findOne({
+    "applicants.user": user._id,
+    "applicants.status": "Accepted"
+  });
+  
+  if (task) {
+    // Update application status
+    const application = task.applicants.find(app => 
+      app.user.toString() === user._id.toString()
+    );
+    if (application) {
+      application.status = "Canceled";
+      await task.save();
+    }
+    
+    // Notify task creator
+    const creator = await User.findById(task.creator);
+    if (creator) {
+      const creatorLang = creator.language || "en";
+      const doerName = user.fullName || `@${user.username}` || "Anonymous";
+      const message = TEXT.creatorCancelNotification[creatorLang].replace("[applicant]", doerName);
+      
+      await ctx.telegram.sendMessage(
+        creator.telegramId,
+        message
+      );
+    }
+  }
+  
+  return;
 });
+
+async function checkTaskExpiries(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $lte: now }
+    }).populate("creator").populate("applicants.user");
+    
+    for (const task of tasks) {
+      // Update task status
+      task.status = "Expired";
+      await task.save();
+      
+      const creator = task.creator;
+      const creatorLang = creator?.language || "en";
+      
+      // Notify creator
+      try {
+        await bot.telegram.sendMessage(
+          creator.telegramId,
+          TEXT.noConfirmationNotification[creatorLang],
+          Markup.inlineKeyboard([
+            [Markup.button.callback(TEXT.repostTaskBtn[creatorLang], `REPOST_TASK_${task._id}`)]
+          ])
+        );
+      } catch (err) {
+        console.error("Error notifying creator:", err);
+      }
+      
+      // Notify accepted doers
+      const acceptedDoers = task.applicants.filter(app => app.status === "Accepted");
+      for (const app of acceptedDoers) {
+        if (app.user) {
+          const doer = app.user;
+          const doerLang = doer.language || "en";
+          try {
+            await bot.telegram.sendMessage(
+              doer.telegramId,
+              TEXT.doerTimeUpNotification[doerLang]
+            );
+          } catch (err) {
+            console.error("Error notifying doer:", err);
+          }
+        }
+      }
+      
+      // Notify not selected applicants
+      const notSelected = task.applicants.filter(app => app.status === "Pending");
+      for (const app of notSelected) {
+        if (app.user) {
+          const doer = app.user;
+          const doerLang = doer.language || "en";
+          const message = TEXT.notSelectedNotification[doerLang]
+            .replace("[creator]", creator.fullName || `@${creator.username}` || "Task Creator");
+          try {
+            await bot.telegram.sendMessage(
+              doer.telegramId,
+              message
+            );
+          } catch (err) {
+            console.error("Error notifying not-selected applicant:", err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in checkTaskExpiries:", err);
+  }
+  
+  // Check again in 1 minute
+  setTimeout(() => checkTaskExpiries(bot), 60000);
+}
+
+async function checkTaskExpiries(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $lte: now }
+    }).populate("creator").populate("applicants.user");
+    
+    for (const task of tasks) {
+      // Update task status
+      task.status = "Expired";
+      await task.save();
+      
+      const creator = task.creator;
+      const creatorLang = creator?.language || "en";
+      
+      // Notify creator
+      try {
+        await bot.telegram.sendMessage(
+          creator.telegramId,
+          TEXT.noConfirmationNotification[creatorLang],
+          Markup.inlineKeyboard([
+            [Markup.button.callback(TEXT.repostTaskBtn[creatorLang], `REPOST_TASK_${task._id}`)]
+          ])
+        );
+      } catch (err) {
+        console.error("Error notifying creator:", err);
+      }
+      
+      // Notify accepted doers
+      const acceptedDoers = task.applicants.filter(app => app.status === "Accepted");
+      for (const app of acceptedDoers) {
+        if (app.user) {
+          const doer = app.user;
+          const doerLang = doer.language || "en";
+          try {
+            await bot.telegram.sendMessage(
+              doer.telegramId,
+              TEXT.doerTimeUpNotification[doerLang]
+            );
+          } catch (err) {
+            console.error("Error notifying doer:", err);
+          }
+        }
+      }
+      
+      // Notify not selected applicants
+      const notSelected = task.applicants.filter(app => app.status === "Pending");
+      for (const app of notSelected) {
+        if (app.user) {
+          const doer = app.user;
+          const doerLang = doer.language || "en";
+          const message = TEXT.notSelectedNotification[doerLang]
+            .replace("[creator]", creator.fullName || `@${creator.username}` || "Task Creator");
+          try {
+            await bot.telegram.sendMessage(
+              doer.telegramId,
+              message
+            );
+          } catch (err) {
+            console.error("Error notifying not-selected applicant:", err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in checkTaskExpiries:", err);
+  }
+  
+  // Check again in 1 minute
+  setTimeout(() => checkTaskExpiries(bot), 60000);
+}
+bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  // Highlight the repost button
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(`✔ ${TEXT.repostTaskBtn[lang]}`, "_DISABLED_REPOST_TASK")
+      ]]
+    });
+  } catch (err) {
+    console.error("Error updating buttons:", err);
+  }
+  
+  try {
+    const task = await Task.findById(taskId);
+    if (!task) return;
+
+    // Create a new draft from the old task
+    const draft = await TaskDraft.create({
+      creatorTelegramId: ctx.from.id,
+      description: task.description,
+      relatedFile: task.relatedFile ? { fileId: task.relatedFile } : undefined,
+      fields: task.fields,
+      skillLevel: task.skillLevel,
+      paymentFee: task.paymentFee,
+      timeToComplete: task.timeToComplete,
+      revisionTime: task.revisionTime,
+      penaltyPerHour: task.latePenalty,
+      expiryHours: 24, // Default expiry
+      exchangeStrategy: task.exchangeStrategy
+    });
+
+    // Send the task preview with Post/Edit options
+    await ctx.reply(
+      buildPreviewText(draft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+      ])
+    );
+    
+    // Send instructions
+    const instructions = lang === "am" 
+      ? "በተግዳሮቱ ዝርዝሮች ላይ ለውጥ ማድረግ ከፈለጉ 'ተግዳሮት አርትዕ' የሚለውን ቁልፍ ይጫኑ። እንደነበረው ለመለጠፍ 'ተግዳሮት ልጥፍ' ይጫኑ።"
+      : "Click 'Edit Task' if you want to make changes to the task details. Click 'Post Task' to repost as is.";
+    
+    await ctx.reply(instructions);
+  } catch (err) {
+    console.error("Error in REPOST_TASK handler:", err);
+    await ctx.reply("An error occurred while processing your request. Please try again.");
+  }
+});
+
+async function sendReminders(bot) {
+  try {
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $gt: new Date() }
+    }).populate("applicants.user");
+    
+    for (const task of tasks) {
+      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      if (acceptedApps.length === 0) continue;
+      
+      const timeLeft = task.expiry.getTime() - Date.now();
+      const twentyPercent = timeLeft * 0.2;
+      
+      for (const app of acceptedApps) {
+        const lastReminder = app.lastReminder || task.createdAt;
+        const timeSinceLastReminder = Date.now() - new Date(lastReminder).getTime();
+        
+        if (timeSinceLastReminder >= twentyPercent) {
+          const doer = app.user;
+          if (doer) {
+            const lang = doer.language || "en";
+            const hoursLeft = Math.ceil(timeLeft / (1000 * 60 * 60));
+            const message = TEXT.reminderNotification[lang]
+              .replace("[remaining_time]", `${hoursLeft} ${lang === "am" ? "ሰዓት" : "hours"}`);
+            
+            try {
+              await bot.telegram.sendMessage(
+                doer.telegramId,
+                message,
+                Markup.inlineKeyboard([
+                  [Markup.button.callback(TEXT.doTaskBtn[lang], "DO_TASK_CONFIRM")],
+                  [Markup.button.callback(TEXT.cancelBtn[lang], "DO_TASK_CANCEL")]
+                ])
+              );
+              
+              app.lastReminder = new Date();
+              await task.save();
+            } catch (err) {
+              console.error("Error sending reminder:", err);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in sendReminders:", err);
+  }
+  
+  // Check again in 5 minutes
+  setTimeout(() => sendReminders(bot), 300000);
+}
 
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
@@ -4239,7 +4576,14 @@ bot.catch((err, ctx) => {
 
 
   // ─────────── Launch Bot ───────────
-  bot.launch().then(() => {
-    console.log("🤖 Bot is up and running");
-  });
-}
+    bot.launch().then(() => {
+      console.log("Bot started successfully");
+      // Start periodic checks
+      checkTaskExpiries(bot);
+      sendReminders(bot);
+    }).catch(err => {
+      console.error("Bot failed to start:", err);
+    });
+
+    return bot;
+  }
