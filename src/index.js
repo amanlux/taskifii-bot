@@ -408,6 +408,26 @@ const TEXT = {
     en: "Decline",
     am: "አትቀበል"
   },
+   applicationDeclined: {
+    en: "The task creator has declined your application. Please apply to other tasks in the channel.",
+    am: "የተግዳሮቱ ፈጣሪ ማመልከቻዎን እምቢ ብሏል። እባክዎ በሌሎች ተግዳሮቶች ላይ ይመዝገቡ።"
+  },
+  applicationAccepted: {
+    en: "🎉 You've been selected for the task!\n\nIf you want to do this task, click 'Do the task' below quickly before others do.\n\nIf no one else is competing, you have until [expiry time] to confirm or you'll miss your chance.\n\nIf you don't want to do it, click 'Cancel'.",
+    am: "🎉 ለተግዳሮቱ ተመርጠዋል!\n\nይህን ተግዳሮት ለመስራት ከፈለጉ፣ ሌሎች ከመምጣታቸው በፊት 'ተግዳሮቱን ስራ' የሚለውን በታች ይጫኑ።\n\nሌላ ተወዳዳሪ ከሌለ፣ እስከ [የማብቂያ ጊዜ] ድረስ ለማረጋገጥ ጊዜ አለዎት፣ አለበለዚያ እድሉን ያመልጣሉ።\n\nከመስራት ከፈለጉ ካንስል ይጫኑ።"
+  },
+  creatorNotification: {
+    en: "✅ You've selected [applicant] for your task. They've been notified and will confirm if they still want to do it. Please wait for their confirmation.",
+    am: "✅ [applicant] ለተግዳሮትዎ መረጥዎታል። አሁንም ለመስራት ከፈለጉ እንደሚያረጋግጡ ተነግረዋል። እባክዎ ለማረጋገጫቸው ይጠብቁ።"
+  },
+  doTaskBtn: {
+    en: "Do the task",
+    am: "ተግዳሮቱን ስራ"
+  },
+  cancelBtn: {
+    en: "Cancel",
+    am: "አቋርጥ"
+  }
   
 
   
@@ -1456,55 +1476,142 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
   return ctx.reply(prompt);
 });
 
-// Dummy handler for Accept button
+
 // Updated handler for Accept button
 bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const taskShortId = ctx.match[1];
-    const userShortId = ctx.match[2];
-    
-    // Find the full task and user IDs
-    const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
-    const users = await User.find({ _id: { $regex: userShortId + '$' } });
-    
-    if (tasks.length === 0 || users.length === 0) {
-        return ctx.reply("Error: Could not find task or user.");
-    }
-    
-    const task = tasks[0];
-    const user = users[0];
-    const lang = ctx.from.language_code === 'am' ? 'am' : 'en';
-    
-    await ctx.reply(
-        lang === "am" 
-            ? "ተግዳሮቱን ለመቀበል ተጠይቋል። ይህ ተግባር አሁንም በማሰራጨት ላይ ነው።" 
-            : "Application accepted. This feature is still in development."
-    );
+  await ctx.answerCbQuery();
+  const taskShortId = ctx.match[1];
+  const userShortId = ctx.match[2];
+  
+  // Find the full task and user IDs
+  const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
+  const users = await User.find({ _id: { $regex: userShortId + '$' } });
+  
+  if (tasks.length === 0 || users.length === 0) {
+    return ctx.reply("Error: Could not find task or user.");
+  }
+  
+  const task = tasks[0];
+  const user = users[0];
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  const lang = creator?.language || "en";
+  
+  // Update the application status to "Accepted"
+  const application = task.applicants.find(app => app.user.toString() === user._id.toString());
+  if (!application) {
+    return ctx.reply("Application not found.");
+  }
+  
+  application.status = "Accepted";
+  await task.save();
+  
+  // Edit the original message to show highlighted Accept button and inert Decline button
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          Markup.button.callback(`✅ ${TEXT.acceptBtn[lang]}`, "_DISABLED_ACCEPT"),
+          Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+        ]
+      ]
+    });
+  } catch (err) {
+    console.error("Failed to edit message buttons:", err);
+  }
+  
+  // Notify the task doer they've been accepted
+  const doerLang = user.language || "en";
+  const expiryTime = task.expiry.toLocaleString(doerLang === "am" ? "am-ET" : "en-US", {
+    timeZone: "Africa/Addis_Ababa",
+    month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true
+  }) + " GMT+3";
+  
+  const acceptMessage = TEXT.applicationAccepted[doerLang].replace("[expiry time]", expiryTime);
+  
+  await ctx.telegram.sendMessage(
+    user.telegramId,
+    acceptMessage,
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.doTaskBtn[doerLang], "DO_TASK_CONFIRM")],
+      [Markup.button.callback(TEXT.cancelBtn[doerLang], "DO_TASK_CANCEL")]
+    ])
+  );
+  
+  // Notify the task creator
+  const applicantName = user.fullName || `@${user.username}` || "Anonymous";
+  const creatorMessage = TEXT.creatorNotification[lang].replace("[applicant]", applicantName);
+  
+  return ctx.reply(creatorMessage);
 });
 
 // Updated handler for Decline button
 bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
-    await ctx.answerCbQuery();
-    const taskShortId = ctx.match[1];
-    const userShortId = ctx.match[2];
-    
-    // Find the full task and user IDs
-    const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
-    const users = await User.find({ _id: { $regex: userShortId + '$' } });
-    
-    if (tasks.length === 0 || users.length === 0) {
-        return ctx.reply("Error: Could not find task or user.");
-    }
-    
-    const task = tasks[0];
-    const user = users[0];
-    const lang = ctx.from.language_code === 'am' ? 'am' : 'en';
-    
-    await ctx.reply(
-        lang === "am" 
-            ? "ተግዳሮቱን ለመቀበል እምቢ ተብሎበታል። ይህ ተግባር አሁንም በማሰራጨት ላይ ነው።" 
-            : "Application declined. This feature is still in development."
-    );
+  await ctx.answerCbQuery();
+  const taskShortId = ctx.match[1];
+  const userShortId = ctx.match[2];
+  
+  // Find the full task and user IDs
+  const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
+  const users = await User.find({ _id: { $regex: userShortId + '$' } });
+  
+  if (tasks.length === 0 || users.length === 0) {
+    return ctx.reply("Error: Could not find task or user.");
+  }
+  
+  const task = tasks[0];
+  const user = users[0];
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  const lang = creator?.language || "en";
+  
+  // Update the application status to "Declined"
+  const application = task.applicants.find(app => app.user.toString() === user._id.toString());
+  if (!application) {
+    return ctx.reply("Application not found.");
+  }
+  
+  application.status = "Declined";
+  await task.save();
+  
+  // Edit the original message to show highlighted Decline button and inert Accept button
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [
+          Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+          Markup.button.callback(`✅ ${TEXT.declineBtn[lang]}`, "_DISABLED_DECLINE")
+        ]
+      ]
+    });
+  } catch (err) {
+    console.error("Failed to edit message buttons:", err);
+  }
+  
+  // Notify the task doer they've been declined
+  const doerLang = user.language || "en";
+  return ctx.telegram.sendMessage(
+    user.telegramId,
+    TEXT.applicationDeclined[doerLang]
+  );
+});
+
+// Dummy handlers for the confirmation buttons
+bot.action("DO_TASK_CONFIRM", async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  return ctx.reply(lang === "am" 
+    ? "የስራ ማረጋገጫ ተቀባይነት አግኝቷል። ይህ ባህሪ አሁንም በማሰራጨት ላይ ነው።" 
+    : "Task confirmation received. This feature is still in development.");
+});
+
+bot.action("DO_TASK_CANCEL", async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  return ctx.reply(lang === "am" 
+    ? "የስራ ማረጋገጫ ተሰርዟል። ይህ ባህሪ አሁንም በማሰራጨት ላይ ነው።" 
+    : "Task confirmation canceled. This feature is still in development.");
 });
 
 // ─────────── “Edit Task” Entry Point ───────────
@@ -1649,17 +1756,18 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               const userShortId = user._id.toString().substring(18, 24); // Last 6 chars of ObjectId
               
               // Add Accept/Decline buttons
+              // In the application flow section where the notification is sent to the task creator:
               const buttons = Markup.inlineKeyboard([
-                  [
-                      Markup.button.callback(
-                          TEXT.acceptBtn[creatorLang], 
-                          `ACCEPT_${taskShortId}_${userShortId}`
-                      ),
-                      Markup.button.callback(
-                          TEXT.declineBtn[creatorLang], 
-                          `DECLINE_${taskShortId}_${userShortId}`
-                      )
-                  ]
+                [
+                  Markup.button.callback(
+                    TEXT.acceptBtn[creatorLang], 
+                    `ACCEPT_${task._id.toString().substring(18, 24)}_${user._id.toString().substring(18, 24)}`
+                  ),
+                  Markup.button.callback(
+                    TEXT.declineBtn[creatorLang], 
+                    `DECLINE_${task._id.toString().substring(18, 24)}_${user._id.toString().substring(18, 24)}`
+                  )
+                ]
               ]);
 
               try {
