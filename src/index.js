@@ -1480,19 +1480,17 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
 // Updated handler for Accept button
 bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const taskShortId = ctx.match[1];
-  const userShortId = ctx.match[2];
+  const taskId = ctx.match[1]; // Full ID
+  const userId = ctx.match[2]; // Full ID
   
-  // Find the full task and user IDs
-  const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
-  const users = await User.find({ _id: { $regex: userShortId + '$' } });
+  // Find the task and user using full IDs
+  const task = await Task.findById(taskId);
+  const user = await User.findById(userId);
   
-  if (tasks.length === 0 || users.length === 0) {
+  if (!task || !user) {
     return ctx.reply("Error: Could not find task or user.");
   }
   
-  const task = tasks[0];
-  const user = users[0];
   const creator = await User.findOne({ telegramId: ctx.from.id });
   const lang = creator?.language || "en";
   
@@ -1548,19 +1546,17 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
 // Updated handler for Decline button
 bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const taskShortId = ctx.match[1];
-  const userShortId = ctx.match[2];
+  const taskId = ctx.match[1]; // Full ID
+  const userId = ctx.match[2]; // Full ID
   
-  // Find the full task and user IDs
-  const tasks = await Task.find({ _id: { $regex: taskShortId + '$' } });
-  const users = await User.find({ _id: { $regex: userShortId + '$' } });
+  // Find the task and user using full IDs
+  const task = await Task.findById(taskId);
+  const user = await User.findById(userId);
   
-  if (tasks.length === 0 || users.length === 0) {
+  if (!task || !user) {
     return ctx.reply("Error: Could not find task or user.");
   }
   
-  const task = tasks[0];
-  const user = users[0];
   const creator = await User.findOne({ telegramId: ctx.from.id });
   const lang = creator?.language || "en";
   
@@ -1755,17 +1751,17 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               const taskShortId = task._id.toString().substring(18, 24); // Last 6 chars of ObjectId
               const userShortId = user._id.toString().substring(18, 24); // Last 6 chars of ObjectId
               
-              // Add Accept/Decline buttons
-              // In the application flow section where the notification is sent to the task creator:
+              
+              // In the application notification section:
               const buttons = Markup.inlineKeyboard([
                 [
                   Markup.button.callback(
                     TEXT.acceptBtn[creatorLang], 
-                    `ACCEPT_${task._id.toString().substring(18, 24)}_${user._id.toString().substring(18, 24)}`
+                    `ACCEPT_${task._id}_${user._id}` // Full IDs
                   ),
                   Markup.button.callback(
                     TEXT.declineBtn[creatorLang], 
-                    `DECLINE_${task._id.toString().substring(18, 24)}_${user._id.toString().substring(18, 24)}`
+                    `DECLINE_${task._id}_${user._id}` // Full IDs
                   )
                 ]
               ]);
