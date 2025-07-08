@@ -818,18 +818,21 @@ function buildButton(textObj, callbackData, lang, highlighted = false) {
   }
   return Markup.button.callback(textObj[lang], callbackData);
 }
-const express = require("express");
+const express = require('express');
 const app = express();
 
+// Add this health check endpoint
+app.get('/health', (_req, res) => {
+  res.status(200).send('OK');
+});
 // Health check endpoint
 app.get("/", (_req, res) => res.send("OK"));
 
 // Listen on Render’s port (or default 3000 locally)
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🌐 Express server listening on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
-
 // Then connect to Mongo and launch the bot
 mongoose
   .connect(process.env.MONGODB_URI, { autoIndex: true })
@@ -841,6 +844,8 @@ mongoose
     console.error("❌ MongoDB connection error:", err);
     process.exit(1);
   });
+
+
 // ------------------------------------
 //  Main Bot Logic
 // ------------------------------------
