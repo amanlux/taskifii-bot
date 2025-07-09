@@ -464,22 +464,6 @@ const TEXT = {
   en: "[applicant] has canceled doing the task.",
   am: "[applicant] ተግዳሮቱን ለመስራት እንዳልተስማማ አሳውቋል።"
   },
-  reminderNoApplicants: {
-  en: "⏳ Your task hasn't received any applications yet. The task will be pinned in the channel when 75% of the time remains to help attract applicants.",
-  am: "⏳ ተግዳሮትዎ ምንም ማመልከቻዎች አላገኘም። ለመሳብ ተግዳሮቱ ከ75% ጊዜ ቀሪ በሚሆንበት ጊዜ በሰርጡ ላይ ይጣበቃል።"
-  },
-  reminderNoSelection: {
-    en: "⏳ Time is running out! You have [remaining_time] left to select a suitable task doer before the offer expires.",
-    am: "⏳ ጊዜው እየቀነሰ ነው! እስከ [remaining_time] ድረስ ተስማሚ ተግዳሮት አድራጊ መምረጥ አለብዎት።"
-  },
-  taskPinned: {
-    en: "📌 Your task has been pinned in the channel to increase visibility. It will remain pinned until [unpin_time].",
-    am: "📌 ተግዳሮትዎ ለበለጠ ታይነት በሰርጡ ላይ ተጣብቋል። እስከ [unpin_time] ድረስ ተጣብቆ ይቆያል።"
-  },
-  noApplicantsNotification: {
-    en: "We're sorry, but your task didn't receive any applications before the expiry time. You can repost it if you'd like.",
-    am: "ይቅርታ፣ ተግዳሮትዎ ከማብቂያ ጊዜ በፊት ምንም ማመልከቻዎች አላገኘም። ከፈለጉ እንደገና ልጥፉት ይችላሉ።"
-  }
   
 
   
@@ -1558,6 +1542,7 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   }
   
   application.status = "Accepted";
+  await task.save();
   
   // Edit the original message to show highlighted Accept button and inert Decline button
   try {
@@ -1583,8 +1568,7 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   
   const acceptMessage = TEXT.applicationAccepted[doerLang].replace("[expiry time]", expiryTime);
   
-  // Store the sent message so we can edit it later if the task expires
-  const sentMessage = await ctx.telegram.sendMessage(
+  await ctx.telegram.sendMessage(
     user.telegramId,
     acceptMessage,
     Markup.inlineKeyboard([
@@ -1592,10 +1576,6 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
       [Markup.button.callback(TEXT.cancelBtn[doerLang], "DO_TASK_CANCEL")]
     ])
   );
-  
-  // Store the notification message ID in the application
-  application.notificationMessageId = sentMessage.message_id;
-  await task.save();
   
   // Notify the task creator
   const applicantName = user.fullName || `@${user.username}` || "Anonymous";
@@ -1738,58 +1718,26 @@ async function checkTaskExpiries(bot) {
       const creator = task.creator;
       const creatorLang = creator?.language || "en";
       
-      // Find all accepted applicants
-      const acceptedDoers = task.applicants.filter(app => app.status === "Accepted");
-      
-      // Notify creator - different message if no applicants
+      // Notify creator
       try {
-        if (task.applicants.length === 0) {
-          // No applicants case
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            TEXT.noApplicantsNotification[creatorLang],
-            Markup.inlineKeyboard([
-              [Markup.button.callback(TEXT.repostTaskBtn[creatorLang], `REPOST_TASK_${task._id}`)]
-            ])
-          );
-        } else {
-          // Existing notification for when there were applicants
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            TEXT.noConfirmationNotification[creatorLang],
-            Markup.inlineKeyboard([
-              [Markup.button.callback(TEXT.repostTaskBtn[creatorLang], `REPOST_TASK_${task._id}`)]
-            ])
-          );
-        }
+        await bot.telegram.sendMessage(
+          creator.telegramId,
+          TEXT.noConfirmationNotification[creatorLang],
+          Markup.inlineKeyboard([
+            [Markup.button.callback(TEXT.repostTaskBtn[creatorLang], `REPOST_TASK_${task._id}`)]
+          ])
+        );
       } catch (err) {
         console.error("Error notifying creator:", err);
       }
       
-      // Notify accepted doers and update their buttons to be inert
+      // Notify accepted doers
+      const acceptedDoers = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedDoers) {
         if (app.user) {
           const doer = app.user;
           const doerLang = doer.language || "en";
           try {
-            // Update the original message to show disabled buttons
-            if (app.notificationMessageId) {
-              await bot.telegram.editMessageReplyMarkup(
-                doer.telegramId,
-                app.notificationMessageId,
-                undefined,
-                {
-                  inline_keyboard: [
-                    [
-                      Markup.button.callback(TEXT.doTaskBtn[doerLang], "_DISABLED_DO_TASK"),
-                      Markup.button.callback(TEXT.cancelBtn[doerLang], "_DISABLED_CANCEL_TASK")
-                    ]
-                  ]
-                }
-              );
-            }
-            
-            // Send expiration notification
             await bot.telegram.sendMessage(
               doer.telegramId,
               TEXT.doerTimeUpNotification[doerLang]
@@ -1818,14 +1766,6 @@ async function checkTaskExpiries(bot) {
           }
         }
       }
-      
-      // Clean up any pinned messages for this task
-      try {
-        const TASK_CHANNEL = "-1002254896955"; // Replace with your actual channel ID
-        await bot.telegram.unpinAllChatMessages(TASK_CHANNEL);
-      } catch (err) {
-        console.error("Error unpinning messages:", err);
-      }
     }
   } catch (err) {
     console.error("Error in checkTaskExpiries:", err);
@@ -1834,116 +1774,6 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
-
-async function checkTaskPinning(ctx) {
-  try {
-    if (!ctx.session?.pendingTaskPinning) return;
-    
-    const { taskId, pinAt, unpinAt } = ctx.session.pendingTaskPinning;
-    const now = new Date();
-    
-    // Check if it's time to pin (75% time remaining)
-    if (now >= pinAt && !ctx.session.taskPinned) {
-      const task = await Task.findById(taskId);
-      if (task && task.status === "Open") {
-        // Pin the task
-        const pinnedMessageId = await pinTaskInChannel(ctx, taskId);
-        if (pinnedMessageId) {
-          ctx.session.taskPinned = {
-            messageId: pinnedMessageId,
-            unpinAt
-          };
-          
-          // Notify creator
-          const creator = await User.findById(task.creator);
-          if (creator) {
-            const lang = creator.language || "en";
-            const unpinTime = unpinAt.toLocaleString(lang === "am" ? "am-ET" : "en-US", {
-              timeZone: "Africa/Addis_Ababa",
-              hour: 'numeric', minute: 'numeric', hour12: true
-            }) + " GMT+3";
-            
-            await ctx.telegram.sendMessage(
-              creator.telegramId,
-              TEXT.taskPinned[lang].replace("[unpin_time]", unpinTime)
-            );
-          }
-        }
-      }
-    }
-    
-    // Check if it's time to unpin (90% time remaining)
-    if (now >= unpinAt && ctx.session.taskPinned) {
-      try {
-        await ctx.telegram.unpinChatMessage(
-          "-1001234567890", // Your channel ID
-          ctx.session.taskPinned.messageId
-        );
-        delete ctx.session.taskPinned;
-      } catch (err) {
-        console.error("Error unpinning message:", err);
-      }
-    }
-    
-    // Continue checking until task is completed or expired
-    if (now < unpinAt) {
-      setTimeout(() => checkTaskPinning(ctx), 60000); // Check again in 1 minute
-    }
-  } catch (err) {
-    console.error("Error in checkTaskPinning:", err);
-  }
-}
-
-async function sendCreatorReminders(ctx, taskId, expiryDate) {
-  try {
-    const task = await Task.findById(taskId).populate('creator');
-    if (!task || task.status !== "Open") return;
-
-    const now = new Date();
-    if (now >= expiryDate) return;
-
-    const creator = task.creator;
-    const lang = creator.language || "en";
-    
-    // Calculate remaining time
-    const remainingMs = expiryDate - now;
-    const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
-    
-    // Check if we're in the last 50% of time
-    const totalMs = expiryDate - task.createdAt;
-    const fiftyPercentTime = new Date(task.createdAt.getTime() + totalMs * 0.5);
-    
-    if (now >= fiftyPercentTime && task.applicants.length > 0) {
-      // Send reminder to select an applicant
-      const message = TEXT.reminderNoSelection[lang]
-        .replace("[remaining_time]", `${remainingHours} ${lang === "am" ? "ሰዓት" : "hours"}`);
-      
-      await ctx.telegram.sendMessage(
-        creator.telegramId,
-        message
-      );
-      
-      // Schedule next reminder (20% of remaining time)
-      const nextReminderMs = remainingMs * 0.2;
-      if (nextReminderMs > 60000) { // At least 1 minute
-        setTimeout(() => sendCreatorReminders(ctx, taskId, expiryDate), nextReminderMs);
-      }
-    } else if (task.applicants.length === 0) {
-      // Send reminder that no one has applied
-      await ctx.telegram.sendMessage(
-        creator.telegramId,
-        TEXT.reminderNoApplicants[lang]
-      );
-    }
-  } catch (err) {
-    console.error("Error in sendCreatorReminders:", err);
-  }
-}
-
-// Call this after posting a task:
-sendCreatorReminders(ctx, task._id, task.expiry);
-
-
 bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
@@ -2879,43 +2709,7 @@ function askFieldsPage(ctx, page) {
     Markup.inlineKeyboard(keyboard)
   );
 }
-// Helper function to calculate time percentages
-function calculateTimePercentages(expiryDate) {
-  const now = new Date();
-  const totalMs = expiryDate - now;
-  const seventyFivePercent = new Date(now.getTime() + totalMs * 0.75);
-  const ninetyPercent = new Date(now.getTime() + totalMs * 0.9);
-  const fiftyPercent = new Date(now.getTime() + totalMs * 0.5);
-  
-  return {
-    seventyFivePercent,
-    ninetyPercent,
-    fiftyPercent,
-    remainingMs: totalMs
-  };
-}
 
-// Function to pin task in channel
-async function pinTaskInChannel(ctx, taskId) {
-  try {
-    const TASK_CHANNEL = "-1001234567890"; // Replace with your actual channel ID
-    const taskMessage = await ctx.telegram.sendMessage(
-      TASK_CHANNEL,
-      `📌 Pinned Task: ${taskId}`, // Customize this message
-      { disable_notification: true }
-    );
-    
-    await ctx.telegram.pinChatMessage(
-      TASK_CHANNEL,
-      taskMessage.message_id
-    );
-    
-    return taskMessage.message_id;
-  } catch (err) {
-    console.error("Error pinning task:", err);
-    return null;
-  }
-}
 bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const idx = parseInt(ctx.match[1]);
@@ -3707,16 +3501,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     applicants: [],
     stages: []
   });
-  // In the TASK_POST_CONFIRM action handler, add this after creating the task:
-  const timePercentages = calculateTimePercentages(task.expiry);
-  ctx.session.pendingTaskPinning = {
-    taskId: task._id,
-    pinAt: timePercentages.seventyFivePercent,
-    unpinAt: timePercentages.ninetyPercent
-  };
 
-  // Start checking for pinning time
-  setTimeout(() => checkTaskPinning(ctx), 60000); // Check every minute
   // Post to channel - FIXED VERSION WITH PROPER INLINE KEYBOARD
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
@@ -4440,8 +4225,7 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
   bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
-  bot.action("_DISABLED_DO_TASK", (ctx) => ctx.answerCbQuery());
-  bot.action("_DISABLED_CANCEL_TASK", (ctx) => ctx.answerCbQuery());
+
 bot.action("CONFIRM_NEW_USERNAME", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
