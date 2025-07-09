@@ -8,11 +8,11 @@ const ApplicantSchema = new Schema({
   file: { type: String, default: null },
   status: { 
     type: String, 
-    enum: ["Pending", "Accepted", "Declined", "Canceled"], // Added "Canceled"
+    enum: ["Pending", "Accepted", "Declined", "Canceled"],
     default: "Pending" 
   },
-  messageId: { type: Number }, // Added this line
-  createdAt: { type: Date, default: Date.now } // Added createdAt timestamp
+  messageId: { type: Number },
+  createdAt: { type: Date, default: Date.now }
 });
 
 const StageSchema = new Schema({
@@ -37,12 +37,16 @@ const TaskSchema = new Schema(
     latePenalty: { type: Number, required: true },
     expiry: { type: Date, required: true },
     exchangeStrategy: { type: String, enum: ["100%", "30:40:30", "50:50"], required: true },
-    status: { type: String, enum: ["Open", "Taken", "Canceled", "Completed"], default: "Open" },
+    status: { 
+      type: String, 
+      enum: ["Open", "Taken", "Canceled", "Completed", "Expired"], // Added "Expired"
+      default: "Open" 
+    },
     applicants: { type: [ApplicantSchema], default: [] },
     acceptedDoer: { type: Schema.Types.ObjectId, ref: "User", default: null },
     stages: { type: [StageSchema], default: [] },
     channelMessageId: { type: Number },
-    lastReminderSent: { type: Date } // Added for reminder tracking
+    lastReminderSent: { type: Date }
   },
   { timestamps: true }
 );

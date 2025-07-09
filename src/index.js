@@ -1717,11 +1717,25 @@ async function disableExpiredTaskButtons(bot) {
     }).populate("applicants.user");
 
     for (const task of tasks) {
-      // Update task status
-      task.status = "Expired";
-      await task.save();
+      // Ensure all required fields are present when updating
+      const updateData = {
+        status: "Expired",
+        latePenalty: task.latePenalty || 0, // Provide default if missing
+        // Include all other required fields from the original task
+        creator: task.creator,
+        description: task.description,
+        skillLevel: task.skillLevel,
+        paymentFee: task.paymentFee,
+        timeToComplete: task.timeToComplete,
+        revisionTime: task.revisionTime,
+        expiry: task.expiry,
+        exchangeStrategy: task.exchangeStrategy
+      };
 
-      // Disable buttons for all accepted applicants
+      // Use findByIdAndUpdate to ensure all validation passes
+      await Task.findByIdAndUpdate(task._id, updateData);
+
+      // Rest of your existing code for disabling buttons...
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1751,7 +1765,6 @@ async function disableExpiredTaskButtons(bot) {
 }
 
 async function checkTaskExpiries(bot) {
-  await disableExpiredTaskButtons(bot);
   try {
     const now = new Date();
     const tasks = await Task.find({
@@ -1760,10 +1773,25 @@ async function checkTaskExpiries(bot) {
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
-      // Update task status
-      task.status = "Expired";
-      await task.save();
-      
+      // Create update object with all required fields
+      const updateData = {
+        status: "Expired",
+        latePenalty: task.latePenalty || 0,
+        creator: task.creator,
+        description: task.description,
+        skillLevel: task.skillLevel,
+        paymentFee: task.paymentFee,
+        timeToComplete: task.timeToComplete,
+        revisionTime: task.revisionTime,
+        expiry: task.expiry,
+        exchangeStrategy: task.exchangeStrategy,
+        applicants: task.applicants,
+        acceptedDoer: task.acceptedDoer || null
+      };
+
+      // Update the task using findByIdAndUpdate
+      await Task.findByIdAndUpdate(task._id, updateData);
+
       const creator = task.creator;
       const creatorLang = creator?.language || "en";
       
