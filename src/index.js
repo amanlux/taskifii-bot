@@ -1643,10 +1643,34 @@ bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
+  if (!user) return;
+  
+  // Find the task where this user was accepted
+  const task = await Task.findOne({
+    "applicants.user": user._id,
+    "applicants.status": "Accepted"
+  });
+  
+  if (task) {
+    // Update application status to confirmed
+    const application = task.applicants.find(app => 
+      app.user.toString() === user._id.toString()
+    );
+    if (application) {
+      application.confirmedAt = new Date();
+      await task.save();
+    }
+    
+    const lang = user.language || "en";
+    return ctx.reply(lang === "am" 
+      ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
+      : "✅ Task confirmation received! You can now work on the task.");
+  }
+  
+  const lang = user.language || "en";
   return ctx.reply(lang === "am" 
-    ? "የስራ ማረጋገጫ ተቀባይነት አግኝቷል። ይህ ባህሪ አሁንም በማሰራጨት ላይ ነው።" 
-    : "Task confirmation received. This feature is still in development.");
+    ? "❌ ስራው አልተገኘምወይም ጊዜው አልፎታል።" 
+    : "❌ Task not found or expired.");
 });
 
 bot.action("DO_TASK_CANCEL", async (ctx) => {
@@ -1769,11 +1793,18 @@ async function checkTaskExpiries(bot) {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $lte: now }
+      expiry: { $lte: now } // Only tasks that have actually expired
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
-      // Create update object with all required fields
+      // Check if there are any accepted applicants who haven't confirmed
+      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      const unconfirmedApps = acceptedApps.filter(app => !app.confirmedAt);
+      
+      // Only proceed if there are unconfirmed accepted applicants
+      if (unconfirmedApps.length === 0) continue;
+
+      // Update task status to Expired
       const updateData = {
         status: "Expired",
         latePenalty: task.latePenalty || 0,
@@ -1789,13 +1820,12 @@ async function checkTaskExpiries(bot) {
         acceptedDoer: task.acceptedDoer || null
       };
 
-      // Update the task using findByIdAndUpdate
       await Task.findByIdAndUpdate(task._id, updateData);
 
       const creator = task.creator;
       const creatorLang = creator?.language || "en";
       
-      // Notify creator
+      // Notify creator only if there were unconfirmed accepted applicants
       try {
         await bot.telegram.sendMessage(
           creator.telegramId,
@@ -1808,9 +1838,8 @@ async function checkTaskExpiries(bot) {
         console.error("Error notifying creator:", err);
       }
       
-      // Notify accepted doers
-      const acceptedDoers = task.applicants.filter(app => app.status === "Accepted");
-      for (const app of acceptedDoers) {
+      // Notify accepted but unconfirmed doers
+      for (const app of unconfirmedApps) {
         if (app.user) {
           const doer = app.user;
           const doerLang = doer.language || "en";

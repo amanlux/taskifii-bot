@@ -12,6 +12,8 @@ const ApplicantSchema = new Schema({
     default: "Pending" 
   },
   messageId: { type: Number },
+  confirmedAt: { type: Date }, // Add this to track confirmation time
+  lastReminderAt: { type: Date }, // Track when last reminder was sent
   createdAt: { type: Date, default: Date.now }
 });
 
@@ -39,7 +41,7 @@ const TaskSchema = new Schema(
     exchangeStrategy: { type: String, enum: ["100%", "30:40:30", "50:50"], required: true },
     status: { 
       type: String, 
-      enum: ["Open", "Taken", "Canceled", "Completed", "Expired"], // Added "Expired"
+      enum: ["Open", "Taken", "Canceled", "Completed", "Expired", "PendingConfirmation"], // Added "Expired"
       default: "Open" 
     },
     applicants: { type: [ApplicantSchema], default: [] },
