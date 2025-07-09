@@ -871,6 +871,10 @@ function startBot() {
     
     return next();
   });
+
+   // Start the expiry checkers
+  checkTaskExpiries(bot);
+  sendReminders(bot);
   /**
  * Build an inline keyboard with:
  *  – ✅ prefix on the clicked button
@@ -1521,8 +1525,8 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
 // Updated handler for Accept button
 bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const taskId = ctx.match[1]; // Full ID
-  const userId = ctx.match[2]; // Full ID
+  const taskId = ctx.match[1];
+  const userId = ctx.match[2];
   
   // Find the task and user using full IDs
   const task = await Task.findById(taskId);
@@ -1542,7 +1546,10 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   }
   
   application.status = "Accepted";
+  // Store the message ID that will be sent to the doer
+  application.messageId = ctx.callbackQuery.message.message_id;
   await task.save();
+
   
   // Edit the original message to show highlighted Accept button and inert Decline button
   try {
@@ -1701,8 +1708,50 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
 });
 
 
+async function disableExpiredTaskButtons(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $lte: now }
+    }).populate("applicants.user");
+
+    for (const task of tasks) {
+      // Update task status
+      task.status = "Expired";
+      await task.save();
+
+      // Disable buttons for all accepted applicants
+      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      for (const app of acceptedApps) {
+        if (app.user && app.messageId) {
+          try {
+            await bot.telegram.editMessageReplyMarkup(
+              app.user.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.doTaskBtn[app.user.language || "en"], "_DISABLED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[app.user.language || "en"], "_DISABLED_CANCEL_TASK")
+                  ]
+                ]
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in disableExpiredTaskButtons:", err);
+  }
+}
 
 async function checkTaskExpiries(bot) {
+  await disableExpiredTaskButtons(bot);
   try {
     const now = new Date();
     const tasks = await Task.find({
@@ -2550,6 +2599,8 @@ async function handleDescription(ctx, draft) {
   ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
   return;
 }
+
+
 bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });

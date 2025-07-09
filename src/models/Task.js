@@ -11,7 +11,7 @@ const ApplicantSchema = new Schema({
     enum: ["Pending", "Accepted", "Declined", "Canceled"], // Added "Canceled"
     default: "Pending" 
   },
-  notificationMessageId: { type: Number }, // Added this line
+  messageId: { type: Number }, // Added this line
   createdAt: { type: Date, default: Date.now } // Added createdAt timestamp
 });
 
