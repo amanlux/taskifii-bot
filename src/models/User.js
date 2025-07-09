@@ -47,10 +47,12 @@ const UserSchema = new Schema({
     default: []
   },
   stats: {
-    totalEarned:   { type: Number, default: 0 },
-    totalSpent:    { type: Number, default: 0 },
+    totalEarned: { type: Number, default: 0 },
+    totalSpent: { type: Number, default: 0 },
     averageRating: { type: Number, default: 0 },
-    ratingCount:   { type: Number, default: 0 }
+    ratingCount: { type: Number, default: 0 },
+    tasksCompleted: { type: Number, default: 0 },
+    fieldStats: { type: Object, default: {} } // Tracks frequency of task fields
   },
   createdAt:    { type: Date, default: Date.now }
 });
