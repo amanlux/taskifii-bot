@@ -1558,7 +1558,6 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   }
   
   application.status = "Accepted";
-  await task.save();
   
   // Edit the original message to show highlighted Accept button and inert Decline button
   try {
@@ -1584,7 +1583,8 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   
   const acceptMessage = TEXT.applicationAccepted[doerLang].replace("[expiry time]", expiryTime);
   
-  await ctx.telegram.sendMessage(
+  // Store the sent message so we can edit it later if the task expires
+  const sentMessage = await ctx.telegram.sendMessage(
     user.telegramId,
     acceptMessage,
     Markup.inlineKeyboard([
@@ -1592,6 +1592,10 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
       [Markup.button.callback(TEXT.cancelBtn[doerLang], "DO_TASK_CANCEL")]
     ])
   );
+  
+  // Store the notification message ID in the application
+  application.notificationMessageId = sentMessage.message_id;
+  await task.save();
   
   // Notify the task creator
   const applicantName = user.fullName || `@${user.username}` || "Anonymous";
@@ -1734,6 +1738,9 @@ async function checkTaskExpiries(bot) {
       const creator = task.creator;
       const creatorLang = creator?.language || "en";
       
+      // Find all accepted applicants
+      const acceptedDoers = task.applicants.filter(app => app.status === "Accepted");
+      
       // Notify creator - different message if no applicants
       try {
         if (task.applicants.length === 0) {
@@ -1759,13 +1766,30 @@ async function checkTaskExpiries(bot) {
         console.error("Error notifying creator:", err);
       }
       
-      // Notify accepted doers
-      const acceptedDoers = task.applicants.filter(app => app.status === "Accepted");
+      // Notify accepted doers and update their buttons to be inert
       for (const app of acceptedDoers) {
         if (app.user) {
           const doer = app.user;
           const doerLang = doer.language || "en";
           try {
+            // Update the original message to show disabled buttons
+            if (app.notificationMessageId) {
+              await bot.telegram.editMessageReplyMarkup(
+                doer.telegramId,
+                app.notificationMessageId,
+                undefined,
+                {
+                  inline_keyboard: [
+                    [
+                      Markup.button.callback(TEXT.doTaskBtn[doerLang], "_DISABLED_DO_TASK"),
+                      Markup.button.callback(TEXT.cancelBtn[doerLang], "_DISABLED_CANCEL_TASK")
+                    ]
+                  ]
+                }
+              );
+            }
+            
+            // Send expiration notification
             await bot.telegram.sendMessage(
               doer.telegramId,
               TEXT.doerTimeUpNotification[doerLang]
@@ -1918,6 +1942,8 @@ async function sendCreatorReminders(ctx, taskId, expiryDate) {
 
 // Call this after posting a task:
 sendCreatorReminders(ctx, task._id, task.expiry);
+
+
 bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
@@ -4414,7 +4440,8 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
   bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
-
+  bot.action("_DISABLED_DO_TASK", (ctx) => ctx.answerCbQuery());
+  bot.action("_DISABLED_CANCEL_TASK", (ctx) => ctx.answerCbQuery());
 bot.action("CONFIRM_NEW_USERNAME", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
