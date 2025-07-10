@@ -445,8 +445,8 @@ const TEXT = {
     am: "ተግዳሮቱን ለመስራት የማረጋገጫ ጊዜዎ አልቋል።"
   },
   reminderNotification: {
-    en: "Please choose an option before [remaining_time].",
-    am: "እባክዎ ከ[remaining_time] በፊት አንድ አማራጭ ይምረጡ።"
+    en: "⏰ Reminder: You have [hours] hour(s) and [minutes] minute(s) left to confirm this task by clicking 'Do the task' or 'Cancel'.",
+    am: "⏰ ማስታወሻ: ይህን ተግዳሮት ለማረጋገጥ '[hours] ሰዓት(ዎች) እና [minutes] ደቂቃ(ዎች)' ቀርተዋል። 'ተግዳሮቱን ስራ' ወይም 'አቋርጥ' የሚለውን ቁልፍ ይጫኑ።"
   },
   taskNoLongerAvailable: {
     en: "This task is no longer available.",
@@ -1653,10 +1653,8 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   });
   
   if (!task) {
-    const lang = user.language || "en";
-    return ctx.reply(lang === "am" 
-      ? "❌ ስራው አልተገኘምወይም ጊዜው አልፎታል።" 
-      : "❌ Task not found or expired.");
+    // Don't show any message since the expiry notification was already sent
+    return;
   }
 
   // Rest of your existing confirmation logic...
@@ -1687,22 +1685,19 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
   });
   
   if (!task) {
-    const lang = user.language || "en";
-    return ctx.reply(lang === "am" 
-      ? "❌ ስራው አልተገኘምወይም ጊዜው አልፎታል።" 
-      : "❌ Task not found or expired.");
+    // Don't show any message since the expiry notification was already sent
+    return;
   }
 
   // Rest of your existing cancellation logic...
-  // Highlight Cancel button and disable both
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [
-          Markup.button.callback(TEXT.doTaskBtn[user.language || "en"], "_DISABLED_DO_TASK")
+          Markup.button.callback(TEXT.doTaskBtn[user.language || "en"], "")
         ],
         [
-          Markup.button.callback(`✔ ${TEXT.cancelBtn[user.language || "en"]}`, "_DISABLED_CANCEL_TASK")
+          Markup.button.callback(TEXT.cancelBtn[user.language || "en"], "")
         ]
       ]
     });
@@ -1711,8 +1706,6 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
   }
 
   const lang = user.language || "en";
-  
-  // Notify task doer
   await ctx.reply(TEXT.cancelConfirmed[lang]);
   
   // Update application status
@@ -1736,8 +1729,6 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
       message
     );
   }
-  
-  return;
 });
 
 
@@ -1759,15 +1750,19 @@ async function disableExpiredTaskButtons(bot) {
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
           try {
+            const user = app.user;
+            const lang = user.language || "en";
+            
             await bot.telegram.editMessageReplyMarkup(
-              app.user.telegramId,
+              user.telegramId,
               app.messageId,
               undefined,
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.doTaskBtn[app.user.language || "en"], "_DISABLED_DO_TASK"),
-                    Markup.button.callback(TEXT.cancelBtn[app.user.language || "en"], "_DISABLED_CANCEL_TASK")
+                    // Empty callback_data makes them completely inert
+                    Markup.button.callback(TEXT.doTaskBtn[lang], ""),
+                    Markup.button.callback(TEXT.cancelBtn[lang], "")
                   ]
                 ]
               }
@@ -1793,7 +1788,11 @@ async function checkTaskExpiries(bot) {
     
     for (const task of tasks) {
       // Check if there are any accepted applicants who haven't confirmed
-      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      const acceptedApps = task.applicants.filter(app => 
+        app.status === "Accepted" && 
+        !app.confirmedAt && 
+        !app.canceledAt
+      );
       
       // Update task status to Expired
       task.status = "Expired";
@@ -1822,26 +1821,9 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Rest of your existing notification code...
-      const creator = task.creator;
-      const creatorLang = creator?.language || "en";
-      
-      // Notify creator only if there were unconfirmed accepted applicants
-      try {
-        await bot.telegram.sendMessage(
-          creator.telegramId,
-          TEXT.noConfirmationNotification[creatorLang],
-          Markup.inlineKeyboard([
-            [Markup.button.callback(TEXT.repostTaskBtn[creatorLang], `REPOST_TASK_${task._id}`)]
-          ])
-        );
-      } catch (err) {
-        console.error("Error notifying creator:", err);
-      }
-      
-      // Notify accepted but unconfirmed doers
+      // Notify accepted but unconfirmed doers that time is up
       for (const app of acceptedApps) {
-        if (app.user && !app.confirmedAt) {
+        if (app.user) {
           const doer = app.user;
           const doerLang = doer.language || "en";
           try {
@@ -1862,7 +1844,7 @@ async function checkTaskExpiries(bot) {
           const doer = app.user;
           const doerLang = doer.language || "en";
           const message = TEXT.notSelectedNotification[doerLang]
-            .replace("[creator]", creator.fullName || `@${creator.username}` || "Task Creator");
+            .replace("[creator]", task.creator.fullName || `@${task.creator.username}` || "Task Creator");
           try {
             await bot.telegram.sendMessage(
               doer.telegramId,
@@ -1955,33 +1937,36 @@ async function sendReminders(bot) {
     }).populate("applicants.user");
     
     for (const task of tasks) {
-      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      const acceptedApps = task.applicants.filter(app => 
+        app.status === "Accepted" && 
+        !app.confirmedAt && 
+        !app.canceledAt
+      );
+      
       if (acceptedApps.length === 0) continue;
       
-      const timeLeft = task.expiry.getTime() - Date.now();
-      const hoursLeft = Math.ceil(timeLeft / (1000 * 60 * 60));
+      const timeLeftMs = task.expiry.getTime() - Date.now();
+      const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
+      const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
       
-      // Only send reminders if less than 24 hours left
-      if (hoursLeft <= 24) {
-        for (const app of acceptedApps) {
-          if (app.user && !app.confirmedAt) {
-            const doer = app.user;
-            const doerLang = doer.language || "en";
-            const message = TEXT.reminderNotification[doerLang]
-              .replace("[remaining_time]", `${hoursLeft} ${doerLang === "am" ? "ሰዓት" : "hours"}`);
-            
-            try {
-              await bot.telegram.sendMessage(
-                doer.telegramId,
-                message,
-                Markup.inlineKeyboard([
-                  [Markup.button.callback(TEXT.doTaskBtn[doerLang], "DO_TASK_CONFIRM")],
-                  [Markup.button.callback(TEXT.cancelBtn[doerLang], "DO_TASK_CANCEL")]
-                ])
-              );
-            } catch (err) {
-              console.error("Error sending reminder:", err);
-            }
+      // Only send reminders if there's meaningful time left (more than 1 minute)
+      if (timeLeftMs < 60000) continue;
+      
+      for (const app of acceptedApps) {
+        if (app.user) {
+          const doer = app.user;
+          const doerLang = doer.language || "en";
+          const message = TEXT.reminderNotification[doerLang]
+            .replace("[hours]", hoursLeft.toString())
+            .replace("[minutes]", minutesLeft.toString());
+          
+          try {
+            await bot.telegram.sendMessage(
+              doer.telegramId,
+              message
+            );
+          } catch (err) {
+            console.error("Error sending reminder to doer:", err);
           }
         }
       }
@@ -1990,8 +1975,8 @@ async function sendReminders(bot) {
     console.error("Error in sendReminders:", err);
   }
   
-  // Check again in 1 hour
-  setTimeout(() => sendReminders(bot), 3600000);
+  // Check again in 5 minutes (300000 milliseconds)
+  setTimeout(() => sendReminders(bot), 300000);
 }
 
 // ─────────── “Edit Task” Entry Point ───────────
@@ -2898,9 +2883,7 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   return askSkillLevel(ctx, lang);
 });
 
-// Add this near your other action handlers
-bot.action(/_DISABLED_DO_TASK/, (ctx) => ctx.answerCbQuery("This task has expired"));
-bot.action(/_DISABLED_CANCEL_TASK/, (ctx) => ctx.answerCbQuery("This task has expired"));
+
 
 bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
