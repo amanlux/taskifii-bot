@@ -1783,6 +1783,7 @@ async function disableExpiredTaskButtons(bot) {
   }
 }
 
+// Update the checkTaskExpiries function to handle pending applications
 async function checkTaskExpiries(bot) {
   try {
     const now = new Date();
@@ -1792,18 +1793,47 @@ async function checkTaskExpiries(bot) {
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
-      // Check if there are any accepted applicants who haven't confirmed
+      // Update task status to Expired
+      task.status = "Expired";
+      await task.save();
+
+      // Disable buttons for pending applications (where creator didn't respond)
+      const pendingApps = task.applicants.filter(app => 
+        app.status === "Pending"
+      );
+      
+      for (const app of pendingApps) {
+        if (app.user && app.messageId) {
+          try {
+            const creator = await User.findById(task.creator);
+            const lang = creator?.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[lang], "EXPIRED_ACCEPT_DECLINE"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "EXPIRED_ACCEPT_DECLINE")
+                  ]
+                ]
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling buttons for pending application:", err);
+          }
+        }
+      }
+
+      // Existing code for disabling accepted applications' buttons...
       const acceptedApps = task.applicants.filter(app => 
         app.status === "Accepted" && 
         !app.confirmedAt && 
         !app.canceledAt
       );
       
-      // Update task status to Expired
-      task.status = "Expired";
-      await task.save();
-
-      // Disable buttons for all accepted applicants
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
           try {
@@ -1814,8 +1844,8 @@ async function checkTaskExpiries(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.doTaskBtn[app.user.language || "en"], "_DISABLED_DO_TASK"),
-                    Markup.button.callback(TEXT.cancelBtn[app.user.language || "en"], "_DISABLED_CANCEL_TASK")
+                    Markup.button.callback(TEXT.doTaskBtn[app.user.language || "en"], "EXPIRED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[app.user.language || "en"], "EXPIRED_DO_TASK")
                   ]
                 ]
               }
@@ -1826,40 +1856,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Notify accepted but unconfirmed doers that time is up
-      for (const app of acceptedApps) {
-        if (app.user) {
-          const doer = app.user;
-          const doerLang = doer.language || "en";
-          try {
-            await bot.telegram.sendMessage(
-              doer.telegramId,
-              TEXT.doerTimeUpNotification[doerLang]
-            );
-          } catch (err) {
-            console.error("Error notifying doer:", err);
-          }
-        }
-      }
-      
-      // Notify not selected applicants
-      const notSelected = task.applicants.filter(app => app.status === "Pending");
-      for (const app of notSelected) {
-        if (app.user) {
-          const doer = app.user;
-          const doerLang = doer.language || "en";
-          const message = TEXT.notSelectedNotification[doerLang]
-            .replace("[creator]", task.creator.fullName || `@${task.creator.username}` || "Task Creator");
-          try {
-            await bot.telegram.sendMessage(
-              doer.telegramId,
-              message
-            );
-          } catch (err) {
-            console.error("Error notifying not-selected applicant:", err);
-          }
-        }
-      }
+      // Rest of your existing notification code...
     }
   } catch (err) {
     console.error("Error in checkTaskExpiries:", err);
@@ -1868,6 +1865,15 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+
+// Add these no-op handlers (they won't trigger any visible response)
+bot.action("EXPIRED_ACCEPT_DECLINE", async (ctx) => {
+  // Completely silent - no answerCbQuery, no response
+});
+
+bot.action("EXPIRED_DO_TASK", async (ctx) => {
+  // Completely silent - no answerCbQuery, no response
+});
 // Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
