@@ -1741,25 +1741,11 @@ async function disableExpiredTaskButtons(bot) {
     }).populate("applicants.user");
 
     for (const task of tasks) {
-      // Ensure all required fields are present when updating
-      const updateData = {
-        status: "Expired",
-        latePenalty: task.latePenalty || 0, // Provide default if missing
-        // Include all other required fields from the original task
-        creator: task.creator,
-        description: task.description,
-        skillLevel: task.skillLevel,
-        paymentFee: task.paymentFee,
-        timeToComplete: task.timeToComplete,
-        revisionTime: task.revisionTime,
-        expiry: task.expiry,
-        exchangeStrategy: task.exchangeStrategy
-      };
+      // Update task status
+      task.status = "Expired";
+      await task.save();
 
-      // Use findByIdAndUpdate to ensure all validation passes
-      await Task.findByIdAndUpdate(task._id, updateData);
-
-      // Rest of your existing code for disabling buttons...
+      // Disable buttons for accepted applicants
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1799,28 +1785,33 @@ async function checkTaskExpiries(bot) {
     for (const task of tasks) {
       // Check if there are any accepted applicants who haven't confirmed
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
-      const unconfirmedApps = acceptedApps.filter(app => !app.confirmedAt);
       
-      // Only proceed if there are unconfirmed accepted applicants
-      if (unconfirmedApps.length === 0) continue;
-
       // Update task status to Expired
-      const updateData = {
-        status: "Expired",
-        latePenalty: task.latePenalty || 0,
-        creator: task.creator,
-        description: task.description,
-        skillLevel: task.skillLevel,
-        paymentFee: task.paymentFee,
-        timeToComplete: task.timeToComplete,
-        revisionTime: task.revisionTime,
-        expiry: task.expiry,
-        exchangeStrategy: task.exchangeStrategy,
-        applicants: task.applicants,
-        acceptedDoer: task.acceptedDoer || null
-      };
+      task.status = "Expired";
+      await task.save();
 
-      await Task.findByIdAndUpdate(task._id, updateData);
+      // Disable buttons for all accepted applicants
+      for (const app of acceptedApps) {
+        if (app.user && app.messageId) {
+          try {
+            await bot.telegram.editMessageReplyMarkup(
+              app.user.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.doTaskBtn[app.user.language || "en"], "_DISABLED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[app.user.language || "en"], "_DISABLED_CANCEL_TASK")
+                  ]
+                ]
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+          }
+        }
+      }
 
       const creator = task.creator;
       const creatorLang = creator?.language || "en";
@@ -1839,8 +1830,8 @@ async function checkTaskExpiries(bot) {
       }
       
       // Notify accepted but unconfirmed doers
-      for (const app of unconfirmedApps) {
-        if (app.user) {
+      for (const app of acceptedApps) {
+        if (app.user && !app.confirmedAt) {
           const doer = app.user;
           const doerLang = doer.language || "en";
           try {
@@ -1942,7 +1933,7 @@ async function sendReminders(bot) {
   try {
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $gt: new Date() }
+      expiry: { $gt: new Date() } // Only tasks that haven't expired yet
     }).populate("applicants.user");
     
     for (const task of tasks) {
@@ -1950,32 +1941,26 @@ async function sendReminders(bot) {
       if (acceptedApps.length === 0) continue;
       
       const timeLeft = task.expiry.getTime() - Date.now();
-      const twentyPercent = timeLeft * 0.2;
+      const hoursLeft = Math.ceil(timeLeft / (1000 * 60 * 60));
       
-      for (const app of acceptedApps) {
-        const lastReminder = app.lastReminder || task.createdAt;
-        const timeSinceLastReminder = Date.now() - new Date(lastReminder).getTime();
-        
-        if (timeSinceLastReminder >= twentyPercent) {
-          const doer = app.user;
-          if (doer) {
-            const lang = doer.language || "en";
-            const hoursLeft = Math.ceil(timeLeft / (1000 * 60 * 60));
-            const message = TEXT.reminderNotification[lang]
-              .replace("[remaining_time]", `${hoursLeft} ${lang === "am" ? "ሰዓት" : "hours"}`);
+      // Only send reminders if less than 24 hours left
+      if (hoursLeft <= 24) {
+        for (const app of acceptedApps) {
+          if (app.user && !app.confirmedAt) {
+            const doer = app.user;
+            const doerLang = doer.language || "en";
+            const message = TEXT.reminderNotification[doerLang]
+              .replace("[remaining_time]", `${hoursLeft} ${doerLang === "am" ? "ሰዓት" : "hours"}`);
             
             try {
               await bot.telegram.sendMessage(
                 doer.telegramId,
                 message,
                 Markup.inlineKeyboard([
-                  [Markup.button.callback(TEXT.doTaskBtn[lang], "DO_TASK_CONFIRM")],
-                  [Markup.button.callback(TEXT.cancelBtn[lang], "DO_TASK_CANCEL")]
+                  [Markup.button.callback(TEXT.doTaskBtn[doerLang], "DO_TASK_CONFIRM")],
+                  [Markup.button.callback(TEXT.cancelBtn[doerLang], "DO_TASK_CANCEL")]
                 ])
               );
-              
-              app.lastReminder = new Date();
-              await task.save();
             } catch (err) {
               console.error("Error sending reminder:", err);
             }
@@ -1987,8 +1972,8 @@ async function sendReminders(bot) {
     console.error("Error in sendReminders:", err);
   }
   
-  // Check again in 5 minutes
-  setTimeout(() => sendReminders(bot), 300000);
+  // Check again in 1 hour
+  setTimeout(() => sendReminders(bot), 3600000);
 }
 
 // ─────────── “Edit Task” Entry Point ───────────
@@ -2894,6 +2879,11 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   
   return askSkillLevel(ctx, lang);
 });
+
+// Add this near your other action handlers
+bot.action(/_DISABLED_DO_TASK/, (ctx) => ctx.answerCbQuery("This task has expired"));
+bot.action(/_DISABLED_CANCEL_TASK/, (ctx) => ctx.answerCbQuery("This task has expired"));
+
 bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await ctx.answerCbQuery();
   const lvl = ctx.match[1];
