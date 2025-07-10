@@ -1682,27 +1682,33 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
   const task = await Task.findOne({
     "applicants.user": user._id,
     "applicants.status": "Accepted",
-    status: "Open" // Only allow if task is still open
+    status: "Open"
   });
   
-  if (!task) {
-    // Don't show any message since the expiry notification was already sent
-    return;
-  }
+  if (!task) return;
 
-  // Get user's language
   const lang = user.language || "en";
   
-  // Make both buttons inert and highlight the cancel button while maintaining vertical layout
   try {
+    // Edit the original message to maintain vertical layout
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
+        // First button remains in its own row
         [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK")],
+        // Second button gets checkmark and is disabled
         [Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "_DISABLED_CANCEL_TASK")]
       ]
     });
   } catch (err) {
-    console.error("Error updating buttons:", err);
+    console.error("Failed to edit message buttons:", err);
+    // Fallback - send a new message if editing fails
+    return ctx.reply(
+      TEXT.cancelConfirmed[lang],
+      Markup.inlineKeyboard([
+        [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK")],
+        [Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "_DISABLED_CANCEL_TASK")]
+      ])
+    );
   }
 
   // Update application status
@@ -1714,13 +1720,14 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     await task.save();
   }
   
+  // Send confirmation message
   await ctx.reply(TEXT.cancelConfirmed[lang]);
   
   // Notify task creator
   const creator = await User.findById(task.creator);
   if (creator) {
     const creatorLang = creator.language || "en";
-    const doerName = user.fullName || `@${user.username}` || ctx.from.first_name || "Anonymous";
+    const doerName = user.fullName || `@${user.username}` || "Anonymous";
     const message = TEXT.creatorCancelNotification[creatorLang].replace("[applicant]", doerName);
     
     await ctx.telegram.sendMessage(
