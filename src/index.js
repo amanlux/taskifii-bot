@@ -1648,43 +1648,61 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   // Find the task where this user was accepted
   const task = await Task.findOne({
     "applicants.user": user._id,
-    "applicants.status": "Accepted"
+    "applicants.status": "Accepted",
+    status: "Open" // Only allow if task is still open
   });
   
-  if (task) {
-    // Update application status to confirmed
-    const application = task.applicants.find(app => 
-      app.user.toString() === user._id.toString()
-    );
-    if (application) {
-      application.confirmedAt = new Date();
-      await task.save();
-    }
-    
+  if (!task) {
     const lang = user.language || "en";
     return ctx.reply(lang === "am" 
-      ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
-      : "✅ Task confirmation received! You can now work on the task.");
+      ? "❌ ስራው አልተገኘምወይም ጊዜው አልፎታል።" 
+      : "❌ Task not found or expired.");
+  }
+
+  // Rest of your existing confirmation logic...
+  const application = task.applicants.find(app => 
+    app.user.toString() === user._id.toString()
+  );
+  if (application) {
+    application.confirmedAt = new Date();
+    await task.save();
   }
   
   const lang = user.language || "en";
   return ctx.reply(lang === "am" 
-    ? "❌ ስራው አልተገኘምወይም ጊዜው አልፎታል።" 
-    : "❌ Task not found or expired.");
+    ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
+    : "✅ Task confirmation received! You can now work on the task.");
 });
 
 bot.action("DO_TASK_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return;
   
+  // Find the task where this user was accepted
+  const task = await Task.findOne({
+    "applicants.user": user._id,
+    "applicants.status": "Accepted",
+    status: "Open" // Only allow if task is still open
+  });
+  
+  if (!task) {
+    const lang = user.language || "en";
+    return ctx.reply(lang === "am" 
+      ? "❌ ስራው አልተገኘምወይም ጊዜው አልፎታል።" 
+      : "❌ Task not found or expired.");
+  }
+
+  // Rest of your existing cancellation logic...
   // Highlight Cancel button and disable both
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [
-          Markup.button.callback(TEXT.doTaskBtn[ctx.session.user?.language || "en"], "_DISABLED_DO_TASK")
+          Markup.button.callback(TEXT.doTaskBtn[user.language || "en"], "_DISABLED_DO_TASK")
         ],
         [
-          Markup.button.callback(`✔ ${TEXT.cancelBtn[ctx.session.user?.language || "en"]}`, "_DISABLED_CANCEL_TASK")
+          Markup.button.callback(`✔ ${TEXT.cancelBtn[user.language || "en"]}`, "_DISABLED_CANCEL_TASK")
         ]
       ]
     });
@@ -1692,40 +1710,31 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     console.error("Error updating buttons:", err);
   }
 
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
+  const lang = user.language || "en";
   
   // Notify task doer
   await ctx.reply(TEXT.cancelConfirmed[lang]);
   
-  // Find the task where this user was accepted
-  const task = await Task.findOne({
-    "applicants.user": user._id,
-    "applicants.status": "Accepted"
-  });
+  // Update application status
+  const application = task.applicants.find(app => 
+    app.user.toString() === user._id.toString()
+  );
+  if (application) {
+    application.status = "Canceled";
+    await task.save();
+  }
   
-  if (task) {
-    // Update application status
-    const application = task.applicants.find(app => 
-      app.user.toString() === user._id.toString()
-    );
-    if (application) {
-      application.status = "Canceled";
-      await task.save();
-    }
+  // Notify task creator
+  const creator = await User.findById(task.creator);
+  if (creator) {
+    const creatorLang = creator.language || "en";
+    const doerName = user.fullName || `@${user.username}` || ctx.from.first_name || "Anonymous";
+    const message = TEXT.creatorCancelNotification[creatorLang].replace("[applicant]", doerName);
     
-    // Notify task creator
-    const creator = await User.findById(task.creator);
-    if (creator) {
-      const creatorLang = creator.language || "en";
-      const doerName = user.fullName || `@${user.username}` || ctx.from.first_name || "Anonymous";
-      const message = TEXT.creatorCancelNotification[creatorLang].replace("[applicant]", doerName);
-      
-      await ctx.telegram.sendMessage(
-        creator.telegramId,
-        message
-      );
-    }
+    await ctx.telegram.sendMessage(
+      creator.telegramId,
+      message
+    );
   }
   
   return;
@@ -1813,6 +1822,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
+      // Rest of your existing notification code...
       const creator = task.creator;
       const creatorLang = creator?.language || "en";
       
@@ -1871,6 +1881,14 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+// Add these near your other action handlers
+bot.action("_DISABLED_DO_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task has expired and can no longer be accepted");
+});
+
+bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task has expired and can no longer be canceled");
+});
 bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
