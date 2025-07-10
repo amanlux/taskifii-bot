@@ -1693,14 +1693,12 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
   // Get user's language
   const lang = user.language || "en";
   
-  // Make both buttons inert and highlight the cancel button
+  // Make both buttons inert and highlight the cancel button while maintaining vertical layout
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [
-          Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
-          Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "_DISABLED_CANCEL_TASK")
-        ]
+        [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK")],
+        [Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "_DISABLED_CANCEL_TASK")]
       ]
     });
   } catch (err) {
