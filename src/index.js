@@ -1698,8 +1698,8 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [
-          Markup.button.callback(TEXT.doTaskBtn[lang], ""),
-          Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "")
+          Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
+          Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "_DISABLED_CANCEL_TASK")
         ]
       ]
     });
@@ -1761,9 +1761,8 @@ async function disableExpiredTaskButtons(bot) {
               {
                 inline_keyboard: [
                   [
-                    // Empty callback_data makes them completely inert
-                    Markup.button.callback(TEXT.doTaskBtn[lang], ""),
-                    Markup.button.callback(TEXT.cancelBtn[lang], "")
+                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
                   ]
                 ]
               }
