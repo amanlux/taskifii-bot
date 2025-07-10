@@ -1841,11 +1841,12 @@ async function checkTaskExpiries(bot) {
       // Disable application buttons for pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
-        if (app.user && app.messageId) {
+        if (app.messageId) {
           try {
             const creator = await User.findById(task.creator);
             const lang = creator?.language || "en";
             
+            // Edit the message to show disabled but visible buttons
             await bot.telegram.editMessageReplyMarkup(
               creator.telegramId,
               app.messageId,
@@ -1853,8 +1854,8 @@ async function checkTaskExpiries(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
                   ]
                 ]
               }
@@ -1865,7 +1866,54 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Rest of your existing expiry handling code...
+      // Disable buttons for accepted applicants (existing code)
+      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      for (const app of acceptedApps) {
+        if (app.user && app.messageId) {
+          try {
+            const user = app.user;
+            const lang = user.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              user.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
+                  ]
+                ]
+              }
+            );
+            
+            // Notify doer that time is up
+            await bot.telegram.sendMessage(
+              user.telegramId,
+              TEXT.doerTimeUpNotification[lang]
+            );
+          } catch (err) {
+            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+          }
+        }
+      }
+
+      // Notify creator if no one confirmed
+      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
+        try {
+          const creator = await User.findById(task.creator);
+          if (creator) {
+            const lang = creator.language || "en";
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              TEXT.noConfirmationNotification[lang]
+            );
+          }
+        } catch (err) {
+          console.error("Error notifying creator:", err);
+        }
+      }
     }
   } catch (err) {
     console.error("Error in checkTaskExpiries:", err);
@@ -1875,12 +1923,6 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
-// Remove the individual _DISABLED_ACCEPT and _DISABLED_DECLINE handlers
-// And add this single handler for all _NO_ACTION buttons
-bot.action("_NO_ACTION", (ctx) => {
-  // Completely ignore the click - no feedback at all
-  return ctx.answerCbQuery(); 
-});
 // Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
