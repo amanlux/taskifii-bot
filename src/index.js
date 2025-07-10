@@ -1783,25 +1783,17 @@ async function disableExpiredTaskButtons(bot) {
   }
 }
 
-// Update the checkTaskExpiries function to handle pending applications
-async function checkTaskExpiries(bot) {
+// Update the disableExpiredTaskApplicationButtons function
+async function disableExpiredTaskApplicationButtons(bot) {
   try {
     const now = new Date();
     const tasks = await Task.find({
-      status: "Open",
-      expiry: { $lte: now } // Only tasks that have actually expired
-    }).populate("creator").populate("applicants.user");
-    
-    for (const task of tasks) {
-      // Update task status to Expired
-      task.status = "Expired";
-      await task.save();
+      status: "Expired" // Only already expired tasks
+    }).populate("applicants.user");
 
-      // Disable buttons for pending applications (where creator didn't respond)
-      const pendingApps = task.applicants.filter(app => 
-        app.status === "Pending"
-      );
-      
+    for (const task of tasks) {
+      // Disable buttons for pending applications
+      const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
         if (app.user && app.messageId) {
           try {
@@ -1815,48 +1807,65 @@ async function checkTaskExpiries(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "EXPIRED_ACCEPT_DECLINE"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "EXPIRED_ACCEPT_DECLINE")
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
                   ]
                 ]
               }
             );
           } catch (err) {
-            console.error("Error disabling buttons for pending application:", err);
+            console.error("Error disabling application buttons for task:", task._id, err);
           }
         }
       }
+    }
+  } catch (err) {
+    console.error("Error in disableExpiredTaskApplicationButtons:", err);
+  }
+}
 
-      // Existing code for disabling accepted applications' buttons...
-      const acceptedApps = task.applicants.filter(app => 
-        app.status === "Accepted" && 
-        !app.confirmedAt && 
-        !app.canceledAt
-      );
-      
-      for (const app of acceptedApps) {
+// Update the checkTaskExpiries function
+async function checkTaskExpiries(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $lte: now } // Only tasks that have actually expired
+    }).populate("creator").populate("applicants.user");
+    
+    for (const task of tasks) {
+      // Update task status to Expired
+      task.status = "Expired";
+      await task.save();
+
+      // Disable application buttons for pending applications
+      const pendingApps = task.applicants.filter(app => app.status === "Pending");
+      for (const app of pendingApps) {
         if (app.user && app.messageId) {
           try {
+            const creator = await User.findById(task.creator);
+            const lang = creator?.language || "en";
+            
             await bot.telegram.editMessageReplyMarkup(
-              app.user.telegramId,
+              creator.telegramId,
               app.messageId,
               undefined,
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.doTaskBtn[app.user.language || "en"], "EXPIRED_DO_TASK"),
-                    Markup.button.callback(TEXT.cancelBtn[app.user.language || "en"], "EXPIRED_DO_TASK")
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
                   ]
                 ]
               }
             );
           } catch (err) {
-            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+            console.error("Error disabling application buttons:", err);
           }
         }
       }
 
-      // Rest of your existing notification code...
+      // Rest of your existing expiry handling code...
     }
   } catch (err) {
     console.error("Error in checkTaskExpiries:", err);
@@ -1866,13 +1875,11 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
-// Add these no-op handlers (they won't trigger any visible response)
-bot.action("EXPIRED_ACCEPT_DECLINE", async (ctx) => {
-  // Completely silent - no answerCbQuery, no response
-});
-
-bot.action("EXPIRED_DO_TASK", async (ctx) => {
-  // Completely silent - no answerCbQuery, no response
+// Remove the individual _DISABLED_ACCEPT and _DISABLED_DECLINE handlers
+// And add this single handler for all _NO_ACTION buttons
+bot.action("_NO_ACTION", (ctx) => {
+  // Completely ignore the click - no feedback at all
+  return ctx.answerCbQuery(); 
 });
 // Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
