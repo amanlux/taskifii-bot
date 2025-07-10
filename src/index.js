@@ -1672,6 +1672,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     : "✅ Task confirmation received! You can now work on the task.");
 });
 
+// Update the DO_TASK_CANCEL handler
 bot.action("DO_TASK_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -1689,15 +1690,16 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     return;
   }
 
-  // Rest of your existing cancellation logic...
+  // Get user's language
+  const lang = user.language || "en";
+  
+  // Make both buttons inert and highlight the cancel button
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [
-          Markup.button.callback(TEXT.doTaskBtn[user.language || "en"], "")
-        ],
-        [
-          Markup.button.callback(TEXT.cancelBtn[user.language || "en"], "")
+          Markup.button.callback(TEXT.doTaskBtn[lang], ""),
+          Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "")
         ]
       ]
     });
@@ -1705,9 +1707,6 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     console.error("Error updating buttons:", err);
   }
 
-  const lang = user.language || "en";
-  await ctx.reply(TEXT.cancelConfirmed[lang]);
-  
   // Update application status
   const application = task.applicants.find(app => 
     app.user.toString() === user._id.toString()
@@ -1716,6 +1715,8 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     application.status = "Canceled";
     await task.save();
   }
+  
+  await ctx.reply(TEXT.cancelConfirmed[lang]);
   
   // Notify task creator
   const creator = await User.findById(task.creator);
