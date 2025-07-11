@@ -1790,20 +1790,16 @@ async function checkTaskExpiries(bot) {
   try {
     const now = new Date();
     const tasks = await Task.find({
-      $or: [
-        { status: "Open", expiry: { $lte: now } },
-        { status: "Expired" }
-      ]
+      status: "Open",
+      expiry: { $lte: now }
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
-      // Update task status if not already expired
-      if (task.status !== "Expired") {
-        task.status = "Expired";
-        await task.save();
-      }
+      // Update task status to Expired
+      task.status = "Expired";
+      await task.save();
 
-      // Process all pending applications
+      // Process pending applications (disable buttons)
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
         if (app.messageId) {
@@ -1813,7 +1809,7 @@ async function checkTaskExpiries(bot) {
 
             const lang = creator.language || "en";
             
-            // First try to edit the message
+            // Try to edit the message to disable buttons
             try {
               await bot.telegram.editMessageReplyMarkup(
                 creator.telegramId,
@@ -1829,7 +1825,6 @@ async function checkTaskExpiries(bot) {
                 }
               );
             } catch (editErr) {
-              // If message doesn't exist, skip it
               if (editErr.response?.error_code === 400 && 
                   editErr.response?.description.includes('message to edit not found')) {
                 continue;
@@ -1837,20 +1832,28 @@ async function checkTaskExpiries(bot) {
               throw editErr;
             }
           } catch (err) {
-            console.error("Error processing application:", err);
+            console.error("Error processing pending application:", err);
             continue;
           }
         }
       }
 
-      // Process accepted applications
+      // Process accepted applications (disable buttons and notify doers)
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      let hasConfirmed = false;
+      
       for (const app of acceptedApps) {
+        if (app.confirmedAt) {
+          hasConfirmed = true;
+          continue;
+        }
+
         if (app.user && app.messageId) {
           try {
             const user = app.user;
             const lang = user.language || "en";
             
+            // Disable buttons
             try {
               await bot.telegram.editMessageReplyMarkup(
                 user.telegramId,
@@ -1866,6 +1869,7 @@ async function checkTaskExpiries(bot) {
                 }
               );
               
+              // Notify doer time is up
               await bot.telegram.sendMessage(
                 user.telegramId,
                 TEXT.doerTimeUpNotification[lang]
@@ -1884,8 +1888,8 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Notify creator if no one confirmed
-      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
+      // Notify creator if no one confirmed (ONLY ONCE)
+      if (acceptedApps.length > 0 && !hasConfirmed) {
         try {
           const creator = await User.findById(task.creator);
           if (creator) {
