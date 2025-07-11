@@ -1783,7 +1783,46 @@ async function disableExpiredTaskButtons(bot) {
   }
 }
 
+// Update the disableExpiredTaskApplicationButtons function
+async function disableExpiredTaskApplicationButtons(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Expired" // Only already expired tasks
+    }).populate("applicants.user");
 
+    for (const task of tasks) {
+      // Disable buttons for pending applications
+      const pendingApps = task.applicants.filter(app => app.status === "Pending");
+      for (const app of pendingApps) {
+        if (app.user && app.messageId) {
+          try {
+            const creator = await User.findById(task.creator);
+            const lang = creator?.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
+                  ]
+                ]
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling application buttons for task:", task._id, err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in disableExpiredTaskApplicationButtons:", err);
+  }
+}
 
 // Update the checkTaskExpiries function
 async function checkTaskExpiries(bot) {
@@ -1791,7 +1830,7 @@ async function checkTaskExpiries(bot) {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $lte: now }
+      expiry: { $lte: now } // Only tasks that have actually expired
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
@@ -1799,97 +1838,69 @@ async function checkTaskExpiries(bot) {
       task.status = "Expired";
       await task.save();
 
-      // Process pending applications (disable buttons)
+      // Disable application buttons for pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
         if (app.messageId) {
           try {
             const creator = await User.findById(task.creator);
-            if (!creator) continue;
-
-            const lang = creator.language || "en";
+            const lang = creator?.language || "en";
             
-            // Try to edit the message to disable buttons
-            try {
-              await bot.telegram.editMessageReplyMarkup(
-                creator.telegramId,
-                app.messageId,
-                undefined,
-                {
-                  inline_keyboard: [
-                    [
-                      Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                      Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-                    ]
+            // Edit the message to show disabled but visible buttons
+            await bot.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
                   ]
-                }
-              );
-            } catch (editErr) {
-              if (editErr.response?.error_code === 400 && 
-                  editErr.response?.description.includes('message to edit not found')) {
-                continue;
+                ]
               }
-              throw editErr;
-            }
+            );
           } catch (err) {
-            console.error("Error processing pending application:", err);
-            continue;
+            console.error("Error disabling application buttons:", err);
           }
         }
       }
 
-      // Process accepted applications (disable buttons and notify doers)
+      // Disable buttons for accepted applicants (existing code)
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
-      let hasConfirmed = false;
-      
       for (const app of acceptedApps) {
-        if (app.confirmedAt) {
-          hasConfirmed = true;
-          continue;
-        }
-
         if (app.user && app.messageId) {
           try {
             const user = app.user;
             const lang = user.language || "en";
             
-            // Disable buttons
-            try {
-              await bot.telegram.editMessageReplyMarkup(
-                user.telegramId,
-                app.messageId,
-                undefined,
-                {
-                  inline_keyboard: [
-                    [
-                      Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
-                      Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
-                    ]
+            await bot.telegram.editMessageReplyMarkup(
+              user.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
                   ]
-                }
-              );
-              
-              // Notify doer time is up
-              await bot.telegram.sendMessage(
-                user.telegramId,
-                TEXT.doerTimeUpNotification[lang]
-              );
-            } catch (editErr) {
-              if (editErr.response?.error_code === 400 && 
-                  editErr.response?.description.includes('message to edit not found')) {
-                continue;
+                ]
               }
-              throw editErr;
-            }
+            );
+            
+            // Notify doer that time is up
+            await bot.telegram.sendMessage(
+              user.telegramId,
+              TEXT.doerTimeUpNotification[lang]
+            );
           } catch (err) {
-            console.error("Error processing accepted application:", err);
-            continue;
+            console.error("Error disabling buttons for user:", app.user.telegramId, err);
           }
         }
       }
 
-      // Notify creator if no one confirmed (ONLY ONCE)
-      if (acceptedApps.length > 0 && !hasConfirmed) {
+      // Notify creator if no one confirmed
+      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
         try {
           const creator = await User.findById(task.creator);
           if (creator) {
@@ -1908,6 +1919,7 @@ async function checkTaskExpiries(bot) {
     console.error("Error in checkTaskExpiries:", err);
   }
   
+  // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
