@@ -1866,7 +1866,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Disable buttons for accepted applicants (existing code)
+      // Rest of your existing expiry handling code...
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
