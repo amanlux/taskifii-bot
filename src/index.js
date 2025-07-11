@@ -1792,7 +1792,7 @@ async function checkTaskExpiries(bot) {
     const tasks = await Task.find({
       $or: [
         { status: "Open", expiry: { $lte: now } },
-        { status: "Expired" } // Also check already expired tasks
+        { status: "Expired" }
       ]
     }).populate("creator").populate("applicants.user");
     
@@ -1809,29 +1809,41 @@ async function checkTaskExpiries(bot) {
         if (app.messageId) {
           try {
             const creator = await User.findById(task.creator);
-            const lang = creator?.language || "en";
+            if (!creator) continue;
+
+            const lang = creator.language || "en";
             
-            // Edit the message to show disabled but visible buttons
-            await bot.telegram.editMessageReplyMarkup(
-              creator.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+            // First try to edit the message
+            try {
+              await bot.telegram.editMessageReplyMarkup(
+                creator.telegramId,
+                app.messageId,
+                undefined,
+                {
+                  inline_keyboard: [
+                    [
+                      Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                      Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+                    ]
                   ]
-                ]
+                }
+              );
+            } catch (editErr) {
+              // If message doesn't exist, skip it
+              if (editErr.response?.error_code === 400 && 
+                  editErr.response?.description.includes('message to edit not found')) {
+                continue;
               }
-            );
+              throw editErr;
+            }
           } catch (err) {
-            console.error("Error disabling application buttons:", err);
+            console.error("Error processing application:", err);
+            continue;
           }
         }
       }
 
-      // Rest of your existing expiry handling...
+      // Process accepted applications
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1839,30 +1851,40 @@ async function checkTaskExpiries(bot) {
             const user = app.user;
             const lang = user.language || "en";
             
-            await bot.telegram.editMessageReplyMarkup(
-              user.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
-                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
+            try {
+              await bot.telegram.editMessageReplyMarkup(
+                user.telegramId,
+                app.messageId,
+                undefined,
+                {
+                  inline_keyboard: [
+                    [
+                      Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
+                      Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
+                    ]
                   ]
-                ]
+                }
+              );
+              
+              await bot.telegram.sendMessage(
+                user.telegramId,
+                TEXT.doerTimeUpNotification[lang]
+              );
+            } catch (editErr) {
+              if (editErr.response?.error_code === 400 && 
+                  editErr.response?.description.includes('message to edit not found')) {
+                continue;
               }
-            );
-            
-            await bot.telegram.sendMessage(
-              user.telegramId,
-              TEXT.doerTimeUpNotification[lang]
-            );
+              throw editErr;
+            }
           } catch (err) {
-            console.error("Error disabling buttons for user:", err);
+            console.error("Error processing accepted application:", err);
+            continue;
           }
         }
       }
 
+      // Notify creator if no one confirmed
       if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
         try {
           const creator = await User.findById(task.creator);
