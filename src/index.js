@@ -1879,20 +1879,15 @@ async function checkTaskExpiries(bot) {
             const creator = await User.findById(task.creator);
             const lang = creator?.language || "en";
             
-            // Edit the message to show disabled but visible buttons
-            await bot.telegram.editMessageReplyMarkup(
-              creator.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-                  ]
-                ]
-              }
-            );
+            // Disable the buttons
+            await disableTaskButtons(bot, creator.telegramId, app.messageId, lang);
+            
+            // Notify the task creator that the task has expired
+            const expiryMsg = lang === "am" 
+              ? `⏰ ተግዳሮቱ ጊዜው አልፎታል። ማመልከቻዎች አልተቀበሉም።` 
+              : `⏰ This task has expired. No applications were accepted.`;
+            
+            await bot.telegram.sendMessage(creator.telegramId, expiryMsg);
           } catch (err) {
             console.error("Error disabling application buttons:", err);
             // If message not found, continue to next
@@ -1910,12 +1905,36 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+async function disableTaskButtons(bot, chatId, messageId, lang) {
+  try {
+    await bot.telegram.editMessageReplyMarkup(
+      chatId,
+      messageId,
+      undefined,
+      {
+        inline_keyboard: [
+          [
+            Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+            Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+          ]
+        ]
+      }
+    );
+  } catch (err) {
+    console.error("Error disabling task buttons:", err);
+    // If message not found, it's okay to ignore
+    if (!err.description.includes("message to edit not found")) {
+      throw err;
+    }
+  }
+}
+// Disabled button handlers - these just acknowledge the click but do nothing
 bot.action("_DISABLED_ACCEPT", async (ctx) => {
-  await ctx.answerCbQuery(); // Empty callback answer with no message
+  await ctx.answerCbQuery("This task has expired and can no longer be accepted");
 });
 
 bot.action("_DISABLED_DECLINE", async (ctx) => {
-  await ctx.answerCbQuery(); // Empty callback answer with no message
+  await ctx.answerCbQuery("This task has expired and can no longer be declined");
 });
 
 // Add these near your other action handlers
