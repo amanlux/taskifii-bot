@@ -1783,62 +1783,27 @@ async function disableExpiredTaskButtons(bot) {
   }
 }
 
-// Update the disableExpiredTaskApplicationButtons function
-async function disableExpiredTaskApplicationButtons(bot) {
-  try {
-    const now = new Date();
-    const tasks = await Task.find({
-      status: "Expired" // Only already expired tasks
-    }).populate("applicants.user");
 
-    for (const task of tasks) {
-      // Disable buttons for pending applications
-      const pendingApps = task.applicants.filter(app => app.status === "Pending");
-      for (const app of pendingApps) {
-        if (app.user && app.messageId) {
-          try {
-            const creator = await User.findById(task.creator);
-            const lang = creator?.language || "en";
-            
-            await bot.telegram.editMessageReplyMarkup(
-              creator.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
-                  ]
-                ]
-              }
-            );
-          } catch (err) {
-            console.error("Error disabling application buttons for task:", task._id, err);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error in disableExpiredTaskApplicationButtons:", err);
-  }
-}
 
 // Update the checkTaskExpiries function
 async function checkTaskExpiries(bot) {
   try {
     const now = new Date();
     const tasks = await Task.find({
-      status: "Open",
-      expiry: { $lte: now }
+      $or: [
+        { status: "Open", expiry: { $lte: now } },
+        { status: "Expired" } // Also check already expired tasks
+      ]
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
-      // Update task status to Expired
-      task.status = "Expired";
-      await task.save();
+      // Update task status if not already expired
+      if (task.status !== "Expired") {
+        task.status = "Expired";
+        await task.save();
+      }
 
-      // Disable buttons for pending applications
+      // Process all pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
         if (app.messageId) {
@@ -1846,6 +1811,7 @@ async function checkTaskExpiries(bot) {
             const creator = await User.findById(task.creator);
             const lang = creator?.language || "en";
             
+            // Edit the message to show disabled but visible buttons
             await bot.telegram.editMessageReplyMarkup(
               creator.telegramId,
               app.messageId,
