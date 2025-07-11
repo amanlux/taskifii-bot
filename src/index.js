@@ -875,6 +875,20 @@ function startBot() {
    // Start the expiry checkers
   checkTaskExpiries(bot);
   sendReminders(bot);
+  
+
+function startPeriodicChecks(bot) {
+  // Run immediately on startup
+  disableExpiredTaskButtons(bot);
+  disableExpiredTaskApplicationButtons(bot);
+  
+  // Then run every minute
+  setInterval(() => {
+    disableExpiredTaskButtons(bot);
+    disableExpiredTaskApplicationButtons(bot);
+  }, 60000);
+}
+
   /**
  * Build an inline keyboard with:
  *  – ✅ prefix on the clicked button
@@ -1938,12 +1952,17 @@ bot.action("_DISABLED_DECLINE", async (ctx) => {
 });
 
 // Add these near your other action handlers
+// Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
 });
 
 bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be canceled");
+});
+
+bot.action("_NO_ACTION", async (ctx) => {
+  await ctx.answerCbQuery(); // Just acknowledge the click
 });
 bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -4692,6 +4711,7 @@ bot.catch((err, ctx) => {
       // Start periodic checks
       checkTaskExpiries(bot);
       sendReminders(bot);
+      startPeriodicChecks(bot);
     }).catch(err => {
       console.error("Bot failed to start:", err);
     });
