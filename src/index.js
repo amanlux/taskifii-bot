@@ -1830,7 +1830,7 @@ async function checkTaskExpiries(bot) {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $lte: now } // Only tasks that have actually expired
+      expiry: { $lte: now }
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
@@ -1838,7 +1838,7 @@ async function checkTaskExpiries(bot) {
       task.status = "Expired";
       await task.save();
 
-      // Disable application buttons for pending applications
+      // Disable buttons for pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
         if (app.messageId) {
@@ -1846,7 +1846,6 @@ async function checkTaskExpiries(bot) {
             const creator = await User.findById(task.creator);
             const lang = creator?.language || "en";
             
-            // Edit the message to show disabled but visible buttons
             await bot.telegram.editMessageReplyMarkup(
               creator.telegramId,
               app.messageId,
@@ -1866,7 +1865,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Rest of your existing expiry handling code...
+      // Rest of your existing expiry handling...
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1888,18 +1887,16 @@ async function checkTaskExpiries(bot) {
               }
             );
             
-            // Notify doer that time is up
             await bot.telegram.sendMessage(
               user.telegramId,
               TEXT.doerTimeUpNotification[lang]
             );
           } catch (err) {
-            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+            console.error("Error disabling buttons for user:", err);
           }
         }
       }
 
-      // Notify creator if no one confirmed
       if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
         try {
           const creator = await User.findById(task.creator);
@@ -1919,7 +1916,6 @@ async function checkTaskExpiries(bot) {
     console.error("Error in checkTaskExpiries:", err);
   }
   
-  // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
