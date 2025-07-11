@@ -1777,6 +1777,33 @@ async function disableExpiredTaskButtons(bot) {
           }
         }
       }
+
+      // Disable buttons for pending applications
+      const pendingApps = task.applicants.filter(app => app.status === "Pending");
+      for (const app of pendingApps) {
+        if (app.messageId) {
+          try {
+            const creator = await User.findById(task.creator);
+            const lang = creator?.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+                  ]
+                ]
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling application buttons:", err);
+          }
+        }
+      }
     }
   } catch (err) {
     console.error("Error in disableExpiredTaskButtons:", err);
@@ -1865,8 +1892,7 @@ async function checkTaskExpiries(bot) {
           }
         }
       }
-
-      // Disable buttons for accepted applicants (existing code)
+      // Rest of your existing expiry handling code...
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1922,6 +1948,13 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+bot.action("_DISABLED_ACCEPT", async (ctx) => {
+  await ctx.answerCbQuery(); // Empty callback answer with no message
+});
+
+bot.action("_DISABLED_DECLINE", async (ctx) => {
+  await ctx.answerCbQuery(); // Empty callback answer with no message
+});
 
 // Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
