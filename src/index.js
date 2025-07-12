@@ -2089,6 +2089,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   ctx.session = ctx.session || {};
   // ─────────── 1. Check if this is part of an application flow ───────────
   // In the application flow section of the consolidated handler:
+  // In the application flow section of the consolidated handler:
   if (ctx.session?.applyFlow?.step === "awaiting_pitch") {
       const user = await User.findOne({ telegramId: ctx.from.id });
       const lang = user?.language || "en";
@@ -2132,90 +2133,90 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           // createdAt is automatically added by Mongoose
       };
 
+      // Add the application to the task (don't save yet)
       task.applicants.push(application);
-      await task.save();
 
-      // Rest of the notification code...
-      try {
-          // Get the task creator's language
-          // Get the task creator's language
-          const creator = await User.findById(task.creator);
-          if (creator) {
-              const creatorLang = creator.language || "en";
-              const applicantName = user.fullName || `@${user.username}` || "Anonymous";
-              
-              // Get applicant's stats (fields they've worked on most)
-              const frequentFields = await Task.aggregate([
-                  { $match: { "applicants.user": user._id, "applicants.status": "Completed" } },
-                  { $unwind: "$fields" },
-                  { $group: { _id: "$fields", count: { $sum: 1 } } },
-                  { $sort: { count: -1 } },
-                  { $limit: 5 }
-              ]);
-              
-              const topFields = frequentFields.length > 0 
-                  ? frequentFields.map(f => f._id).join(", ")
-                  : creatorLang === "am" ? "የተሰሩ ተግዳሮቶች የሉም" : "No completed tasks";
-              
-              // Build the notification message
-              const notificationText = creatorLang === "am"
-                  ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\n` +
-                    `ተግዳሮት: ${task.description.substring(0, 50)}...\n\n` +
-                    `አመልካች: ${applicantName}\n` +
-                    `ጠቅላላ የተሰሩ ተግዳሮቶች: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
-                    `ተደጋጋሚ የስራ መስኮች: ${topFields}\n` +
-                    `ደረጃ: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)\n` +
-                    `ተቀባይነት ያላቸው ባንኮች: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
-                    `መልእክት: ${text.substring(0, 100)}...`
-                  : `📩 New applicant for your task!\n\n` +
-                    `Task: ${task.description.substring(0, 50)}...\n\n` +
-                    `Applicant: ${applicantName}\n` +
-                    `Total earned: ${user.stats.totalEarned.toFixed(2)} birr\n` +
-                    `Frequent fields: ${topFields}\n` +
-                    `Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)\n` +
-                    `Accepted banks: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
-                    `Message: ${text.substring(0, 100)}...`;
+      // Get the task creator's language
+      const creator = await User.findById(task.creator);
+      if (creator) {
+          const creatorLang = creator.language || "en";
+          const applicantName = user.fullName || `@${user.username}` || "Anonymous";
+          
+          // Get applicant's stats (fields they've worked on most)
+          const frequentFields = await Task.aggregate([
+              { $match: { "applicants.user": user._id, "applicants.status": "Completed" } },
+              { $unwind: "$fields" },
+              { $group: { _id: "$fields", count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 5 }
+          ]);
+          
+          const topFields = frequentFields.length > 0 
+              ? frequentFields.map(f => f._id).join(", ")
+              : creatorLang === "am" ? "የተሰሩ ተግዳሮቶች የሉም" : "No completed tasks";
+          
+          // Build the notification message
+          const notificationText = creatorLang === "am"
+              ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\n` +
+                `ተግዳሮት: ${task.description.substring(0, 50)}...\n\n` +
+                `አመልካች: ${applicantName}\n` +
+                `ጠቅላላ የተሰሩ ተግዳሮቶች: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
+                `ተደጋጋሚ የስራ መስኮች: ${topFields}\n` +
+                `ደረጃ: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)\n` +
+                `ተቀባይነት ያላቸው ባንኮች: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
+                `መልእክት: ${text.substring(0, 100)}...`
+              : `📩 New applicant for your task!\n\n` +
+                `Task: ${task.description.substring(0, 50)}...\n\n` +
+                `Applicant: ${applicantName}\n` +
+                `Total earned: ${user.stats.totalEarned.toFixed(2)} birr\n` +
+                `Frequent fields: ${topFields}\n` +
+                `Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)\n` +
+                `Accepted banks: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
+                `Message: ${text.substring(0, 100)}...`;
 
-              // Use shorter IDs for callback data
-              const taskShortId = task._id.toString().substring(18, 24); // Last 6 chars of ObjectId
-              const userShortId = user._id.toString().substring(18, 24); // Last 6 chars of ObjectId
-              
-              
-              // In the application notification section:
-              const buttons = Markup.inlineKeyboard([
-                [
+          const buttons = Markup.inlineKeyboard([
+              [
                   Markup.button.callback(
-                    TEXT.acceptBtn[creatorLang], 
-                    `ACCEPT_${task._id}_${user._id}` // Full IDs
+                      TEXT.acceptBtn[creatorLang], 
+                      `ACCEPT_${task._id}_${user._id}` // Full IDs
                   ),
                   Markup.button.callback(
-                    TEXT.declineBtn[creatorLang], 
-                    `DECLINE_${task._id}_${user._id}` // Full IDs
+                      TEXT.declineBtn[creatorLang], 
+                      `DECLINE_${task._id}_${user._id}` // Full IDs
                   )
-                ]
-              ]);
+              ]
+          ]);
 
-              try {
-                  await ctx.telegram.sendMessage(
-                      creator.telegramId,
-                      notificationText,
-                      { 
-                          parse_mode: "Markdown", 
-                          reply_markup: buttons.reply_markup 
-                      }
-                  );
-              } catch (err) {
-                  console.error("Failed to send notification:", err);
-                  // Fallback without buttons if still failing
-                  await ctx.telegram.sendMessage(
-                      creator.telegramId,
-                      notificationText,
-                      { parse_mode: "Markdown" }
-                  );
-              }
+          try {
+              // Send the notification and capture the message ID
+              const sentMessage = await ctx.telegram.sendMessage(
+                  creator.telegramId,
+                  notificationText,
+                  { 
+                      parse_mode: "Markdown", 
+                      reply_markup: buttons.reply_markup 
+                  }
+              );
+              
+              // Store the message ID on the application
+              application.messageId = sentMessage.message_id;
+              
+              // Now save the task with the message ID
+              await task.save();
+          } catch (err) {
+              console.error("Failed to send notification:", err);
+              // Fallback - save without message ID if sending fails
+              await task.save();
+              // Try sending without buttons
+              await ctx.telegram.sendMessage(
+                  creator.telegramId,
+                  notificationText,
+                  { parse_mode: "Markdown" }
+              );
           }
-      } catch (err) {
-          console.error("Failed to notify task creator:", err);
+      } else {
+          // Save the task if creator not found (shouldn't happen)
+          await task.save();
       }
 
       // Confirm to applicant
