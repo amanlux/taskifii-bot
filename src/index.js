@@ -874,6 +874,7 @@ function startBot() {
 
    // Start the expiry checkers
   checkTaskExpiries(bot);
+  disableExpiredTaskApplicationButtons(bot);
   sendReminders(bot);
   /**
  * Build an inline keyboard with:
@@ -1865,6 +1866,7 @@ async function checkTaskExpiries(bot) {
           }
         }
       }
+
       // Existing code for disabling buttons for accepted applicants...
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
