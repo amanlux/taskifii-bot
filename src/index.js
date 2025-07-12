@@ -1807,8 +1807,8 @@ async function disableExpiredTaskApplicationButtons(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
                   ]
                 ]
               }
@@ -1831,7 +1831,7 @@ async function checkTaskExpiries(bot) {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $lte: now } // Only tasks that have actually expired
+      expiry: { $lte: now }
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
@@ -1839,9 +1839,8 @@ async function checkTaskExpiries(bot) {
       task.status = "Expired";
       await task.save();
 
-      // Disable application buttons for pending applications
-      const pendingApps = task.applicants.filter(app => app.status === "Pending");
-      for (const app of pendingApps) {
+      // Disable buttons for ALL applications (both pending and accepted)
+      for (const app of task.applicants) {
         if (app.messageId) {
           try {
             const creator = await User.findById(task.creator);
@@ -1866,7 +1865,6 @@ async function checkTaskExpiries(bot) {
           }
         }
       }
-
       // Existing code for disabling buttons for accepted applicants...
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
