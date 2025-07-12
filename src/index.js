@@ -875,20 +875,6 @@ function startBot() {
    // Start the expiry checkers
   checkTaskExpiries(bot);
   sendReminders(bot);
-  
-
-function startPeriodicChecks(bot) {
-  // Run immediately on startup
-  disableExpiredTaskButtons(bot);
-  disableExpiredTaskApplicationButtons(bot);
-  
-  // Then run every minute
-  setInterval(() => {
-    disableExpiredTaskButtons(bot);
-    disableExpiredTaskApplicationButtons(bot);
-  }, 60000);
-}
-
   /**
  * Build an inline keyboard with:
  *  – ✅ prefix on the clicked button
@@ -1788,39 +1774,6 @@ async function disableExpiredTaskButtons(bot) {
             );
           } catch (err) {
             console.error("Error disabling buttons for user:", app.user.telegramId, err);
-            if (err.description && err.description.includes("message to edit not found")) {
-              continue;
-            }
-          }
-        }
-      }
-
-      // Disable buttons for pending applications
-      const pendingApps = task.applicants.filter(app => app.status === "Pending");
-      for (const app of pendingApps) {
-        if (app.messageId) {
-          try {
-            const creator = await User.findById(task.creator);
-            const lang = creator?.language || "en";
-            
-            await bot.telegram.editMessageReplyMarkup(
-              creator.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-                  ]
-                ]
-              }
-            );
-          } catch (err) {
-            console.error("Error disabling application buttons:", err);
-            if (err.description && err.description.includes("message to edit not found")) {
-              continue;
-            }
           }
         }
       }
@@ -1871,13 +1824,14 @@ async function disableExpiredTaskApplicationButtons(bot) {
   }
 }
 
+
 // Update the checkTaskExpiries function
 async function checkTaskExpiries(bot) {
   try {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $lte: now }
+      expiry: { $lte: now } // Only tasks that have actually expired
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
@@ -1893,22 +1847,72 @@ async function checkTaskExpiries(bot) {
             const creator = await User.findById(task.creator);
             const lang = creator?.language || "en";
             
-            // Disable the buttons
-            await disableTaskButtons(bot, creator.telegramId, app.messageId, lang);
-            
-            // Notify the task creator that the task has expired
-            const expiryMsg = lang === "am" 
-              ? `⏰ ተግዳሮቱ ጊዜው አልፎታል። ማመልከቻዎች አልተቀበሉም።` 
-              : `⏰ This task has expired. No applications were accepted.`;
-            
-            await bot.telegram.sendMessage(creator.telegramId, expiryMsg);
+            // Edit the message to show disabled but visible buttons
+            await bot.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+                  ]
+                ]
+              }
+            );
           } catch (err) {
             console.error("Error disabling application buttons:", err);
-            // If message not found, continue to next
-            if (err.description && err.description.includes("message to edit not found")) {
-              continue;
-            }
           }
+        }
+      }
+
+      // Existing code for disabling buttons for accepted applicants...
+      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      for (const app of acceptedApps) {
+        if (app.user && app.messageId) {
+          try {
+            const user = app.user;
+            const lang = user.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              user.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
+                  ]
+                ]
+              }
+            );
+            
+            // Notify doer that time is up
+            await bot.telegram.sendMessage(
+              user.telegramId,
+              TEXT.doerTimeUpNotification[lang]
+            );
+          } catch (err) {
+            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+          }
+        }
+      }
+
+      // Notify creator if no one confirmed
+      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
+        try {
+          const creator = await User.findById(task.creator);
+          if (creator) {
+            const lang = creator.language || "en";
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              TEXT.noConfirmationNotification[lang]
+            );
+          }
+        } catch (err) {
+          console.error("Error notifying creator:", err);
         }
       }
     }
@@ -1919,30 +1923,8 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
-async function disableTaskButtons(bot, chatId, messageId, lang) {
-  try {
-    await bot.telegram.editMessageReplyMarkup(
-      chatId,
-      messageId,
-      undefined,
-      {
-        inline_keyboard: [
-          [
-            Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-            Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-          ]
-        ]
-      }
-    );
-  } catch (err) {
-    console.error("Error disabling task buttons:", err);
-    // If message not found, it's okay to ignore
-    if (!err.description.includes("message to edit not found")) {
-      throw err;
-    }
-  }
-}
-// Disabled button handlers - these just acknowledge the click but do nothing
+
+// Add handlers for the disabled buttons
 bot.action("_DISABLED_ACCEPT", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
 });
@@ -1952,17 +1934,12 @@ bot.action("_DISABLED_DECLINE", async (ctx) => {
 });
 
 // Add these near your other action handlers
-// Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
 });
 
 bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be canceled");
-});
-
-bot.action("_NO_ACTION", async (ctx) => {
-  await ctx.answerCbQuery(); // Just acknowledge the click
 });
 bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -4711,7 +4688,6 @@ bot.catch((err, ctx) => {
       // Start periodic checks
       checkTaskExpiries(bot);
       sendReminders(bot);
-      startPeriodicChecks(bot);
     }).catch(err => {
       console.error("Bot failed to start:", err);
     });
