@@ -874,7 +874,6 @@ function startBot() {
 
    // Start the expiry checkers
   checkTaskExpiries(bot);
-  disableExpiredTaskApplicationButtons(bot);
   sendReminders(bot);
   /**
  * Build an inline keyboard with:
@@ -1808,8 +1807,8 @@ async function disableExpiredTaskApplicationButtons(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
                   ]
                 ]
               }
@@ -1825,14 +1824,13 @@ async function disableExpiredTaskApplicationButtons(bot) {
   }
 }
 
-
 // Update the checkTaskExpiries function
 async function checkTaskExpiries(bot) {
   try {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $lte: now }
+      expiry: { $lte: now } // Only tasks that have actually expired
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
@@ -1840,8 +1838,9 @@ async function checkTaskExpiries(bot) {
       task.status = "Expired";
       await task.save();
 
-      // Disable buttons for ALL applications (both pending and accepted)
-      for (const app of task.applicants) {
+      // Disable application buttons for pending applications
+      const pendingApps = task.applicants.filter(app => app.status === "Pending");
+      for (const app of pendingApps) {
         if (app.messageId) {
           try {
             const creator = await User.findById(task.creator);
@@ -1867,7 +1866,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Existing code for disabling buttons for accepted applicants...
+      // Disable buttons for accepted applicants (existing code)
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1923,15 +1922,6 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
-
-// Add handlers for the disabled buttons
-bot.action("_DISABLED_ACCEPT", async (ctx) => {
-  await ctx.answerCbQuery("This task has expired and can no longer be accepted");
-});
-
-bot.action("_DISABLED_DECLINE", async (ctx) => {
-  await ctx.answerCbQuery("This task has expired and can no longer be declined");
-});
 
 // Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
