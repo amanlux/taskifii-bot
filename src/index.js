@@ -1956,11 +1956,12 @@ async function checkPendingApplications(bot) {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $gt: now } // Only active tasks
+      expiry: { $gt: now }, // Only active tasks
+      reminderSent: { $ne: true } // Only tasks that haven't received a reminder
     }).populate("creator").populate("applicants.user");
 
     for (const task of tasks) {
-      // Find applications received before 85% of the remaining time
+      // Calculate 85% of remaining time
       const timeRemaining = task.expiry.getTime() - now.getTime();
       const eightyFivePercentTime = timeRemaining * 0.85;
       const cutoffTime = new Date(now.getTime() + eightyFivePercentTime);
@@ -1973,7 +1974,7 @@ async function checkPendingApplications(bot) {
       );
 
       if (pendingApps.length > 0) {
-        // Check if any applications were already accepted
+        // Check if any applications were already accepted before cutoff
         const hasAccepted = task.applicants.some(app => 
           app.status === "Accepted" && 
           app.receivedAt && 
@@ -3767,7 +3768,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     exchangeStrategy: draft.exchangeStrategy,
     status: "Open",
     applicants: [],
-    stages: []
+    stages: [],
+    reminderSent: false,
   });
 
   // Post to channel - FIXED VERSION WITH PROPER INLINE KEYBOARD
