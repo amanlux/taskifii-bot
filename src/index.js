@@ -1789,7 +1789,13 @@ async function disableExpiredTaskButtons(bot) {
     console.error("Error in disableExpiredTaskButtons:", err);
   }
 }
-
+function calculateTimeRemaining(expiryDate) {
+  const now = new Date();
+  const remainingMs = expiryDate.getTime() - now.getTime();
+  const hours = Math.floor(remainingMs / (1000 * 60 * 60));
+  const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+  return { hours, minutes };
+}
 // Update the disableExpiredTaskApplicationButtons function
 async function disableExpiredTaskApplicationButtons(bot) {
   try {
@@ -1983,21 +1989,19 @@ async function checkPendingApplications(bot) {
 
         if (!hasAccepted) {
           // Calculate remaining time in hours and minutes
-          const remainingMs = task.expiry.getTime() - now.getTime();
-          const remainingHours = Math.floor(remainingMs / (1000 * 60 * 60));
-          const remainingMinutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
-
+          const { hours, minutes } = calculateTimeRemaining(task.expiry);
+          
           const creator = task.creator;
           const lang = creator?.language || "en";
           
           const message = lang === "am" 
             ? `⏰ ማስታወሻ: የተግዳሮቱ ጊዜ ይቅርታ አልፎታል!\n\n` +
               `የተቀበሉት ማመልከቻዎች አሉ፣ ነገር ግን እስካሁን አንድንም አልመረጡም።\n\n` +
-              `የተግዳሮቱ ጊዜ ከ${remainingHours} ሰዓት እና ${remainingMinutes} ደቂቃ በኋላ ይቆማል።\n\n` +
+              `የተግዳሮቱ ጊዜ ከ${hours} ሰዓት እና ${minutes} ደቂቃ በኋላ ይቆማል።\n\n` +
               `አንድ አመልካች ለመምረጥ ከፈለጉ እባክዎ በቶሎ ይምረጡ።`
             : `⏰ Reminder: Your task is expiring soon!\n\n` +
               `You have pending applications but haven't selected anyone yet.\n\n` +
-              `The task will expire in ${remainingHours} hours and ${remainingMinutes} minutes.\n\n` +
+              `The task will expire in ${hours} hours and ${minutes} minutes.\n\n` +
               `Please select an applicant soon if you want to proceed.`;
 
           try {
