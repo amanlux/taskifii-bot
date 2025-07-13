@@ -1528,8 +1528,11 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
   const userId = ctx.match[2];
   
-  // Find the task and user using full IDs
+  // Find the task and check if it's expired
   const task = await Task.findById(taskId);
+  if (!task || task.status === "Expired") {
+    return ctx.reply("This task has expired and can no longer be accepted.");
+  }
   const user = await User.findById(userId);
   
   if (!task || !user) {
@@ -1594,11 +1597,14 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
 // Updated handler for Decline button
 bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const taskId = ctx.match[1]; // Full ID
-  const userId = ctx.match[2]; // Full ID
+  const taskId = ctx.match[1];
+  const userId = ctx.match[2];
   
-  // Find the task and user using full IDs
+  // Find the task and check if it's expired
   const task = await Task.findById(taskId);
+  if (!task || task.status === "Expired") {
+    return ctx.reply("This task has expired and can no longer be declined.");
+  }
   const user = await User.findById(userId);
   
   if (!task || !user) {
@@ -1841,10 +1847,10 @@ async function checkTaskExpiries(bot) {
       // Disable application buttons for pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
-        if (app.messageId) {
+        if (app.messageId && task.creator) {
           try {
-            const creator = await User.findById(task.creator);
-            const lang = creator?.language || "en";
+            const creator = task.creator;
+            const lang = creator.language || "en";
             
             // Edit the message to show disabled but visible buttons
             await bot.telegram.editMessageReplyMarkup(
@@ -1854,19 +1860,41 @@ async function checkTaskExpiries(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+                    Markup.button.callback(`✔ ${TEXT.acceptBtn[lang]}`, "_DISABLED_ACCEPT"),
+                    Markup.button.callback(`✔ ${TEXT.declineBtn[lang]}`, "_DISABLED_DECLINE")
                   ]
                 ]
               }
             );
           } catch (err) {
             console.error("Error disabling application buttons:", err);
+            // If editing fails, send a new message and delete the old one if possible
+            try {
+              const creator = task.creator;
+              const lang = creator.language || "en";
+              const applicant = app.user;
+              const applicantName = applicant.fullName || `@${applicant.username}` || "Anonymous";
+              
+              const message = lang === "am" 
+                ? `⏰ ይህ ተግዳሮት ጊዜው አልፎታል\n\nየተግዳሮቱ ጊዜ አልፎታል። ${applicantName} ያስገቡት ማመልከቻ አሁን ሊቀበል አይችልም።`
+                : `⏰ This task has expired\n\nThe task time has expired. The application from ${applicantName} can no longer be accepted.`;
+              
+              // Send new message
+              await bot.telegram.sendMessage(
+                creator.telegramId,
+                message
+              );
+              
+              // Try to delete the old message
+              await bot.telegram.deleteMessage(creator.telegramId, app.messageId).catch(() => {});
+            } catch (fallbackErr) {
+              console.error("Fallback error:", fallbackErr);
+            }
           }
         }
       }
 
-      // Rest of your existing code for handling accepted applications...
+      // Handle accepted applications (existing code remains the same)
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1881,8 +1909,8 @@ async function checkTaskExpiries(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
-                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
+                    Markup.button.callback(`✔ ${TEXT.doTaskBtn[lang]}`, "_DISABLED_DO_TASK"),
+                    Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "_DISABLED_CANCEL_TASK")
                   ]
                 ]
               }
@@ -1899,7 +1927,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Notify creator if no one confirmed
+      // Notify creator if no one confirmed (existing code remains the same)
       if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
         try {
           const creator = await User.findById(task.creator);
