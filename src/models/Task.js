@@ -48,7 +48,8 @@ const TaskSchema = new Schema(
     acceptedDoer: { type: Schema.Types.ObjectId, ref: "User", default: null },
     stages: { type: [StageSchema], default: [] },
     channelMessageId: { type: Number },
-    lastReminderSent: { type: Date }
+    lastReminderSent: { type: Date },
+    reminderSent: { type: Boolean, default: false }
   },
   { timestamps: true }
 );

@@ -875,6 +875,7 @@ function startBot() {
    // Start the expiry checkers
   checkTaskExpiries(bot);
   sendReminders(bot);
+  checkPendingApplications(bot);
   /**
  * Build an inline keyboard with:
  *  – ✅ prefix on the clicked button
@@ -1950,6 +1951,76 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+async function checkPendingApplications(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $gt: now } // Only active tasks
+    }).populate("creator").populate("applicants.user");
+
+    for (const task of tasks) {
+      // Find applications received before 85% of the remaining time
+      const timeRemaining = task.expiry.getTime() - now.getTime();
+      const eightyFivePercentTime = timeRemaining * 0.85;
+      const cutoffTime = new Date(now.getTime() + eightyFivePercentTime);
+
+      // Get pending applications received before cutoff
+      const pendingApps = task.applicants.filter(app => 
+        app.status === "Pending" && 
+        app.receivedAt && 
+        app.receivedAt < cutoffTime
+      );
+
+      if (pendingApps.length > 0) {
+        // Check if any applications were already accepted
+        const hasAccepted = task.applicants.some(app => 
+          app.status === "Accepted" && 
+          app.receivedAt && 
+          app.receivedAt < cutoffTime
+        );
+
+        if (!hasAccepted) {
+          // Calculate remaining time in hours and minutes
+          const remainingMs = task.expiry.getTime() - now.getTime();
+          const remainingHours = Math.floor(remainingMs / (1000 * 60 * 60));
+          const remainingMinutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+
+          const creator = task.creator;
+          const lang = creator?.language || "en";
+          
+          const message = lang === "am" 
+            ? `⏰ ማስታወሻ: የተግዳሮቱ ጊዜ ይቅርታ አልፎታል!\n\n` +
+              `የተቀበሉት ማመልከቻዎች አሉ፣ ነገር ግን እስካሁን አንድንም አልመረጡም።\n\n` +
+              `የተግዳሮቱ ጊዜ ከ${remainingHours} ሰዓት እና ${remainingMinutes} ደቂቃ በኋላ ይቆማል።\n\n` +
+              `አንድ አመልካች ለመምረጥ ከፈለጉ እባክዎ በቶሎ ይምረጡ።`
+            : `⏰ Reminder: Your task is expiring soon!\n\n` +
+              `You have pending applications but haven't selected anyone yet.\n\n` +
+              `The task will expire in ${remainingHours} hours and ${remainingMinutes} minutes.\n\n` +
+              `Please select an applicant soon if you want to proceed.`;
+
+          try {
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              message
+            );
+            
+            // Mark that we've sent this reminder
+            task.reminderSent = true;
+            await task.save();
+          } catch (err) {
+            console.error("Failed to send pending applications reminder:", err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in checkPendingApplications:", err);
+  }
+  
+  // Check again in 15 minutes
+  setTimeout(() => checkPendingApplications(bot), 15 * 60 * 1000);
+}
 
 bot.action("_DISABLED_ACCEPT", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
@@ -2165,7 +2236,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               ctx.message.document?.file_id ||
               ctx.message.video?.file_id ||
               ctx.message.audio?.file_id || null,
-          status: "Pending" // Default status
+          status: "Pending", // Default status
+          receivedAt: new Date()
           // createdAt is automatically added by Mongoose
       };
 
@@ -4715,6 +4787,7 @@ bot.catch((err, ctx) => {
       // Start periodic checks
       checkTaskExpiries(bot);
       sendReminders(bot);
+      checkPendingApplications(bot);
     }).catch(err => {
       console.error("Bot failed to start:", err);
     });
