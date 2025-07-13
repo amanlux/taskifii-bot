@@ -1807,8 +1807,8 @@ async function disableExpiredTaskApplicationButtons(bot) {
               {
                 inline_keyboard: [
                   [
-                    Markup.button.callback(TEXT.acceptBtn[lang], "_NO_ACTION"),
-                    Markup.button.callback(TEXT.declineBtn[lang], "_NO_ACTION")
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
                   ]
                 ]
               }
@@ -1866,7 +1866,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Disable buttons for accepted applicants (existing code)
+      // Rest of your existing code for handling accepted applications...
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
@@ -1922,6 +1922,14 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+
+bot.action("_DISABLED_ACCEPT", async (ctx) => {
+  await ctx.answerCbQuery("This task has expired and can no longer be accepted");
+});
+
+bot.action("_DISABLED_DECLINE", async (ctx) => {
+  await ctx.answerCbQuery("This task has expired and can no longer be declined");
+});
 
 // Add these near your other action handlers
 bot.action("_DISABLED_DO_TASK", async (ctx) => {
