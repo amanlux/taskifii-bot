@@ -49,6 +49,7 @@ const TaskSchema = new Schema(
     stages: { type: [StageSchema], default: [] },
     channelMessageId: { type: Number },
     lastReminderSent: { type: Date },
+    postedAt: { type: Date, default: Date.now },
     reminderSent: { type: Boolean, default: false }
   },
   { timestamps: true }
