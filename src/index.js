@@ -796,7 +796,190 @@ function buildChannelPostText(draft, user) {
 
   return lines.join("\n");
 }
+// ------------------------------------
+//  Task Management Utility Functions
+// ------------------------------------
 
+async function checkTaskExpiries(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $lte: now }
+    }).populate("creator").populate("applicants.user");
+    
+    for (const task of tasks) {
+      // Update task status to Expired
+      task.status = "Expired";
+      await task.save();
+
+      // Disable application buttons for pending applications
+      const pendingApps = task.applicants.filter(app => app.status === "Pending");
+      for (const app of pendingApps) {
+        if (app.messageId && task.creator) {
+          try {
+            const creator = task.creator;
+            const lang = creator.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+                  ]
+                ]
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling application buttons:", err);
+          }
+        }
+      }
+
+      // Handle accepted applications
+      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      for (const app of acceptedApps) {
+        if (app.user && app.messageId) {
+          try {
+            const user = app.user;
+            const lang = user.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              user.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
+                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
+                  ]
+                ]
+              }
+            );
+            
+            // Notify doer that time is up
+            await bot.telegram.sendMessage(
+              user.telegramId,
+              TEXT.doerTimeUpNotification[lang]
+            );
+          } catch (err) {
+            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+          }
+        }
+      }
+
+      // Notify creator if no one confirmed
+      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
+        try {
+          const creator = await User.findById(task.creator);
+          if (creator) {
+            const lang = creator.language || "en";
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              TEXT.noConfirmationNotification[lang]
+            );
+          }
+        } catch (err) {
+          console.error("Error notifying creator:", err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in checkTaskExpiries:", err);
+  }
+  
+  // Check again in 1 minute
+  setTimeout(() => checkTaskExpiries(bot), 60000);
+}
+
+async function checkPendingReminders(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      status: "Open",
+      reminderSent: false,
+      expiry: { $gt: now }
+    }).populate("creator");
+
+    for (const task of tasks) {
+      const totalTimeMs = task.expiry - task.postedAt;
+      const reminderTime = new Date(task.postedAt.getTime() + (totalTimeMs * 0.85));
+
+      if (now > reminderTime) {
+        const lang = task.creator.language || "en";
+        const timeLeftMs = task.expiry - now;
+        const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
+        const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
+
+        const message = lang === "am" 
+          ? `⏰ ማስታወሻ: የተግዳሮትዎ ጊዜ እየቀረ ነው!\n\n` +
+            `የተግዳሮትዎ የማብቂያ ጊዜ የሚቀረው: ${hoursLeft} ሰዓት እና ${minutesLeft} ደቂቃ\n\n` +
+            `አመልካቾችን ለመቀበል የተቀረው ጊዜ በጣም አጭር ነው። እባክዎ በቅርቡ አመልካች ይምረጡ።`
+          : `⏰ Reminder: Your task time is running out!\n\n` +
+            `Time remaining for your task: ${hoursLeft} hours and ${minutesLeft} minutes\n\n` +
+            `You have very little time left to accept applicants. Please select an applicant soon.`;
+
+        await bot.telegram.sendMessage(task.creator.telegramId, message);
+        task.reminderSent = true;
+        await task.save();
+      }
+    }
+  } catch (err) {
+    console.error("Error in checkPendingReminders:", err);
+  }
+}
+
+async function sendReminders(bot) {
+  try {
+    const tasks = await Task.find({
+      status: "Open",
+      expiry: { $gt: new Date() }
+    }).populate("applicants.user");
+    
+    for (const task of tasks) {
+      const acceptedApps = task.applicants.filter(app => 
+        app.status === "Accepted" && 
+        !app.confirmedAt && 
+        !app.canceledAt
+      );
+      
+      if (acceptedApps.length === 0) continue;
+      
+      const timeLeftMs = task.expiry.getTime() - Date.now();
+      const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
+      const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
+      
+      // Only send reminders if there's meaningful time left (more than 1 minute)
+      if (timeLeftMs < 60000) continue;
+      
+      for (const app of acceptedApps) {
+        if (app.user) {
+          const doer = app.user;
+          const doerLang = doer.language || "en";
+          const message = TEXT.reminderNotification[doerLang]
+            .replace("[hours]", hoursLeft.toString())
+            .replace("[minutes]", minutesLeft.toString());
+          
+          try {
+            await bot.telegram.sendMessage(
+              doer.telegramId,
+              message
+            );
+          } catch (err) {
+            console.error("Error sending reminder to doer:", err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in sendReminders:", err);
+  }
+}
 
   // Optionally include user stats (earned/spent/avg rating) if desired:
   // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
@@ -833,6 +1016,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
 // Then connect to Mongo and launch the bot
 mongoose
   .connect(process.env.MONGODB_URI, { autoIndex: true })
@@ -853,7 +1037,6 @@ mongoose
     console.error("❌ MongoDB connection error:", err);
     process.exit(1);
   });
-
 
 // ------------------------------------
 //  Main Bot Logic
@@ -1839,162 +2022,8 @@ async function disableExpiredTaskApplicationButtons(bot) {
   }
 }
 
-// Update the checkTaskExpiries function
-async function checkTaskExpiries(bot) {
-  try {
-    const now = new Date();
-    const tasks = await Task.find({
-      status: "Open",
-      expiry: { $lte: now } // Only tasks that have actually expired
-    }).populate("creator").populate("applicants.user");
-    
-    for (const task of tasks) {
-      // Update task status to Expired
-      task.status = "Expired";
-      await task.save();
 
-      // Disable application buttons for pending applications
-      const pendingApps = task.applicants.filter(app => app.status === "Pending");
-      for (const app of pendingApps) {
-        if (app.messageId && task.creator) {
-          try {
-            const creator = task.creator;
-            const lang = creator.language || "en";
-            
-            // Edit the message to show disabled but visible buttons
-            await bot.telegram.editMessageReplyMarkup(
-              creator.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(`✔ ${TEXT.acceptBtn[lang]}`, "_DISABLED_ACCEPT"),
-                    Markup.button.callback(`✔ ${TEXT.declineBtn[lang]}`, "_DISABLED_DECLINE")
-                  ]
-                ]
-              }
-            );
-          } catch (err) {
-            console.error("Error disabling application buttons:", err);
-            // If editing fails, send a new message and delete the old one if possible
-            try {
-              const creator = task.creator;
-              const lang = creator.language || "en";
-              const applicant = app.user;
-              const applicantName = applicant.fullName || `@${applicant.username}` || "Anonymous";
-              
-              const message = lang === "am" 
-                ? `⏰ ይህ ተግዳሮት ጊዜው አልፎታል\n\nየተግዳሮቱ ጊዜ አልፎታል። ${applicantName} ያስገቡት ማመልከቻ አሁን ሊቀበል አይችልም።`
-                : `⏰ This task has expired\n\nThe task time has expired. The application from ${applicantName} can no longer be accepted.`;
-              
-              // Send new message
-              await bot.telegram.sendMessage(
-                creator.telegramId,
-                message
-              );
-              
-              // Try to delete the old message
-              await bot.telegram.deleteMessage(creator.telegramId, app.messageId).catch(() => {});
-            } catch (fallbackErr) {
-              console.error("Fallback error:", fallbackErr);
-            }
-          }
-        }
-      }
 
-      // Handle accepted applications (existing code remains the same)
-      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
-      for (const app of acceptedApps) {
-        if (app.user && app.messageId) {
-          try {
-            const user = app.user;
-            const lang = user.language || "en";
-            
-            await bot.telegram.editMessageReplyMarkup(
-              user.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(`✔ ${TEXT.doTaskBtn[lang]}`, "_DISABLED_DO_TASK"),
-                    Markup.button.callback(`✔ ${TEXT.cancelBtn[lang]}`, "_DISABLED_CANCEL_TASK")
-                  ]
-                ]
-              }
-            );
-            
-            // Notify doer that time is up
-            await bot.telegram.sendMessage(
-              user.telegramId,
-              TEXT.doerTimeUpNotification[lang]
-            );
-          } catch (err) {
-            console.error("Error disabling buttons for user:", app.user.telegramId, err);
-          }
-        }
-      }
-
-      // Notify creator if no one confirmed (existing code remains the same)
-      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
-        try {
-          const creator = await User.findById(task.creator);
-          if (creator) {
-            const lang = creator.language || "en";
-            await bot.telegram.sendMessage(
-              creator.telegramId,
-              TEXT.noConfirmationNotification[lang]
-            );
-          }
-        } catch (err) {
-          console.error("Error notifying creator:", err);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error in checkTaskExpiries:", err);
-  }
-  
-  // Check again in 1 minute
-  setTimeout(() => checkTaskExpiries(bot), 60000);
-}
-async function checkPendingReminders(bot) {
-  try {
-    const now = new Date();
-    const tasks = await Task.find({
-      status: "Open",
-      reminderSent: false,
-      expiry: { $gt: now }
-    }).populate("creator");
-
-    for (const task of tasks) {
-      const totalTimeMs = task.expiry - task.postedAt;
-      const reminderTime = new Date(task.postedAt.getTime() + (totalTimeMs * 0.85));
-
-      if (now > reminderTime) {
-        const lang = task.creator.language || "en";
-        const timeLeftMs = task.expiry - now;
-        const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
-        const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
-
-        const message = lang === "am" 
-          ? `⏰ ማስታወሻ: የተግዳሮትዎ ጊዜ እየቀረ ነው!\n\n` +
-            `የተግዳሮትዎ የማብቂያ ጊዜ የሚቀረው: ${hoursLeft} ሰዓት እና ${minutesLeft} ደቂቃ\n\n` +
-            `አመልካቾችን ለመቀበል የተቀረው ጊዜ በጣም አጭር ነው። እባክዎ በቅርቡ አመልካች ይምረጡ።`
-          : `⏰ Reminder: Your task time is running out!\n\n` +
-            `Time remaining for your task: ${hoursLeft} hours and ${minutesLeft} minutes\n\n` +
-            `You have very little time left to accept applicants. Please select an applicant soon.`;
-
-        await bot.telegram.sendMessage(task.creator.telegramId, message);
-        task.reminderSent = true;
-        await task.save();
-      }
-    }
-  } catch (err) {
-    console.error("Error in checkPendingReminders:", err);
-  }
-}
 bot.action("_DISABLED_ACCEPT", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
 });
@@ -2069,55 +2098,7 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
   }
 });
 
-async function sendReminders(bot) {
-  try {
-    const tasks = await Task.find({
-      status: "Open",
-      expiry: { $gt: new Date() } // Only tasks that haven't expired yet
-    }).populate("applicants.user");
-    
-    for (const task of tasks) {
-      const acceptedApps = task.applicants.filter(app => 
-        app.status === "Accepted" && 
-        !app.confirmedAt && 
-        !app.canceledAt
-      );
-      
-      if (acceptedApps.length === 0) continue;
-      
-      const timeLeftMs = task.expiry.getTime() - Date.now();
-      const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
-      const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
-      
-      // Only send reminders if there's meaningful time left (more than 1 minute)
-      if (timeLeftMs < 60000) continue;
-      
-      for (const app of acceptedApps) {
-        if (app.user) {
-          const doer = app.user;
-          const doerLang = doer.language || "en";
-          const message = TEXT.reminderNotification[doerLang]
-            .replace("[hours]", hoursLeft.toString())
-            .replace("[minutes]", minutesLeft.toString());
-          
-          try {
-            await bot.telegram.sendMessage(
-              doer.telegramId,
-              message
-            );
-          } catch (err) {
-            console.error("Error sending reminder to doer:", err);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error in sendReminders:", err);
-  }
-  
-  // Check again in 5 minutes (300000 milliseconds)
-  setTimeout(() => sendReminders(bot), 300000);
-}
+
 
 // ─────────── “Edit Task” Entry Point ───────────
 bot.action("TASK_EDIT", async (ctx) => {
