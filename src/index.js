@@ -838,7 +838,12 @@ mongoose
   .connect(process.env.MONGODB_URI, { autoIndex: true })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
-    startBot();
+    const bot = startBot(); // Make sure startBot() returns the bot instance
+    
+    // Start the expiry checkers
+    checkTaskExpiries(bot);
+    sendReminders(bot);
+    
     // Add these lines:
     checkPendingReminders(bot);
     // Run every hour to catch any missed reminders
@@ -3735,15 +3740,14 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     status: "Open",
     applicants: [],
     stages: [],
-    postedAt: now, // Add this new field
-    reminderSent: false // Add this new field
+    postedAt: now,
+    reminderSent: false
   });
 
-  // Post to channel - FIXED VERSION WITH PROPER INLINE KEYBOARD
+  // Post to channel
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, user);
   
-  // Replace the current APPLY button creation with this:
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
       user.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ", 
@@ -3752,13 +3756,11 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   ]);
 
   try {
-    // Send to channel with proper keyboard attachment
     const sent = await ctx.telegram.sendMessage(channelId, preview, {
       parse_mode: "Markdown",
-      ...keyboard // This spreads the reply_markup correctly
+      ...keyboard
     });
 
-    // Store the channel message ID with the task
     task.channelMessageId = sent.message_id;
     await task.save();
     
