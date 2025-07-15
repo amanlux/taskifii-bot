@@ -896,7 +896,17 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
-
+// Helper to check if user has already applied to a task
+async function hasUserApplied(taskId, userId) {
+  const task = await Task.findById(taskId).populate('applicants.user');
+  if (!task) return false;
+  
+  // Check both string and ObjectId comparisons
+  return task.applicants.some(applicant => {
+    if (!applicant.user) return false;
+    return applicant.user._id.toString() === userId.toString();
+  });
+}
 async function checkPendingReminders(bot) {
   try {
     const now = new Date();
@@ -2198,6 +2208,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   // ─────────── 1. Check if this is part of an application flow ───────────
   // In the application flow section of the consolidated handler:
   // In the application flow section of the consolidated handler:
+// In the text handler section (around line 2000), replace the awaiting_pitch section with this:
+
   if (ctx.session?.applyFlow?.step === "awaiting_pitch") {
       const user = await User.findOne({ telegramId: ctx.from.id });
       const lang = user?.language || "en";
@@ -2220,15 +2232,24 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           return ctx.reply(err);
       }
           
-      
-      // Check if the task still exists and is open
-      const task = await Task.findById(ctx.session.applyFlow.taskId);
-      if (!task || task.status !== "Open") {
-        delete ctx.session.applyFlow;
-        const lang = user?.language || "en";
-        return ctx.reply(lang === "am" 
-          ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-          : "❌ This task is no longer available.");
+      // Get the task being applied to
+      const task = await Task.findById(ctx.session.applyFlow.taskId).populate("creator");
+      if (!task) {
+          delete ctx.session.applyFlow;
+          return ctx.reply(lang === "am" 
+              ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+              : "❌ This task is no longer available.");
+      }
+
+      // Double-check if user has already applied (prevent race condition)
+      const alreadyApplied = await hasUserApplied(task._id, user._id);
+      if (alreadyApplied) {
+          delete ctx.session.applyFlow;
+          return ctx.reply(
+              lang === "am" 
+                  ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+                  : "You've already applied to this task."
+          );
       }
 
       // Save the application - updated to match your exact schema
@@ -2240,7 +2261,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               ctx.message.video?.file_id ||
               ctx.message.audio?.file_id || null,
           status: "Pending",  // Default status
-          appliedAt: new Date()
+          
           // createdAt is automatically added by Mongoose
       };
 
