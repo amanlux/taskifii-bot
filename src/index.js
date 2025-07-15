@@ -1631,107 +1631,122 @@ bot.action("POST_TASK", async (ctx) => {
 
 // ─── Apply Button Handler ───────────────────────────────────
 bot.action(/^APPLY_(.+)$/, async ctx => {
-  await ctx.answerCbQuery();
-  const taskId = ctx.match[1];
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  
-  // Check if user exists and has completed onboarding
-  if (!user || user.onboardingStep !== "completed") {
-    const lang = user?.language || "en";
-    const message = lang === "am" 
-      ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
-      : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+  try {
+    await ctx.answerCbQuery();
+    const taskId = ctx.match[1];
+    const user = await User.findOne({ telegramId: ctx.from.id });
     
-    // Send deep link that will trigger the registration flow
-    const deepLink = `https://t.me/${ctx.botInfo.username}?start=apply_${taskId}`;
+    if (!user || user.onboardingStep !== "completed") {
+      const lang = user?.language || "en";
+      const message = lang === "am" 
+        ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
+        : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+      
+      const deepLink = `https://t.me/${ctx.botInfo.username}?start=apply_${taskId}`;
+      
+      return ctx.reply(message, Markup.inlineKeyboard([
+        [Markup.button.url(
+          lang === "am" ? "መመዝገቢያ ጀምር / Register" : "Register / መመዝገቢያ ጀምር", 
+          deepLink
+        )]
+      ]));
+    }
+
+    const lang = user.language || "en";
+    const task = await Task.findById(taskId).populate('applicants.user');
     
-    return ctx.reply(message, Markup.inlineKeyboard([
-      [Markup.button.url(
-        lang === "am" ? "መመዝገቢያ ጀምር / Register" : "Register / መመዝገቢያ ጀምር", 
-        deepLink
-      )]
-    ]));
+    if (!task || task.status !== "Open") {
+      return ctx.answerCbQuery(
+        lang === "am" 
+          ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+          : "❌ This task is no longer available.",
+        { show_alert: true }
+      );
+    }
+
+    // Check if user has already applied
+    const alreadyApplied = await hasUserApplied(taskId, user._id);
+    if (alreadyApplied) {
+      return ctx.answerCbQuery(
+        lang === "am" 
+          ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+          : "You've already applied to this task.",
+        { show_alert: true }
+      );
+    }
+
+    // Initialize application flow
+    ctx.session.applyFlow = {
+      taskId,
+      step: "awaiting_pitch",
+      userApplied: true // Mark that user has initiated application
+    };
+
+    const prompt = lang === "am"
+      ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+      : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+    
+    return ctx.reply(prompt);
+  } catch (err) {
+    console.error("Error in APPLY handler:", err);
+    return ctx.reply("An error occurred. Please try again.");
   }
-
-  const lang = user.language || "en";
-  const task = await Task.findById(taskId);
-  if (!task) {
-    return ctx.reply(lang === "am" 
-      ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-      : "❌ This task is no longer available.");
-  }
-
-  // Check if user has already applied
-  const alreadyApplied = await hasUserApplied(taskId, user._id);
-  if (alreadyApplied) {
-    return ctx.answerCbQuery(
-      lang === "am" 
-        ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
-        : "You've already applied to this task.",
-      { show_alert: true }
-    );
-  }
-
-  // Existing application flow for registered users
-  ctx.session.applyFlow = {
-    taskId,
-    step: "awaiting_pitch"
-  };
-
-  const prompt = lang === "am"
-    ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-    : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
-  return ctx.reply(prompt);
 });
 //  ➤ 2nd step: when user sends /apply_<taskId>, ask for their 20–500-char pitch
 bot.hears(/^\/apply_(.+)$/, async ctx => {
-  const taskId = ctx.match[1];
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  
-  // Check if user exists and has completed onboarding
-  if (!user || user.onboardingStep !== "completed") {
-    const lang = user?.language || "en";
-    const message = lang === "am" 
-      ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
-      : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+  try {
+    const taskId = ctx.match[1];
+    const user = await User.findOne({ telegramId: ctx.from.id });
     
-    return ctx.reply(message, Markup.inlineKeyboard([
-      [Markup.button.callback("/start", "START_REGISTRATION")]
-    ]));
+    if (!user || user.onboardingStep !== "completed") {
+      const lang = user?.language || "en";
+      const message = lang === "am" 
+        ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
+        : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
+      
+      return ctx.reply(message, Markup.inlineKeyboard([
+        [Markup.button.callback("/start", "START_REGISTRATION")]
+      ]));
+    }
+
+    const lang = user.language || "en";
+    const task = await Task.findById(taskId).populate('applicants.user');
+    
+    if (!task || task.status !== "Open") {
+      return ctx.reply(
+        lang === "am" 
+          ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+          : "❌ This task is no longer available."
+      );
+    }
+
+    // Check if user has already applied
+    const alreadyApplied = await hasUserApplied(taskId, user._id);
+    if (alreadyApplied) {
+      return ctx.reply(
+        lang === "am" 
+          ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+          : "You've already applied to this task."
+      );
+    }
+
+    // Initialize application flow
+    ctx.session.applyFlow = {
+      taskId,
+      step: "awaiting_pitch",
+      taskMessageId: ctx.message?.message_id,
+      userApplied: true
+    };
+
+    const prompt = lang === "am"
+      ? "እባክዎ ለዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+      : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+    
+    return ctx.reply(prompt);
+  } catch (err) {
+    console.error("Error in /apply handler:", err);
+    return ctx.reply("An error occurred. Please try again.");
   }
-
-  const lang = user.language || "en";
-  const task = await Task.findById(taskId);
-  if (!task) {
-    return ctx.reply(lang === "am" 
-      ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-      : "❌ This task is no longer available.");
-  }
-
-  // Check if user has already applied
-  const alreadyApplied = await hasUserApplied(taskId, user._id);
-  if (alreadyApplied) {
-    return ctx.answerCbQuery(
-      lang === "am" 
-        ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
-        : "You've already applied to this task.",
-      { show_alert: true }
-    );
-  }
-
-  // Rest of the original handler...
-  // Initialize application flow
-  ctx.session.applyFlow = {
-    taskId,
-    step: "awaiting_pitch",
-    taskMessageId: ctx.message?.message_id
-  };
-
-  const prompt = lang === "am"
-    ? "እባክዎ ለዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-    : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
-  
-  return ctx.reply(prompt);
 });
 
 
@@ -2042,14 +2057,17 @@ async function disableExpiredTaskApplicationButtons(bot) {
     console.error("Error in disableExpiredTaskApplicationButtons:", err);
   }
 }
+
 // Helper to check if user has already applied to a task
 async function hasUserApplied(taskId, userId) {
-  const task = await Task.findById(taskId);
+  const task = await Task.findById(taskId).populate('applicants.user');
   if (!task) return false;
   
-  return task.applicants.some(applicant => 
-    applicant.user.toString() === userId.toString()
-  );
+  // Check both string and ObjectId comparisons
+  return task.applicants.some(applicant => {
+    if (!applicant.user) return false;
+    return applicant.user._id.toString() === userId.toString();
+  });
 }
 
 
@@ -2187,7 +2205,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       // extract text (message text or caption)
       let text = (ctx.message.text || "").trim();
       if (!text && ctx.message.caption) text = ctx.message.caption.trim();
-
+      
       // validation
       if (!text || text.length < 20) {
           const err = lang === "am"
@@ -2201,14 +2219,16 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               : "Please keep your message under 500 characters!";
           return ctx.reply(err);
       }
-
-      // Get the task being applied to
+          
+      
+      // Check if the task still exists and is open
       const task = await Task.findById(ctx.session.applyFlow.taskId);
-      if (!task) {
-          delete ctx.session.applyFlow;
-          return ctx.reply(lang === "am" 
-              ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-              : "❌ This task is no longer available.");
+      if (!task || task.status !== "Open") {
+        delete ctx.session.applyFlow;
+        const lang = user?.language || "en";
+        return ctx.reply(lang === "am" 
+          ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+          : "❌ This task is no longer available.");
       }
 
       // Save the application - updated to match your exact schema
@@ -2219,7 +2239,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               ctx.message.document?.file_id ||
               ctx.message.video?.file_id ||
               ctx.message.audio?.file_id || null,
-          status: "Pending" // Default status
+          status: "Pending",  // Default status
+          appliedAt: new Date()
           // createdAt is automatically added by Mongoose
       };
 
