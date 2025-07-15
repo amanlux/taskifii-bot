@@ -1653,7 +1653,6 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     ]));
   }
 
-  // Existing application flow for registered users
   const lang = user.language || "en";
   const task = await Task.findById(taskId);
   if (!task) {
@@ -1662,7 +1661,18 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       : "❌ This task is no longer available.");
   }
 
-  // Initialize applyFlow in session
+  // Check if user has already applied
+  const alreadyApplied = await hasUserApplied(taskId, user._id);
+  if (alreadyApplied) {
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+        : "You've already applied to this task.",
+      { show_alert: true }
+    );
+  }
+
+  // Existing application flow for registered users
   ctx.session.applyFlow = {
     taskId,
     step: "awaiting_pitch"
@@ -1696,6 +1706,17 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     return ctx.reply(lang === "am" 
       ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
       : "❌ This task is no longer available.");
+  }
+
+  // Check if user has already applied
+  const alreadyApplied = await hasUserApplied(taskId, user._id);
+  if (alreadyApplied) {
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+        : "You've already applied to this task.",
+      { show_alert: true }
+    );
   }
 
   // Rest of the original handler...
@@ -2021,7 +2042,15 @@ async function disableExpiredTaskApplicationButtons(bot) {
     console.error("Error in disableExpiredTaskApplicationButtons:", err);
   }
 }
-
+// Helper to check if user has already applied to a task
+async function hasUserApplied(taskId, userId) {
+  const task = await Task.findById(taskId);
+  if (!task) return false;
+  
+  return task.applicants.some(applicant => 
+    applicant.user.toString() === userId.toString()
+  );
+}
 
 
 bot.action("_DISABLED_ACCEPT", async (ctx) => {
