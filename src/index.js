@@ -1674,7 +1674,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Check if user has already applied
+    // Check if user has already applied - this is the key change
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.answerCbQuery(
@@ -1685,11 +1685,11 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Initialize application flow
+    // Only initialize application flow if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch",
-      userApplied: true // Mark that user has initiated application
+      userApplied: true
     };
 
     const prompt = lang === "am"
@@ -1730,7 +1730,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Check if user has already applied
+    // Check if user has already applied - immediate response
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.reply(
@@ -1740,7 +1740,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Initialize application flow
+    // Only initialize application flow if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch",
@@ -2210,9 +2210,30 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   // In the application flow section of the consolidated handler:
 // In the text handler section (around line 2000), replace the awaiting_pitch section with this:
 
+// In the text handler section (around line 2000), replace the awaiting_pitch section with this:
+
   if (ctx.session?.applyFlow?.step === "awaiting_pitch") {
       const user = await User.findOne({ telegramId: ctx.from.id });
       const lang = user?.language || "en";
+
+      // First check if this is a duplicate attempt that somehow got through
+      const task = await Task.findById(ctx.session.applyFlow.taskId).populate('applicants.user');
+      if (!task) {
+          delete ctx.session.applyFlow;
+          return ctx.reply(lang === "am" 
+              ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+              : "❌ This task is no longer available.");
+      }
+
+      const alreadyApplied = await hasUserApplied(task._id, user._id);
+      if (alreadyApplied) {
+          delete ctx.session.applyFlow;
+          return ctx.reply(
+              lang === "am" 
+                  ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+                  : "You've already applied to this task."
+          );
+      }
 
       // extract text (message text or caption)
       let text = (ctx.message.text || "").trim();
@@ -2233,23 +2254,11 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       }
           
       // Get the task being applied to
-      const task = await Task.findById(ctx.session.applyFlow.taskId).populate("creator");
       if (!task) {
           delete ctx.session.applyFlow;
           return ctx.reply(lang === "am" 
               ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
               : "❌ This task is no longer available.");
-      }
-
-      // Double-check if user has already applied (prevent race condition)
-      const alreadyApplied = await hasUserApplied(task._id, user._id);
-      if (alreadyApplied) {
-          delete ctx.session.applyFlow;
-          return ctx.reply(
-              lang === "am" 
-                  ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
-                  : "You've already applied to this task."
-          );
       }
 
       // Save the application - updated to match your exact schema
