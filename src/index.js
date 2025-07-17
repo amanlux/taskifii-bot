@@ -1689,12 +1689,23 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     // Immediately check if user has already applied
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
-      return ctx.answerCbQuery(
+      await ctx.answerCbQuery(
         lang === "am" 
           ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
           : "You've already applied to this task.",
         { show_alert: true }
       );
+
+      // Optional: also send a direct message (only if the user came to the bot privately)
+      if (ctx.chat.type === "private") {
+        await ctx.reply(
+          lang === "am" 
+            ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል። እባክዎ ፈጣሪው እስኪመልስ ይጠብቁ።" 
+            : "You have already applied to this task. Please wait for the creator to respond."
+        );
+      }
+
+      return; // Exit early so the application inquiry doesn't start
     }
 
     // Only initialize application flow if they haven't applied
@@ -1744,11 +1755,12 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     // Immediately check if user has already applied
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
-      return ctx.reply(
+      await ctx.reply(
         lang === "am" 
           ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
           : "You've already applied to this task."
       );
+      return;
     }
 
     // Only initialize application flow if they haven't applied
