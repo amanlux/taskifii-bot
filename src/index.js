@@ -898,13 +898,19 @@ async function checkTaskExpiries(bot) {
 }
 // Helper to check if user has already applied to a task
 async function hasUserApplied(taskId, userId) {
-  const task = await Task.findById(taskId).populate('applicants.user');
+  const task = await Task.findById(taskId);
   if (!task) return false;
   
-  // Check both string and ObjectId comparisons
+  // Convert userId to string if it's an ObjectId
+  const userIdStr = userId.toString ? userId.toString() : userId;
+  
   return task.applicants.some(applicant => {
-    if (!applicant.user) return false;
-    return applicant.user._id.toString() === userId.toString();
+    // Check if applicant.user is populated or just an ObjectId reference
+    if (applicant.user) {
+      const applicantId = applicant.user._id ? applicant.user._id.toString() : applicant.user.toString();
+      return applicantId === userIdStr;
+    }
+    return false;
   });
 }
 async function checkPendingReminders(bot) {
@@ -1664,8 +1670,9 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     }
 
     const lang = user.language || "en";
-    const task = await Task.findById(taskId).populate('applicants.user');
     
+    // First check if task exists and is open
+    const task = await Task.findById(taskId);
     if (!task || task.status !== "Open") {
       return ctx.answerCbQuery(
         lang === "am" 
@@ -1675,8 +1682,14 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // IMMEDIATELY check if user has already applied
-    const alreadyApplied = await hasUserApplied(taskId, user._id);
+    // Check if user has already applied - this is the crucial change
+    const alreadyApplied = task.applicants.some(app => {
+      if (!app.user) return false;
+      // Handle both populated user and ObjectId reference
+      const applicantId = app.user._id ? app.user._id.toString() : app.user.toString();
+      return applicantId === user._id.toString();
+    });
+
     if (alreadyApplied) {
       return ctx.answerCbQuery(
         lang === "am" 
@@ -1686,7 +1699,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Only initialize application flow if they haven't applied
+    // Only proceed if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch"
@@ -1720,7 +1733,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     }
 
     const lang = user.language || "en";
-    const task = await Task.findById(taskId).populate('applicants.user');
+    const task = await Task.findById(taskId);
     
     if (!task || task.status !== "Open") {
       return ctx.reply(
@@ -1730,8 +1743,13 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // IMMEDIATELY check if user has already applied
-    const alreadyApplied = await hasUserApplied(taskId, user._id);
+    // Check if user has already applied
+    const alreadyApplied = task.applicants.some(app => {
+      if (!app.user) return false;
+      const applicantId = app.user._id ? app.user._id.toString() : app.user.toString();
+      return applicantId === user._id.toString();
+    });
+
     if (alreadyApplied) {
       return ctx.reply(
         lang === "am" 
@@ -1740,7 +1758,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Only initialize application flow if they haven't applied
+    // Only proceed if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch",
@@ -2067,17 +2085,7 @@ async function disableExpiredTaskApplicationButtons(bot) {
   }
 }
 
-// Helper to check if user has already applied to a task
-async function hasUserApplied(taskId, userId) {
-  const task = await Task.findById(taskId).populate('applicants.user');
-  if (!task) return false;
-  
-  // Check both string and ObjectId comparisons
-  return task.applicants.some(applicant => {
-    if (!applicant.user) return false;
-    return applicant.user._id.toString() === userId.toString();
-  });
-}
+
 
 
 bot.action("_DISABLED_ACCEPT", async (ctx) => {
