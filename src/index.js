@@ -1640,6 +1640,7 @@ bot.action("POST_TASK", async (ctx) => {
 //  ➤ 1st step: catch Apply button clicks
 
 // ─── Apply Button Handler ───────────────────────────────────
+// Updated APPLY_ handler to check for existing applications immediately
 bot.action(/^APPLY_(.+)$/, async ctx => {
   try {
     await ctx.answerCbQuery();
