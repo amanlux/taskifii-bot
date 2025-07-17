@@ -1674,7 +1674,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Check if user has already applied - this is the key change
+    // IMMEDIATELY check if user has already applied
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.answerCbQuery(
@@ -1688,8 +1688,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     // Only initialize application flow if they haven't applied
     ctx.session.applyFlow = {
       taskId,
-      step: "awaiting_pitch",
-      userApplied: true
+      step: "awaiting_pitch"
     };
 
     const prompt = lang === "am"
@@ -1730,7 +1729,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Check if user has already applied - immediate response
+    // IMMEDIATELY check if user has already applied
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.reply(
@@ -1744,8 +1743,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch",
-      taskMessageId: ctx.message?.message_id,
-      userApplied: true
+      taskMessageId: ctx.message?.message_id
     };
 
     const prompt = lang === "am"
