@@ -907,7 +907,9 @@ async function hasUserApplied(taskId, userId) {
   return task.applicants.some(applicant => {
     // Check if applicant.user is populated or just an ObjectId reference
     if (applicant.user) {
-      const applicantId = applicant.user._id ? applicant.user._id.toString() : applicant.user.toString();
+      const applicantId = applicant.user._id ? 
+        applicant.user._id.toString() : 
+        applicant.user.toString();
       return applicantId === userIdStr;
     }
     return false;
@@ -1652,9 +1654,10 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     await ctx.answerCbQuery();
     const taskId = ctx.match[1];
     const user = await User.findOne({ telegramId: ctx.from.id });
-    
+    const lang = user?.language || "en";
+
+    // Check if user exists and has completed onboarding
     if (!user || user.onboardingStep !== "completed") {
-      const lang = user?.language || "en";
       const message = lang === "am" 
         ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
         : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
@@ -1669,9 +1672,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       ]));
     }
 
-    const lang = user.language || "en";
-    
-    // First check if task exists and is open
+    // Check if task exists and is open
     const task = await Task.findById(taskId);
     if (!task || task.status !== "Open") {
       return ctx.answerCbQuery(
@@ -1682,14 +1683,8 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Check if user has already applied - this is the crucial change
-    const alreadyApplied = task.applicants.some(app => {
-      if (!app.user) return false;
-      // Handle both populated user and ObjectId reference
-      const applicantId = app.user._id ? app.user._id.toString() : app.user.toString();
-      return applicantId === user._id.toString();
-    });
-
+    // Immediately check if user has already applied
+    const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.answerCbQuery(
         lang === "am" 
@@ -1699,7 +1694,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Only proceed if they haven't applied
+    // Only initialize application flow if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch"
@@ -1720,9 +1715,10 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
   try {
     const taskId = ctx.match[1];
     const user = await User.findOne({ telegramId: ctx.from.id });
-    
+    const lang = user?.language || "en";
+
+    // Check if user exists and has completed onboarding
     if (!user || user.onboardingStep !== "completed") {
-      const lang = user?.language || "en";
       const message = lang === "am" 
         ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
         : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
@@ -1732,9 +1728,8 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       ]));
     }
 
-    const lang = user.language || "en";
+    // Check if task exists and is open
     const task = await Task.findById(taskId);
-    
     if (!task || task.status !== "Open") {
       return ctx.reply(
         lang === "am" 
@@ -1743,13 +1738,8 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Check if user has already applied
-    const alreadyApplied = task.applicants.some(app => {
-      if (!app.user) return false;
-      const applicantId = app.user._id ? app.user._id.toString() : app.user.toString();
-      return applicantId === user._id.toString();
-    });
-
+    // Immediately check if user has already applied
+    const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.reply(
         lang === "am" 
@@ -1758,7 +1748,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Only proceed if they haven't applied
+    // Only initialize application flow if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch",
