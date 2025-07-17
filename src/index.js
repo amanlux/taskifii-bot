@@ -897,6 +897,7 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 // Helper to check if user has already applied to a task
+
 async function hasUserApplied(taskId, userId) {
   const task = await Task.findById(taskId);
   if (!task) return false;
@@ -1654,24 +1655,30 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     await ctx.answerCbQuery();
     const taskId = ctx.match[1];
     const user = await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || "en";
-
-    // Check if user exists and has completed onboarding
-    if (!user || user.onboardingStep !== "completed") {
-      const message = lang === "am" 
-        ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
-        : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
-      
+    
+    if (!user) {
+      // User not registered - show registration prompt
       const deepLink = `https://t.me/${ctx.botInfo.username}?start=apply_${taskId}`;
-      
-      return ctx.reply(message, Markup.inlineKeyboard([
-        [Markup.button.url(
-          lang === "am" ? "መመዝገቢያ ጀምር / Register" : "Register / መመዝገቢያ ጀምር", 
-          deepLink
-        )]
-      ]));
+      return ctx.reply(
+        "Please register first to apply for tasks.\n\nተግዳሮቶችን ለመመዝገብ በመጀመሪያ ይመዝገቡ።",
+        Markup.inlineKeyboard([
+          [Markup.button.url("Register / ይመዝገቡ", deepLink)]
+        ])
+      );
     }
 
+    // Check if user has completed onboarding
+    if (user.onboardingStep !== "completed") {
+      return ctx.reply(
+        "Please complete your profile setup first.\n\nእባክዎ መመዝገቢያዎን ይጨርሱ።",
+        Markup.inlineKeyboard([
+          [Markup.button.callback("Complete Setup", "DO_SETUP")]
+        ])
+      );
+    }
+
+    const lang = user.language || "en";
+    
     // Check if task exists and is open
     const task = await Task.findById(taskId);
     if (!task || task.status !== "Open") {
@@ -1683,7 +1690,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Immediately check if user has already applied
+    // IMMEDIATELY check if user has already applied
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.answerCbQuery(
@@ -1715,21 +1722,29 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
   try {
     const taskId = ctx.match[1];
     const user = await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || "en";
-
-    // Check if user exists and has completed onboarding
-    if (!user || user.onboardingStep !== "completed") {
-      const message = lang === "am" 
-        ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
-        : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
-      
-      return ctx.reply(message, Markup.inlineKeyboard([
-        [Markup.button.callback("/start", "START_REGISTRATION")]
-      ]));
+    
+    if (!user) {
+      return ctx.reply(
+        "Please register first to apply for tasks.\n\nተግዳሮቶችን ለመመዝገብ በመጀመሪያ ይመዝገቡ።",
+        Markup.inlineKeyboard([
+          [Markup.button.callback("/start", "START_REGISTRATION")]
+        ])
+      );
     }
 
-    // Check if task exists and is open
+    // Check if user has completed onboarding
+    if (user.onboardingStep !== "completed") {
+      return ctx.reply(
+        "Please complete your profile setup first.\n\nእባክዎ መመዝገቢያዎን ይጨርሱ።",
+        Markup.inlineKeyboard([
+          [Markup.button.callback("Complete Setup", "DO_SETUP")]
+        ])
+      );
+    }
+
+    const lang = user.language || "en";
     const task = await Task.findById(taskId);
+    
     if (!task || task.status !== "Open") {
       return ctx.reply(
         lang === "am" 
@@ -1738,7 +1753,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Immediately check if user has already applied
+    // IMMEDIATELY check if user has already applied
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       return ctx.reply(
@@ -1748,7 +1763,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Only initialize application flow if they haven't applied
+    // Only proceed if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch",
