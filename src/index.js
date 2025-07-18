@@ -1083,7 +1083,7 @@ function startBot() {
     
     return next();
   });
- // Add this middleware right after session initialization
+  // Add this middleware right after session initialization
   bot.use(async (ctx, next) => {
     try {
       // Only process APPLY_ actions from callback queries
@@ -1716,6 +1716,7 @@ bot.action("POST_TASK", async (ctx) => {
 // Updated APPLY_ handler to check for existing applications immediately
 
 
+// Updated APPLY_ handler to check for existing applications immediately
 bot.action(/^APPLY_(.+)$/, async ctx => {
   try {
     await ctx.answerCbQuery();
