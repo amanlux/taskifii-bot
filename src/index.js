@@ -1698,6 +1698,7 @@ bot.action("POST_TASK", async (ctx) => {
 // ─── Apply Button Handler ───────────────────────────────────
 // Updated APPLY_ handler to check for existing applications immediately
 
+
 bot.action(/^APPLY_(.+)$/, async ctx => {
   try {
     await ctx.answerCbQuery();
@@ -1716,7 +1717,20 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Rest of your existing application flow...
+    // Check if user has already applied (this is the key change)
+    if (user && user.onboardingStep === "completed") {
+      const alreadyApplied = await hasUserApplied(taskId, user._id);
+      if (alreadyApplied) {
+        return ctx.answerCbQuery(
+          lang === "am" 
+            ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+            : "You've already applied to this task.",
+          { show_alert: true }
+        );
+      }
+    }
+
+    // Rest of your existing application flow remains exactly the same...
     if (!user || user.onboardingStep !== "completed") {
       const message = lang === "am" 
         ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
@@ -1730,18 +1744,6 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
           deepLink
         )]
       ]));
-    }
-
-    // Rest of your existing checks...
-    const alreadyApplied = await hasUserApplied(taskId, user._id);
-    if (alreadyApplied) {
-      await ctx.answerCbQuery(
-        lang === "am" 
-          ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
-          : "You've already applied to this task.",
-        { show_alert: true }
-      );
-      return;
     }
 
     // Initialize application flow
