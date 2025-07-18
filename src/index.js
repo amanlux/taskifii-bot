@@ -906,18 +906,9 @@ async function hasUserApplied(taskId, userId) {
   const task = await Task.findById(taskId);
   if (!task) return false;
   
-  // Convert userId to string if it's an ObjectId
-  const userIdStr = userId.toString ? userId.toString() : userId;
-  
-  return task.applicants.some(applicant => {
-    // Check if applicant.user is populated or just an ObjectId reference
-    if (applicant.user) {
-      const applicantId = applicant.user._id ? 
-        applicant.user._id.toString() : 
-        applicant.user.toString();
-      return applicantId === userIdStr;
-    }
-    return false;
+  return task.applicants.some(app => {
+    const applicantId = app.user?._id?.toString() || app.user?.toString();
+    return applicantId === userId.toString();
   });
 }
 async function checkPendingReminders(bot) {
@@ -1086,25 +1077,29 @@ function startBot() {
     
     return next();
   });
-  // Add this middleware right after your session initialization but before your action handlers
+  // Add this middleware right after session initialization
   bot.use(async (ctx, next) => {
-    // Only process callback queries (button clicks)
-    if (!ctx.callbackQuery || !ctx.callbackQuery.data) return next();
+    // Skip if not a callback query or not an APPLY action
+    if (!ctx.callbackQuery?.data?.startsWith('APPLY_')) return next();
     
-    // Only process APPLY_ actions
-    if (!ctx.callbackQuery.data.startsWith('APPLY_')) return next();
-    
-    const taskId = ctx.callbackQuery.data.split('_')[1];
+    const taskId = ctx.match ? ctx.match[1] : ctx.callbackQuery.data.split('_')[1];
     const user = await User.findOne({ telegramId: ctx.from.id });
     
-    // If user isn't registered or hasn't completed onboarding, continue normally
+    // Skip if user isn't registered or hasn't completed onboarding
     if (!user || user.onboardingStep !== 'completed') return next();
     
     // Check if user has already applied
-    const alreadyApplied = await hasUserApplied(taskId, user._id);
-    if (!alreadyApplied) return next();
+    const task = await Task.findById(taskId);
+    if (!task) return next();
     
-    // If they have applied, send immediate response
+    const hasApplied = task.applicants.some(app => {
+      const applicantId = app.user?._id?.toString() || app.user?.toString();
+      return applicantId === user._id.toString();
+    });
+    
+    if (!hasApplied) return next();
+    
+    // If already applied, show alert and stop processing
     const lang = user.language || "en";
     await ctx.answerCbQuery(
       lang === "am" 
@@ -1112,40 +1107,10 @@ function startBot() {
         : "You've already applied to this task.",
       { show_alert: true }
     );
-    
-    // Don't proceed to the normal apply handler
     return;
   });
-  // Add this middleware right after your session initialization but before your action handlers
-  bot.use(async (ctx, next) => {
-    // Only process callback queries (button clicks)
-    if (!ctx.callbackQuery || !ctx.callbackQuery.data) return next();
-    
-    // Only process APPLY_ actions
-    if (!ctx.callbackQuery.data.startsWith('APPLY_')) return next();
-    
-    const taskId = ctx.callbackQuery.data.split('_')[1];
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    
-    // If user isn't registered or hasn't completed onboarding, continue normally
-    if (!user || user.onboardingStep !== 'completed') return next();
-    
-    // Check if user has already applied
-    const alreadyApplied = await hasUserApplied(taskId, user._id);
-    if (!alreadyApplied) return next();
-    
-    // If they have applied, send immediate response
-    const lang = user.language || "en";
-    await ctx.answerCbQuery(
-      lang === "am" 
-        ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
-        : "You've already applied to this task.",
-      { show_alert: true }
-    );
-    
-    // Don't proceed to the normal apply handler
-    return;
-  });
+  
+  
 
 
 
