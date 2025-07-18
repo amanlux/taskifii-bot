@@ -1086,6 +1086,38 @@ function startBot() {
     
     return next();
   });
+  // Add this middleware right after your session initialization but before your action handlers
+  bot.use(async (ctx, next) => {
+    // Only process callback queries (button clicks)
+    if (!ctx.callbackQuery || !ctx.callbackQuery.data) return next();
+    
+    // Only process APPLY_ actions
+    if (!ctx.callbackQuery.data.startsWith('APPLY_')) return next();
+    
+    const taskId = ctx.callbackQuery.data.split('_')[1];
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    
+    // If user isn't registered or hasn't completed onboarding, continue normally
+    if (!user || user.onboardingStep !== 'completed') return next();
+    
+    // Check if user has already applied
+    const alreadyApplied = await hasUserApplied(taskId, user._id);
+    if (!alreadyApplied) return next();
+    
+    // If they have applied, send immediate response
+    const lang = user.language || "en";
+    await ctx.answerCbQuery(
+      lang === "am" 
+        ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+        : "You've already applied to this task.",
+      { show_alert: true }
+    );
+    
+    // Don't proceed to the normal apply handler
+    return;
+  });
+
+
 
    // Start the expiry checkers
   checkTaskExpiries(bot);
