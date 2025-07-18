@@ -1183,6 +1183,7 @@ function askSkillLevel(ctx, lang = null) {
 
   // ─────────── /start Handler ───────────
   // ─────────── /start Handler ───────────
+  // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
     // Initialize session
     ctx.session = ctx.session || {};
@@ -1191,7 +1192,8 @@ function askSkillLevel(ctx, lang = null) {
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
 
-    // Check for expired task application
+    // ===== ADD THIS CHECK RIGHT HERE =====
+    // Check for expired task application and duplicate applications
     if (startPayload && startPayload.startsWith('apply_')) {
       const taskId = startPayload.split('_')[1];
       const task = await Task.findById(taskId);
@@ -1200,7 +1202,21 @@ function askSkillLevel(ctx, lang = null) {
         const lang = user?.language || "en";
         return ctx.reply(TEXT.taskExpired[lang]);
       }
+
+      // Check for existing application if user is already registered
+      if (user && user.onboardingStep === "completed") {
+        const alreadyApplied = await hasUserApplied(taskId, user._id);
+        if (alreadyApplied) {
+          const lang = user.language || "en";
+          return ctx.reply(
+            lang === "am" 
+              ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+              : "You've already applied to this task."
+          );
+        }
+      }
     }
+    // ===== END OF ADDITION =====
 
     // Rest of your existing start handler...
     if (user && user.onboardingStep === "completed") {
@@ -1713,10 +1729,11 @@ bot.action("POST_TASK", async (ctx) => {
 //  ➤ 1st step: catch Apply button clicks
 
 // ─── Apply Button Handler ───────────────────────────────────
-// Updated APPLY_ handler to check for existing applications immediately
 
 
+
 // Updated APPLY_ handler to check for existing applications immediately
+
 bot.action(/^APPLY_(.+)$/, async ctx => {
   try {
     await ctx.answerCbQuery();
@@ -1735,7 +1752,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Additional duplicate check (though middleware should have caught this)
+    // Check for existing application immediately
     if (user && user.onboardingStep === 'completed') {
       const alreadyApplied = await hasUserApplied(taskId, user._id);
       if (alreadyApplied) {
@@ -1781,6 +1798,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
   }
 });
 //  ➤ 2nd step: when user sends /apply_<taskId>, ask for their 20–500-char pitch
+// Updated /apply_ handler to check for existing applications immediately
 bot.hears(/^\/apply_(.+)$/, async ctx => {
   try {
     const taskId = ctx.match[1];
@@ -1797,7 +1815,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
-    // Additional duplicate check (though middleware should have caught this)
+    // Check for existing application immediately
     if (user && user.onboardingStep === 'completed') {
       const alreadyApplied = await hasUserApplied(taskId, user._id);
       if (alreadyApplied) {
@@ -1808,6 +1826,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
         );
       }
     }
+
     // Rest of your existing checks...
     if (!user || user.onboardingStep !== "completed") {
       const message = lang === "am" 
@@ -1817,16 +1836,6 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       return ctx.reply(message, Markup.inlineKeyboard([
         [Markup.button.callback("/start", "START_REGISTRATION")]
       ]));
-    }
-
-    const alreadyApplied = await hasUserApplied(taskId, user._id);
-    if (alreadyApplied) {
-      await ctx.reply(
-        lang === "am" 
-          ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
-          : "You've already applied to this task."
-      );
-      return;
     }
 
     ctx.session.applyFlow = {
