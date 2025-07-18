@@ -468,6 +468,10 @@ const TEXT = {
   en: "Sorry, this task has expired and is no longer available for application.",
   am: "ይቅርታ፣ ይህ ተግዳሮት ጊዜው አልፎበታል እና ከእንግዲህ ለማመልከቻ አይገኝም።"
   },
+  creatorSelfApplyError: {
+  en: "You can't apply to tasks you created yourself.",
+  am: "የራስዎን ተግዳሮት መመዝገብ አይችሉም።"
+  }
 
   
   
@@ -1202,7 +1206,12 @@ function askSkillLevel(ctx, lang = null) {
         const lang = user?.language || "en";
         return ctx.reply(TEXT.taskExpired[lang]);
       }
-
+      
+      // NEW CHECK: Prevent creators from applying to their own tasks
+      if (user && task.creator.toString() === user._id.toString()) {
+        const lang = user.language || "en";
+        return ctx.reply(TEXT.creatorSelfApplyError[lang]);
+      }
       // Check for existing application if user is already registered
       if (user && user.onboardingStep === "completed") {
         const alreadyApplied = await hasUserApplied(taskId, user._id);
@@ -1751,7 +1760,10 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
         { show_alert: true }
       );
     }
-
+    // NEW CHECK: Prevent creators from applying to their own tasks
+    if (task.creator.toString() === user._id.toString()) {
+      return ctx.reply(TEXT.creatorSelfApplyError[lang]);
+    }
     // Check for existing application immediately
     if (user && user.onboardingStep === 'completed') {
       const alreadyApplied = await hasUserApplied(taskId, user._id);
@@ -1815,6 +1827,10 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
+    // NEW CHECK: Prevent creators from applying to their own tasks
+    if (task.creator.toString() === user._id.toString()) {
+      return ctx.reply(TEXT.creatorSelfApplyError[lang]);
+    }
     // Check for existing application immediately
     if (user && user.onboardingStep === 'completed') {
       const alreadyApplied = await hasUserApplied(taskId, user._id);
