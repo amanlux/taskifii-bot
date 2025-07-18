@@ -464,7 +464,10 @@ const TEXT = {
   en: "[applicant] has canceled doing the task.",
   am: "[applicant] ተግዳሮቱን ለመስራት እንዳልተስማማ አሳውቋል።"
   },
-  
+  taskExpired: {
+  en: "Sorry, this task has expired and is no longer available for application.",
+  am: "ይቅርታ፣ ይህ ተግዳሮት ጊዜው አልፎበታል እና ከእንግዲህ ለማመልከቻ አይገኝም።"
+  },
 
   
   
@@ -1139,7 +1142,18 @@ function askSkillLevel(ctx, lang = null) {
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
 
-    // Check if user exists and has completed onboarding
+    // Check for expired task application
+    if (startPayload && startPayload.startsWith('apply_')) {
+      const taskId = startPayload.split('_')[1];
+      const task = await Task.findById(taskId);
+      
+      if (!task || task.status === "Expired") {
+        const lang = user?.language || "en";
+        return ctx.reply(TEXT.taskExpired[lang]);
+      }
+    }
+
+    // Rest of your existing start handler...
     if (user && user.onboardingStep === "completed") {
       // If there's a start payload for applying to a task, process it
       if (startPayload && startPayload.startsWith('apply_')) {
@@ -1659,7 +1673,18 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
 
-    // Check if user exists and has completed onboarding
+    // First check if task exists and is expired
+    const task = await Task.findById(taskId);
+    if (!task || task.status === "Expired") {
+      return ctx.answerCbQuery(
+        lang === "am" 
+          ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" 
+          : "❌ This task has expired",
+        { show_alert: true }
+      );
+    }
+
+    // Rest of your existing application flow...
     if (!user || user.onboardingStep !== "completed") {
       const message = lang === "am" 
         ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
@@ -1675,18 +1700,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       ]));
     }
 
-    // Check if task exists and is open
-    const task = await Task.findById(taskId);
-    if (!task || task.status !== "Open") {
-      return ctx.answerCbQuery(
-        lang === "am" 
-          ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-          : "❌ This task is no longer available.",
-        { show_alert: true }
-      );
-    }
-
-    // Immediately check if user has already applied
+    // Rest of your existing checks...
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       await ctx.answerCbQuery(
@@ -1695,20 +1709,10 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
           : "You've already applied to this task.",
         { show_alert: true }
       );
-
-      // Optional: also send a direct message (only if the user came to the bot privately)
-      if (ctx.chat.type === "private") {
-        await ctx.reply(
-          lang === "am" 
-            ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል። እባክዎ ፈጣሪው እስኪመልስ ይጠብቁ።" 
-            : "You have already applied to this task. Please wait for the creator to respond."
-        );
-      }
-
-      return; // Exit early so the application inquiry doesn't start
+      return;
     }
 
-    // Only initialize application flow if they haven't applied
+    // Initialize application flow
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch"
@@ -1731,7 +1735,17 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
 
-    // Check if user exists and has completed onboarding
+    // First check if task exists and is expired
+    const task = await Task.findById(taskId);
+    if (!task || task.status === "Expired") {
+      return ctx.reply(
+        lang === "am" 
+          ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል እና ከእንግዲህ ለማመልከቻ አይገኝም።" 
+          : "❌ This task has expired and is no longer available for application."
+      );
+    }
+
+    // Rest of your existing checks...
     if (!user || user.onboardingStep !== "completed") {
       const message = lang === "am" 
         ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
@@ -1742,17 +1756,6 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       ]));
     }
 
-    // Check if task exists and is open
-    const task = await Task.findById(taskId);
-    if (!task || task.status !== "Open") {
-      return ctx.reply(
-        lang === "am" 
-          ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
-          : "❌ This task is no longer available."
-      );
-    }
-
-    // Immediately check if user has already applied
     const alreadyApplied = await hasUserApplied(taskId, user._id);
     if (alreadyApplied) {
       await ctx.reply(
@@ -1763,7 +1766,6 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       return;
     }
 
-    // Only initialize application flow if they haven't applied
     ctx.session.applyFlow = {
       taskId,
       step: "awaiting_pitch",
