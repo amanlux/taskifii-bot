@@ -903,13 +903,19 @@ async function checkTaskExpiries(bot) {
 
 
 async function hasUserApplied(taskId, userId) {
-  const task = await Task.findById(taskId).populate('applicants.user');
-  if (!task) return false;
-  
-  return task.applicants.some(app => {
-    const applicantId = app.user?._id?.toString() || app.user?.toString();
-    return applicantId === userId.toString();
-  });
+  try {
+    const task = await Task.findById(taskId).populate('applicants.user');
+    if (!task) return false;
+    
+    return task.applicants.some(app => {
+      // Handle both populated and unpopulated user references
+      const applicantId = app.user?._id?.toString() || app.user?.toString();
+      return applicantId === userId.toString();
+    });
+  } catch (err) {
+    console.error("Error in hasUserApplied:", err);
+    return false;
+  }
 }
 async function checkPendingReminders(bot) {
   try {
@@ -1079,38 +1085,51 @@ function startBot() {
   });
  // Add this middleware right after session initialization
   bot.use(async (ctx, next) => {
-    // Skip if not a callback query
-    if (!ctx.callbackQuery) return next();
-    
-    // Only process APPLY_ actions
-    if (!ctx.callbackQuery.data.startsWith('APPLY_')) return next();
-    
-    const taskId = ctx.callbackQuery.data.split('_')[1];
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    
-    // Skip if user isn't registered or hasn't completed onboarding
-    if (!user || user.onboardingStep !== 'completed') return next();
-    
-    // Check if user has already applied
-    const task = await Task.findById(taskId).populate('applicants.user');
-    if (!task) return next();
-    
-    const hasApplied = task.applicants.some(app => {
-      const applicantId = app.user?._id?.toString() || app.user?.toString();
-      return applicantId === user._id.toString();
-    });
-    
-    if (!hasApplied) return next();
-    
-    // If already applied, show alert and stop processing
-    const lang = user.language || "en";
-    await ctx.answerCbQuery(
-      lang === "am" 
-        ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
-        : "You've already applied to this task.",
-      { show_alert: true }
-    );
-    return;
+    try {
+      // Only process APPLY_ actions from callback queries
+      if (ctx.callbackQuery && ctx.callbackQuery.data.startsWith('APPLY_')) {
+        const taskId = ctx.callbackQuery.data.split('_')[1];
+        const user = await User.findOne({ telegramId: ctx.from.id });
+        
+        if (user && user.onboardingStep === 'completed') {
+          const alreadyApplied = await hasUserApplied(taskId, user._id);
+          if (alreadyApplied) {
+            const lang = user.language || "en";
+            await ctx.answerCbQuery(
+              lang === "am" 
+                ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+                : "You've already applied to this task.",
+              { show_alert: true }
+            );
+            return; // Stop further processing
+          }
+        }
+      }
+      
+      // Also check for /apply_ commands
+      if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/apply_')) {
+        const taskId = ctx.message.text.split('_')[1];
+        const user = await User.findOne({ telegramId: ctx.from.id });
+        
+        if (user && user.onboardingStep === 'completed') {
+          const alreadyApplied = await hasUserApplied(taskId, user._id);
+          if (alreadyApplied) {
+            const lang = user.language || "en";
+            await ctx.reply(
+              lang === "am" 
+                ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+                : "You've already applied to this task."
+            );
+            return; // Stop further processing
+          }
+        }
+      }
+      
+      await next();
+    } catch (err) {
+      console.error("Error in duplicate application check middleware:", err);
+      await next();
+    }
   });
   
   
@@ -1715,8 +1734,8 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       );
     }
 
-    // Check if user has already applied (this is the key change)
-    if (user && user.onboardingStep === "completed") {
+    // Additional duplicate check (though middleware should have caught this)
+    if (user && user.onboardingStep === 'completed') {
       const alreadyApplied = await hasUserApplied(taskId, user._id);
       if (alreadyApplied) {
         return ctx.answerCbQuery(
@@ -1777,6 +1796,17 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       );
     }
 
+    // Additional duplicate check (though middleware should have caught this)
+    if (user && user.onboardingStep === 'completed') {
+      const alreadyApplied = await hasUserApplied(taskId, user._id);
+      if (alreadyApplied) {
+        return ctx.reply(
+          lang === "am" 
+            ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+            : "You've already applied to this task."
+        );
+      }
+    }
     // Rest of your existing checks...
     if (!user || user.onboardingStep !== "completed") {
       const message = lang === "am" 
