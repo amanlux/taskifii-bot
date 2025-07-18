@@ -903,7 +903,7 @@ async function checkTaskExpiries(bot) {
 
 
 async function hasUserApplied(taskId, userId) {
-  const task = await Task.findById(taskId);
+  const task = await Task.findById(taskId).populate('applicants.user');
   if (!task) return false;
   
   return task.applicants.some(app => {
@@ -1077,19 +1077,22 @@ function startBot() {
     
     return next();
   });
-  // Add this middleware right after session initialization
+ // Add this middleware right after session initialization
   bot.use(async (ctx, next) => {
-    // Skip if not a callback query or not an APPLY action
-    if (!ctx.callbackQuery?.data?.startsWith('APPLY_')) return next();
+    // Skip if not a callback query
+    if (!ctx.callbackQuery) return next();
     
-    const taskId = ctx.match ? ctx.match[1] : ctx.callbackQuery.data.split('_')[1];
+    // Only process APPLY_ actions
+    if (!ctx.callbackQuery.data.startsWith('APPLY_')) return next();
+    
+    const taskId = ctx.callbackQuery.data.split('_')[1];
     const user = await User.findOne({ telegramId: ctx.from.id });
     
     // Skip if user isn't registered or hasn't completed onboarding
     if (!user || user.onboardingStep !== 'completed') return next();
     
     // Check if user has already applied
-    const task = await Task.findById(taskId);
+    const task = await Task.findById(taskId).populate('applicants.user');
     if (!task) return next();
     
     const hasApplied = task.applicants.some(app => {
