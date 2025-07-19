@@ -888,7 +888,13 @@ async function checkTaskExpiries(bot) {
             const lang = creator.language || "en";
             await bot.telegram.sendMessage(
               creator.telegramId,
-              TEXT.noConfirmationNotification[lang]
+              TEXT.noConfirmationNotification[lang],
+              Markup.inlineKeyboard([
+                [Markup.button.callback(
+                  TEXT.repostTaskBtn[lang], 
+                  `REPOST_TASK_${task._id}`
+                )]
+              ])
             );
           }
         } catch (err) {
