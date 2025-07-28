@@ -59,6 +59,7 @@ const userSchema = new Schema({
     averageRating: { type: Number, default: 0 },
     ratingCount:   { type: Number, default: 0 }
   },
+  lastReminderInterval: { type: Number, default: 0 },
   createdAt:      { type: Date, default: Date.now }
 });
 
@@ -980,28 +981,47 @@ async function sendReminders(bot) {
       
       if (acceptedApps.length === 0) continue;
       
-      const timeLeftMs = task.expiry.getTime() - Date.now();
-      const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
-      const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
+      const now = new Date();
+      const timeLeftMs = task.expiry.getTime() - now.getTime();
       
       // Only send reminders if there's meaningful time left (more than 1 minute)
       if (timeLeftMs < 60000) continue;
       
-      for (const app of acceptedApps) {
-        if (app.user) {
-          const doer = app.user;
-          const doerLang = doer.language || "en";
-          const message = TEXT.reminderNotification[doerLang]
-            .replace("[hours]", hoursLeft.toString())
-            .replace("[minutes]", minutesLeft.toString());
-          
-          try {
-            await bot.telegram.sendMessage(
-              doer.telegramId,
-              message
-            );
-          } catch (err) {
-            console.error("Error sending reminder to doer:", err);
+      // Calculate 25% intervals
+      const totalDurationMs = task.expiry.getTime() - task.postedAt.getTime();
+      const elapsedMs = now.getTime() - task.postedAt.getTime();
+      
+      // Determine which 25% interval we're in (1-4)
+      const currentInterval = Math.floor(elapsedMs / (totalDurationMs * 0.25)) + 1;
+      
+      // Check if we've already sent a reminder for this interval
+      const lastReminderInterval = task.lastReminderInterval || 0;
+      
+      if (currentInterval > lastReminderInterval) {
+        // Calculate remaining time for the message
+        const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
+        const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
+        
+        for (const app of acceptedApps) {
+          if (app.user) {
+            const doer = app.user;
+            const doerLang = doer.language || "en";
+            const message = TEXT.reminderNotification[doerLang]
+              .replace("[hours]", hoursLeft.toString())
+              .replace("[minutes]", minutesLeft.toString());
+            
+            try {
+              await bot.telegram.sendMessage(
+                doer.telegramId,
+                message
+              );
+              
+              // Update the last reminder interval
+              task.lastReminderInterval = currentInterval;
+              await task.save();
+            } catch (err) {
+              console.error("Error sending reminder to doer:", err);
+            }
           }
         }
       }
@@ -1009,6 +1029,9 @@ async function sendReminders(bot) {
   } catch (err) {
     console.error("Error in sendReminders:", err);
   }
+  
+  // Check again in 1 minute (this keeps the timing precise)
+  setTimeout(() => sendReminders(bot), 60000);
 }
 
   // Optionally include user stats (earned/spent/avg rating) if desired:
