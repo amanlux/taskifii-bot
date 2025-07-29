@@ -984,26 +984,20 @@ async function sendReminders(bot) {
       const now = new Date();
       const timeLeftMs = task.expiry.getTime() - now.getTime();
       
-      // Only send reminders if there's meaningful time left (more than 1 minute)
-      if (timeLeftMs < 60000) continue;
+      // Only send if we're at exactly 50% of the remaining time
+      const halfTimeLeft = (task.expiry.getTime() - task.postedAt.getTime()) / 2;
+      const elapsedSincePost = now.getTime() - task.postedAt.getTime();
       
-      // Calculate 25% intervals
-      const totalDurationMs = task.expiry.getTime() - task.postedAt.getTime();
-      const elapsedMs = now.getTime() - task.postedAt.getTime();
+      // Check if we're within a 1-minute window of the 50% mark
+      const isAt50Percent = Math.abs(elapsedSincePost - halfTimeLeft) < 60000;
       
-      // Determine which 25% interval we're in (1-4)
-      const currentInterval = Math.floor(elapsedMs / (totalDurationMs * 0.25)) + 1;
-      
-      // Check if we've already sent a reminder for this interval
-      const lastReminderInterval = task.lastReminderInterval || 0;
-      
-      if (currentInterval > lastReminderInterval) {
+      if (isAt50Percent) {
         // Calculate remaining time for the message
         const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
         const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
         
         for (const app of acceptedApps) {
-          if (app.user) {
+          if (app.user && !app.reminderSent) { // Only send if reminder hasn't been sent yet
             const doer = app.user;
             const doerLang = doer.language || "en";
             const message = TEXT.reminderNotification[doerLang]
@@ -1016,8 +1010,8 @@ async function sendReminders(bot) {
                 message
               );
               
-              // Update the last reminder interval
-              task.lastReminderInterval = currentInterval;
+              // Mark that we've sent the reminder
+              app.reminderSent = true;
               await task.save();
             } catch (err) {
               console.error("Error sending reminder to doer:", err);
