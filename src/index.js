@@ -976,46 +976,42 @@ async function sendReminders(bot) {
       const acceptedApps = task.applicants.filter(app => 
         app.status === "Accepted" && 
         !app.confirmedAt && 
-        !app.canceledAt
+        !app.canceledAt &&
+        !app.reminderSent // Only consider apps that haven't received a reminder yet
       );
       
       if (acceptedApps.length === 0) continue;
       
       const now = new Date();
-      const timeLeftMs = task.expiry.getTime() - now.getTime();
+      const totalDuration = task.expiry.getTime() - task.postedAt.getTime();
+      const elapsed = now.getTime() - task.postedAt.getTime();
       
-      // Only send if we're at exactly 50% of the remaining time
-      const halfTimeLeft = (task.expiry.getTime() - task.postedAt.getTime()) / 2;
-      const elapsedSincePost = now.getTime() - task.postedAt.getTime();
+      // Check if we're exactly at or just passed the 50% mark
+      const isAtOrPast50Percent = elapsed >= (totalDuration / 2);
       
-      // Check if we're within a 1-minute window of the 50% mark
-      const isAt50Percent = Math.abs(elapsedSincePost - halfTimeLeft) < 60000;
-      
-      if (isAt50Percent) {
-        // Calculate remaining time for the message
+      if (isAtOrPast50Percent) {
+        const timeLeftMs = task.expiry.getTime() - now.getTime();
         const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
         const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
         
         for (const app of acceptedApps) {
-          if (app.user && !app.reminderSent) { // Only send if reminder hasn't been sent yet
-            const doer = app.user;
-            const doerLang = doer.language || "en";
-            const message = TEXT.reminderNotification[doerLang]
-              .replace("[hours]", hoursLeft.toString())
-              .replace("[minutes]", minutesLeft.toString());
+          const doer = app.user;
+          const doerLang = doer.language || "en";
+          const message = TEXT.reminderNotification[doerLang]
+            .replace("[hours]", hoursLeft.toString())
+            .replace("[minutes]", minutesLeft.toString());
+          
+          try {
+            await bot.telegram.sendMessage(
+              doer.telegramId,
+              message
+            );
             
-            try {
-              await bot.telegram.sendMessage(
-                doer.telegramId,
-                message
-              );
-              
-              // Mark that we've sent the reminder
-              app.reminderSent = true;
-              await task.save();
-            } catch (err) {
-              console.error("Error sending reminder to doer:", err);
-            }
+            // Mark that we've sent the reminder
+            app.reminderSent = true;
+            await task.save();
+          } catch (err) {
+            console.error("Error sending reminder to doer:", err);
           }
         }
       }
