@@ -974,11 +974,16 @@ async function sendReminders(bot) {
     }).populate("applicants.user");
     
     for (const task of tasks) {
+      // Only get applications that:
+      // - Are accepted
+      // - Haven't been confirmed
+      // - Haven't been canceled
+      // - Haven't had a reminder sent yet
       const acceptedApps = task.applicants.filter(app => 
         app.status === "Accepted" && 
         !app.confirmedAt && 
         !app.canceledAt &&
-        !app.reminderSent // Only consider apps that haven't received a reminder
+        !app.reminderSent
       );
       
       if (acceptedApps.length === 0) continue;
@@ -987,10 +992,10 @@ async function sendReminders(bot) {
       const elapsed = now.getTime() - task.postedAt.getTime();
       const timeLeftMs = task.expiry.getTime() - now.getTime();
       
-      // Calculate the exact 50% point (in milliseconds)
+      // Calculate the exact 50% point
       const fiftyPercentPoint = totalDuration / 2;
       
-      // Check if we're within a 1-minute window of the 50% mark
+      // Check if we're within 1 minute of the 50% mark
       const isAt50Percent = Math.abs(elapsed - fiftyPercentPoint) <= 60000;
       
       if (isAt50Percent) {
