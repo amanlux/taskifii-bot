@@ -967,9 +967,10 @@ async function checkPendingReminders(bot) {
 
 async function sendReminders(bot) {
   try {
+    const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $gt: new Date() }
+      expiry: { $gt: now }
     }).populate("applicants.user");
     
     for (const task of tasks) {
@@ -977,20 +978,22 @@ async function sendReminders(bot) {
         app.status === "Accepted" && 
         !app.confirmedAt && 
         !app.canceledAt &&
-        !app.reminderSent // Only consider apps that haven't received a reminder yet
+        !app.reminderSent // Only consider apps that haven't received a reminder
       );
       
       if (acceptedApps.length === 0) continue;
       
-      const now = new Date();
       const totalDuration = task.expiry.getTime() - task.postedAt.getTime();
       const elapsed = now.getTime() - task.postedAt.getTime();
+      const timeLeftMs = task.expiry.getTime() - now.getTime();
       
-      // Check if we're exactly at or just passed the 50% mark
-      const isAtOrPast50Percent = elapsed >= (totalDuration / 2);
+      // Calculate the exact 50% point (in milliseconds)
+      const fiftyPercentPoint = totalDuration / 2;
       
-      if (isAtOrPast50Percent) {
-        const timeLeftMs = task.expiry.getTime() - now.getTime();
+      // Check if we're within a 1-minute window of the 50% mark
+      const isAt50Percent = Math.abs(elapsed - fiftyPercentPoint) <= 60000;
+      
+      if (isAt50Percent) {
         const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
         const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
         
@@ -1011,7 +1014,7 @@ async function sendReminders(bot) {
             app.reminderSent = true;
             await task.save();
           } catch (err) {
-            console.error("Error sending reminder to doer:", err);
+            console.error("Error sending reminder to doer:", doer.telegramId, err);
           }
         }
       }
