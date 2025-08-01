@@ -935,13 +935,20 @@ async function checkPendingReminders(bot) {
       status: "Open",
       reminderSent: false,
       expiry: { $gt: now }
-    }).populate("creator");
+    }).populate("creator").populate("applicants.user");
 
     for (const task of tasks) {
       const totalTimeMs = task.expiry - task.postedAt;
       const reminderTime = new Date(task.postedAt.getTime() + (totalTimeMs * 0.85));
 
-      if (now > reminderTime) {
+      // Skip if we haven't reached the 85% mark yet
+      if (now < reminderTime) continue;
+
+      // Check if any application has been accepted
+      const hasAcceptedApplicant = task.applicants.some(app => app.status === "Accepted");
+      
+      // Only send reminder if no applications have been accepted
+      if (!hasAcceptedApplicant) {
         const lang = task.creator.language || "en";
         const timeLeftMs = task.expiry - now;
         const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
@@ -3969,11 +3976,16 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   const totalTimeMs = task.expiry - task.postedAt;
   const reminderTime = new Date(task.postedAt.getTime() + (totalTimeMs * 0.85));
   
+  // Inside the TASK_POST_CONFIRM handler, modify the reminder scheduling part:
   if (reminderTime > now) {
     setTimeout(async () => {
       try {
-        const updatedTask = await Task.findById(task._id);
+        const updatedTask = await Task.findById(task._id).populate("applicants.user");
         if (!updatedTask || updatedTask.status !== "Open" || updatedTask.reminderSent) return;
+        
+        // Check if any application has been accepted
+        const hasAcceptedApplicant = updatedTask.applicants.some(app => app.status === "Accepted");
+        if (hasAcceptedApplicant) return;
         
         const creator = await User.findById(updatedTask.creator);
         if (!creator) return;
