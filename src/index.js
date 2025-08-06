@@ -473,9 +473,9 @@ const TEXT = {
   en: "You can't apply to tasks you created yourself.",
   am: "የራስዎን ተግዳሮት መመዝገብ አይችሉም።"
   },
-  taskCanceled: {
-  en: "This task has been canceled by the creator.",
-  am: "ይህ ተግዳሮት በፈጣሪው ተሰርዟል።"
+  cancelConfirmed: {
+  en: "You have successfully canceled this task.",
+  am: "ተግዳሮቱን በተሳካ ሁኔታ ሰርዘዋል።"
   },
 
   
@@ -850,25 +850,6 @@ async function checkTaskExpiries(bot) {
             console.error("Error disabling application buttons:", err);
           }
         }
-      }
-
-      // Try to disable the Cancel Task button in the creator's confirmation message
-      try {
-        await bot.telegram.editMessageReplyMarkup(
-          task.creator.telegramId,
-          task.channelMessageId,
-          undefined,
-          {
-            inline_keyboard: [
-              [Markup.button.callback(
-                task.creator.language === "am" ? "ተግዳሮት ጊዜው አልፎታል" : "Task Expired",
-                "_DISABLED_CANCEL_TASK"
-              )]
-            ]
-          }
-        );
-      } catch (err) {
-        console.error("Error disabling cancel button:", err);
       }
 
       // Handle accepted applications
@@ -1259,12 +1240,20 @@ function askSkillLevel(ctx, lang = null) {
       const taskId = startPayload.split('_')[1];
       const task = await Task.findById(taskId);
       
-      
-      // Check if task exists and is canceled or expired
-      if (!task || task.status === "Expired" || task.status === "Canceled") {
+       // Check if task is canceled
+      if (task && task.status === "Canceled") {
+        const lang = user?.language || "en";
+        return ctx.reply(lang === "am" 
+          ? "❌ ይህ ተግዳሮት በፈጣሪው ተሰርዟል" 
+          : "❌ This task has been canceled by the creator"
+        );
+      }
+
+      if (!task || task.status === "Expired") {
         const lang = user?.language || "en";
         return ctx.reply(TEXT.taskExpired[lang]);
       }
+      
       // NEW CHECK: Prevent creators from applying to their own tasks
       if (user && task.creator.toString() === user._id.toString()) {
         const lang = user.language || "en";
@@ -1808,13 +1797,13 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
 
-    // First check if task exists and is canceled or expired
+    // First check if task exists and is expired
     const task = await Task.findById(taskId);
-    if (!task || task.status === "Expired" || task.status === "Canceled") {
+    if (!task || task.status === "Expired") {
       return ctx.answerCbQuery(
         lang === "am" 
-          ? "❌ ይህ ተግዳሮት አልቋል" 
-          : "❌ This task is no longer available",
+          ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" 
+          : "❌ This task has expired",
         { show_alert: true }
       );
     }
@@ -1875,13 +1864,13 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
 
-    // First check if task exists and is canceled or expired
+    // First check if task exists and is expired
     const task = await Task.findById(taskId);
-    if (!task || task.status === "Expired" || task.status === "Canceled") {
+    if (!task || task.status === "Expired") {
       return ctx.reply(
         lang === "am" 
-          ? "❌ ይህ ተግዳሮት አልቋል" 
-          : "❌ This task is no longer available"
+          ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል እና ከእንግዲህ ለማመልከቻ አይገኝም።" 
+          : "❌ This task has expired and is no longer available for application."
       );
     }
 
@@ -4050,43 +4039,50 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   ]));
 });
 
-// Add the CANCEL_TASK action handler
+// Add Cancel Task handler
 bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
   
-  // Find the task
-  const task = await Task.findById(taskId);
+  const task = await Task.findById(taskId).populate("applicants.user");
   if (!task) {
     return ctx.reply(lang === "am" 
-      ? "❌ ተግዳሮቱ አልተገኘም።" 
-      : "❌ Task not found."
+      ? "❌ ተግዳሮቱ አልተገኘም" 
+      : "❌ Task not found"
     );
   }
-  
-  // Check if task is already expired or canceled
-  if (task.status !== "Open") {
-    return ctx.reply(lang === "am" 
-      ? "❌ ይህ ተግዳሮት አስቀድሞ ተሰርዟል።" 
-      : "❌ This task has already been canceled."
-    );
-  }
-  
-  // Check if any applications have been accepted
+
+  // Check if task can be canceled (not expired and no accepted applicants)
   const hasAcceptedApplicant = task.applicants.some(app => app.status === "Accepted");
-  if (hasAcceptedApplicant) {
+  const isExpired = task.status === "Expired" || new Date() > task.expiry;
+  
+  if (hasAcceptedApplicant || isExpired) {
+    // Make button inert but still visible
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [[
+          Markup.button.callback(
+            user.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", 
+            "_DISABLED_CANCEL_TASK"
+          )
+        ]]
+      });
+    } catch (err) {
+      console.error("Error making Cancel Task button inert:", err);
+    }
+    
     return ctx.reply(lang === "am" 
-      ? "❌ አመልካች አስቀድሞ ተመርጧል። ተግዳሮቱን መሰረዝ አይችሉም።" 
-      : "❌ An applicant has already been selected. You cannot cancel the task now."
+      ? "❌ ተግዳሮቱን መሰረዝ አይቻልም - አስቀድሞ አመልካች መርጠዋል ወይም ጊዜው አልፎታል" 
+      : "❌ Task cannot be canceled - you've already accepted an applicant or it's expired"
     );
   }
-  
+
   // Update task status to Canceled
   task.status = "Canceled";
   await task.save();
-  
+
   // Disable all application buttons for pending applications
   for (const app of task.applicants.filter(a => a.status === "Pending")) {
     if (app.messageId) {
@@ -4096,12 +4092,10 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
           app.messageId,
           undefined,
           {
-            inline_keyboard: [
-              [
-                Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-              ]
-            ]
+            inline_keyboard: [[
+              Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+              Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+            ]]
           }
         );
       } catch (err) {
@@ -4109,22 +4103,22 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
       }
     }
   }
-  
-  // Notify task creator
+
+  // Notify creator
   await ctx.reply(TEXT.cancelConfirmed[lang]);
-  
-  // Edit the original message to disable the Cancel Task button
+
+  // Make Cancel Task button inert but still visible
   try {
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [Markup.button.callback(
-          `✔ ${user.language === "am" ? "ተግዳሮት ሰርዟል" : "Task Canceled"}`,
+      inline_keyboard: [[
+        Markup.button.callback(
+          `✔ ${user.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task"}`, 
           "_DISABLED_CANCEL_TASK"
-        )]
-      ]
+        )
+      ]]
     });
   } catch (err) {
-    console.error("Error editing cancel button:", err);
+    console.error("Error updating Cancel Task button:", err);
   }
 });
 
