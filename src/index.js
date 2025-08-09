@@ -915,7 +915,48 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
+async function disableExpiredTaskApplicationButtons(bot) {
+  try {
+    const now = new Date();
+    const tasks = await Task.find({
+      $or: [
+        { status: "Expired" }, // Already expired tasks
+        { status: "Canceled" } // Canceled tasks
+      ]
+    }).populate("applicants.user");
 
+    for (const task of tasks) {
+      // Disable buttons for pending applications
+      const pendingApps = task.applicants.filter(app => app.status === "Pending");
+      for (const app of pendingApps) {
+        if (app.user && app.messageId) {
+          try {
+            const creator = await User.findById(task.creator);
+            const lang = creator?.language || "en";
+            
+            await bot.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+                  ]
+                ]
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling application buttons for task:", task._id, err);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error in disableExpiredTaskApplicationButtons:", err);
+  }
+}
 
 async function hasUserApplied(taskId, userId) {
   try {
@@ -1925,10 +1966,25 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
   const userId = ctx.match[2];
   
-  // Find the task and check if it's expired
+  // Find the task and check if it's canceled or expired
   const task = await Task.findById(taskId);
-  if (!task || task.status === "Expired") {
-    return ctx.reply("This task has expired and can no longer be accepted.");
+  if (!task || task.status === "Canceled") {
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "❌ ይህ ተግዳሮት ተሰርዟል" 
+        : "❌ This task has been canceled",
+      { show_alert: true }
+    );
+  }
+  if (task.status === "Expired") {
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" 
+        : "❌ This task has expired",
+      { show_alert: true }
+    );
   }
   const user = await User.findById(userId);
   
@@ -1997,10 +2053,25 @@ bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
   const userId = ctx.match[2];
   
-  // Find the task and check if it's expired
+  // Find the task and check if it's canceled or expired
   const task = await Task.findById(taskId);
-  if (!task || task.status === "Expired") {
-    return ctx.reply("This task has expired and can no longer be declined.");
+  if (!task || task.status === "Canceled") {
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "❌ ይህ ተግዳሮት ተሰርዟል" 
+        : "❌ This task has been canceled",
+      { show_alert: true }
+    );
+  }
+  if (task.status === "Expired") {
+    const lang = ctx.session?.user?.language || "en";
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" 
+        : "❌ This task has expired",
+      { show_alert: true }
+    );
   }
   const user = await User.findById(userId);
   
@@ -2191,7 +2262,10 @@ async function disableExpiredTaskApplicationButtons(bot) {
   try {
     const now = new Date();
     const tasks = await Task.find({
-      status: "Expired" // Only already expired tasks
+      $or: [
+        { status: "Expired" }, // Already expired tasks
+        { status: "Canceled" } // Canceled tasks
+      ]
     }).populate("applicants.user");
 
     for (const task of tasks) {
