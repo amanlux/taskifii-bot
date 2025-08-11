@@ -923,21 +923,7 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
-bot.action("_DISABLED_CHANGE_LANGUAGE", async (ctx) => {
-  await ctx.answerCbQuery();
-});
 
-bot.action("_DISABLED_VIEW_TERMS", async (ctx) => {
-  await ctx.answerCbQuery();
-});
-
-bot.action("_DISABLED_SET_LANG_EN", async (ctx) => {
-  await ctx.answerCbQuery();
-});
-
-bot.action("_DISABLED_SET_LANG_AM", async (ctx) => {
-  await ctx.answerCbQuery();
-});
 
 async function disableExpiredTaskApplicationButtons(bot) {
   try {
