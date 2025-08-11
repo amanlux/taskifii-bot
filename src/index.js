@@ -923,6 +923,22 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
+bot.action("_DISABLED_CHANGE_LANGUAGE", async (ctx) => {
+  await ctx.answerCbQuery();
+});
+
+bot.action("_DISABLED_VIEW_TERMS", async (ctx) => {
+  await ctx.answerCbQuery();
+});
+
+bot.action("_DISABLED_SET_LANG_EN", async (ctx) => {
+  await ctx.answerCbQuery();
+});
+
+bot.action("_DISABLED_SET_LANG_AM", async (ctx) => {
+  await ctx.answerCbQuery();
+});
+
 async function disableExpiredTaskApplicationButtons(bot) {
   try {
     const now = new Date();
@@ -1340,7 +1356,7 @@ function askSkillLevel(ctx, lang = null) {
         return ctx.reply(prompt);
       }
       
-      // If no start payload, just notify user they're already registered
+      // If no start payload, show menu with new buttons
       const lang = user.language || "en";
       return ctx.reply(
         lang === "am" 
@@ -1350,10 +1366,8 @@ function askSkillLevel(ctx, lang = null) {
           [Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK")],
           [Markup.button.callback(TEXT.findTaskBtn[lang], "FIND_TASK")],
           [Markup.button.callback(TEXT.editProfileBtn[lang], "EDIT_PROFILE")],
-          [
-            Markup.button.callback(TEXT.languageBtn[lang], "CHANGE_LANGUAGE"),
-            Markup.button.callback(TEXT.termsBtn[lang], "VIEW_TERMS")
-          ]
+          [Markup.button.callback(TEXT.languageBtn[lang], "CHANGE_LANGUAGE")],
+          [Markup.button.callback(TEXT.termsBtn[lang], "VIEW_TERMS")]
         ])
       );
     }
@@ -2125,27 +2139,37 @@ bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   );
 });
 
+bot.action("_DISABLED_CHANGE_LANGUAGE", async (ctx) => {
+  await ctx.answerCbQuery();
+});
+
+bot.action("_DISABLED_VIEW_TERMS", async (ctx) => {
+  await ctx.answerCbQuery();
+});
+
+bot.action("_DISABLED_SET_LANG_EN", async (ctx) => {
+  await ctx.answerCbQuery();
+});
+
+bot.action("_DISABLED_SET_LANG_AM", async (ctx) => {
+  await ctx.answerCbQuery();
+});
 // ─────────── Language Change Handler ───────────
 bot.action("CHANGE_LANGUAGE", async (ctx) => {
   await ctx.answerCbQuery();
-  const tgId = ctx.from.id;
-  const user = await User.findOne({ telegramId: tgId });
-  if (!user) return ctx.reply("Unexpected error. Please /start again.");
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found. Please /start again.");
   
   const lang = user.language || "en";
   
-  // Make all menu buttons inert
+  // Disable all menu buttons but keep them in the same positions
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
-      [
-        Markup.button.callback(TEXT.postTaskBtn[lang], "_DISABLED_POST_TASK"),
-        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
-        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
-      ],
-      [
-        Markup.button.callback(`✔ ${TEXT.languageBtn[lang]}`, "_DISABLED_CHANGE_LANGUAGE"),
-        Markup.button.callback(TEXT.termsBtn[lang], "_DISABLED_VIEW_TERMS")
-      ]
+      [Markup.button.callback(TEXT.postTaskBtn[lang], "_DISABLED_POST_TASK")],
+      [Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK")],
+      [Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")],
+      [Markup.button.callback(`✔ ${TEXT.languageBtn[lang]}`, "_DISABLED_CHANGE_LANGUAGE")],
+      [Markup.button.callback(TEXT.termsBtn[lang], "_DISABLED_VIEW_TERMS")]
     ]
   });
 
@@ -2154,8 +2178,8 @@ bot.action("CHANGE_LANGUAGE", async (ctx) => {
     `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
     Markup.inlineKeyboard([
       [
-        Markup.button.callback("English", "LANG_EN"),
-        Markup.button.callback("አማርኛ", "LANG_AM")
+        Markup.button.callback("English", "SET_LANG_EN"),
+        Markup.button.callback("አማርኛ", "SET_LANG_AM")
       ]
     ])
   );
@@ -2164,32 +2188,90 @@ bot.action("CHANGE_LANGUAGE", async (ctx) => {
 // ─────────── Terms View Handler ───────────
 bot.action("VIEW_TERMS", async (ctx) => {
   await ctx.answerCbQuery();
-  const tgId = ctx.from.id;
-  const user = await User.findOne({ telegramId: tgId });
-  if (!user) return ctx.reply("Unexpected error. Please /start again.");
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found. Please /start again.");
   
   const lang = user.language || "en";
   
-  // Make all menu buttons inert
+  // Disable all menu buttons but keep them in the same positions
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [Markup.button.callback(TEXT.postTaskBtn[lang], "_DISABLED_POST_TASK")],
+      [Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK")],
+      [Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")],
+      [Markup.button.callback(TEXT.languageBtn[lang], "_DISABLED_CHANGE_LANGUAGE")],
+      [Markup.button.callback(`✔ ${TEXT.termsBtn[lang]}`, "_DISABLED_VIEW_TERMS")]
+    ]
+  });
+
+  // Show terms without agree/disagree buttons
+  return ctx.reply(TEXT.askTerms[lang]);
+});
+
+// ─────────── Language Selection Handlers ───────────
+bot.action("SET_LANG_EN", async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+  
+  // Highlight "English"; disable "Amharic"
   await ctx.editMessageReplyMarkup({
     inline_keyboard: [
       [
-        Markup.button.callback(TEXT.postTaskBtn[lang], "_DISABLED_POST_TASK"),
-        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
-        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
-      ],
-      [
-        Markup.button.callback(TEXT.languageBtn[lang], "_DISABLED_CHANGE_LANGUAGE"),
-        Markup.button.callback(`✔ ${TEXT.termsBtn[lang]}`, "_DISABLED_VIEW_TERMS")
+        Markup.button.callback("✔ English", "_DISABLED_SET_LANG_EN"),
+        Markup.button.callback("አማርኛ", "_DISABLED_SET_LANG_AM")
       ]
     ]
   });
 
-  // Show terms without buttons
+  user.language = "en";
+  await user.save();
+  
+  // Return to menu with new language
   return ctx.reply(
-    lang === "am" ? TEXT.askTerms.am : TEXT.askTerms.en
+    "Language set to English.",
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.postTaskBtn.en, "POST_TASK")],
+      [Markup.button.callback(TEXT.findTaskBtn.en, "FIND_TASK")],
+      [Markup.button.callback(TEXT.editProfileBtn.en, "EDIT_PROFILE")],
+      [Markup.button.callback(TEXT.languageBtn.en, "CHANGE_LANGUAGE")],
+      [Markup.button.callback(TEXT.termsBtn.en, "VIEW_TERMS")]
+    ])
   );
 });
+
+bot.action("SET_LANG_AM", async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+  
+  // Highlight "Amharic"; disable "English"
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [
+        Markup.button.callback("English", "_DISABLED_SET_LANG_EN"),
+        Markup.button.callback("✔ አማርኛ", "_DISABLED_SET_LANG_AM")
+      ]
+    ]
+  });
+
+  user.language = "am";
+  await user.save();
+  
+  // Return to menu with new language
+  return ctx.reply(
+    "ቋንቋው ወደ አማርኛ ተቀይሯል።",
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.postTaskBtn.am, "POST_TASK")],
+      [Markup.button.callback(TEXT.findTaskBtn.am, "FIND_TASK")],
+      [Markup.button.callback(TEXT.editProfileBtn.am, "EDIT_PROFILE")],
+      [Markup.button.callback(TEXT.languageBtn.am, "CHANGE_LANGUAGE")],
+      [Markup.button.callback(TEXT.termsBtn.am, "VIEW_TERMS")]
+    ])
+  );
+});
+
+
 // Dummy handlers for the confirmation buttons
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
