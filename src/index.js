@@ -1341,7 +1341,11 @@ function askSkillLevel(ctx, lang = null) {
         Markup.inlineKeyboard([
           [Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK")],
           [Markup.button.callback(TEXT.findTaskBtn[lang], "FIND_TASK")],
-          [Markup.button.callback(TEXT.editProfileBtn[lang], "EDIT_PROFILE")]
+          [Markup.button.callback(TEXT.editProfileBtn[lang], "EDIT_PROFILE")],
+          [
+            Markup.button.callback(TEXT.languageBtn[lang], "CHANGE_LANGUAGE"),
+            Markup.button.callback(TEXT.termsBtn[lang], "VIEW_TERMS")
+          ]
         ])
       );
     }
@@ -2113,6 +2117,71 @@ bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   );
 });
 
+// ─────────── Language Change Handler ───────────
+bot.action("CHANGE_LANGUAGE", async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("Unexpected error. Please /start again.");
+  
+  const lang = user.language || "en";
+  
+  // Make all menu buttons inert
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [
+        Markup.button.callback(TEXT.postTaskBtn[lang], "_DISABLED_POST_TASK"),
+        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
+        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
+      ],
+      [
+        Markup.button.callback(`✔ ${TEXT.languageBtn[lang]}`, "_DISABLED_CHANGE_LANGUAGE"),
+        Markup.button.callback(TEXT.termsBtn[lang], "_DISABLED_VIEW_TERMS")
+      ]
+    ]
+  });
+
+  // Show language selection
+  return ctx.reply(
+    `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback("English", "LANG_EN"),
+        Markup.button.callback("አማርኛ", "LANG_AM")
+      ]
+    ])
+  );
+});
+
+// ─────────── Terms View Handler ───────────
+bot.action("VIEW_TERMS", async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("Unexpected error. Please /start again.");
+  
+  const lang = user.language || "en";
+  
+  // Make all menu buttons inert
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [
+      [
+        Markup.button.callback(TEXT.postTaskBtn[lang], "_DISABLED_POST_TASK"),
+        Markup.button.callback(TEXT.findTaskBtn[lang], "_DISABLED_FIND_TASK"),
+        Markup.button.callback(TEXT.editProfileBtn[lang], "_DISABLED_EDIT_PROFILE")
+      ],
+      [
+        Markup.button.callback(TEXT.languageBtn[lang], "_DISABLED_CHANGE_LANGUAGE"),
+        Markup.button.callback(`✔ ${TEXT.termsBtn[lang]}`, "_DISABLED_VIEW_TERMS")
+      ]
+    ]
+  });
+
+  // Show terms without buttons
+  return ctx.reply(
+    lang === "am" ? TEXT.askTerms.am : TEXT.askTerms.en
+  );
+});
 // Dummy handlers for the confirmation buttons
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
