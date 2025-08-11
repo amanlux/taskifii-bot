@@ -477,6 +477,14 @@ const TEXT = {
   en: "You have successfully canceled this task.",
   am: "ተግዳሮቱን በተሳካ ሁኔታ ሰርዘዋል።"
   },
+  languageBtn: {
+  en: "Language",
+  am: "ቋንቋ"
+  },
+  termsBtn: {
+  en: "Terms & Conditions",
+  am: "የታስኪፋይ ህግጋቶች"
+  },
 
   
   
