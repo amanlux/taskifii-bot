@@ -914,7 +914,22 @@ async function checkTaskExpiries(bot) {
           console.error("Error notifying creator:", err);
         }
       }
+      
+      // NEW: Notify creator that menu is now accessible (scenarios A, C, D)
+      if (!task.applicants.some(app => app.status === "Accepted" && app.confirmedAt)) {
+        const creator = await User.findById(task.creator);
+        if (creator) {
+          const lang = creator.language || "en";
+          await bot.telegram.sendMessage(
+            creator.telegramId,
+            lang === "am" 
+              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+              : "The task has expired. You can now access the menu."
+          );
+        }
+      }
     }
+
   } catch (err) {
     console.error("Error in checkTaskExpiries:", err);
   }
@@ -923,7 +938,24 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
-
+// Add this helper function near your other utility functions
+async function hasActiveTask(telegramId) {
+  try {
+    const user = await User.findOne({ telegramId });
+    if (!user) return false;
+    
+    const activeTask = await Task.findOne({ 
+      creator: user._id,
+      status: "Open",
+      expiry: { $gt: new Date() }
+    });
+    
+    return !!activeTask;
+  } catch (err) {
+    console.error("Error checking active tasks:", err);
+    return false;
+  }
+}
 
 async function disableExpiredTaskApplicationButtons(bot) {
   try {
@@ -1281,65 +1313,23 @@ function askSkillLevel(ctx, lang = null) {
     // Initialize session
     ctx.session = ctx.session || {};
     
+    // Check if user has an active task
+    const hasActive = await hasActiveTask(ctx.from.id);
+    if (hasActive) {
+      const user = await User.findOne({ telegramId: ctx.from.id });
+      const lang = user?.language || "en";
+      
+      return ctx.reply(
+        lang === "am" 
+          ? "ይቅርታ፣ አሁን አንድ ተግዳሮት እያስተዳደሩ ነው። ተግዳሮቱ ከጊዜው አልፎ ወይም ከተሰረዘ በኋላ ብቻ ምናሌውን መጠቀም ይችላሉ።" 
+          : "Sorry, you currently have an active task. You can only access the menu after the task expires or is canceled."
+      );
+    }
+
+    // Rest of your existing start handler remains exactly the same...
     const startPayload = ctx.startPayload;
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
-
-    // ===== NEW CHECK =====
-    // Check if user is a creator with active tasks
-    if (user && user.onboardingStep === "completed") {
-      const activeTasks = await Task.find({
-        creator: user._id,
-        status: "Open"
-      }).populate("applicants");
-
-      if (activeTasks.length > 0) {
-        const lang = user.language || "en";
-        
-        // Check if any of the 4 scenarios are true
-        let canAccessMenu = false;
-        
-        for (const task of activeTasks) {
-          // Scenario A: No applications before expiry
-          const hasApplicants = task.applicants.length > 0;
-          
-          // Scenario B: Task is canceled (handled by status check above)
-          
-          // Scenario C: No accept clicks before expiry
-          const hasAccepted = task.applicants.some(app => app.status === "Accepted");
-          
-          // Scenario D: No confirmations from accepted doers
-          const hasConfirmed = task.applicants.some(app => 
-            app.status === "Accepted" && app.confirmedAt
-          );
-          
-          // If any of the scenarios are true for any task, allow menu
-          if (!hasApplicants || !hasAccepted || !hasConfirmed) {
-            canAccessMenu = true;
-            break;
-          }
-        }
-        
-        if (!canAccessMenu) {
-          return ctx.reply(
-            lang === "am" 
-              ? "ይቅርታ፣ በተግዳሮት ልውውጥ ሂደት ውስጥ ሳለ ምናሌውን መድረስ አይችሉም።\n\n" +
-                "ከዚህ በታች ያሉት ሁኔታዎች ከተፈጠሩ ብቻ ምናሌውን መድረስ ይችላሉ፡\n" +
-                "1) ማንም ሰው ተግዳሮቱን ከመመዝገብ በፊት ጊዜው ከተጠናቀቀ\n" +
-                "2) ተግዳሮቱን በተሳካ ሁኔታ ሰርዘው\n" +
-                "3) ማንኛውንም አመልካች ከመቀበል በፊት ጊዜው ከተጠናቀቀ\n" +
-                "4) የተቀበሉት አገልጋዮች ተግዳሮቱን ለመስራት ከመቀበል በፊት ጊዜው ከተጠናቀቀ"
-              : "Sorry, you can't access the menu during an active task delegation process.\n\n" +
-                "You can only access the menu if one of these conditions is met:\n" +
-                "1) No one applied before the task expired\n" +
-                "2) You successfully canceled the task\n" +
-                "3) You didn't accept any applicants before the task expired\n" +
-                "4) None of the accepted doers confirmed before the task expired"
-          );
-        }
-      }
-    }
-
 
     // ===== ADD THIS CHECK RIGHT HERE =====
     // Check for expired task application and duplicate applications
@@ -2408,6 +2398,14 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     await ctx.telegram.sendMessage(
       creator.telegramId,
       message
+    );
+
+    // NEW: Notify creator that menu is now accessible (scenario B)
+    await ctx.telegram.sendMessage(
+      creator.telegramId,
+      creatorLang === "am" 
+        ? "ተግዳሮቱ ተሰርዟል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+        : "The task has been canceled. You can now access the menu."
     );
   }
 });
