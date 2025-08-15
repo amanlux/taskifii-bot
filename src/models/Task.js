@@ -50,7 +50,10 @@ const TaskSchema = new Schema(
     channelMessageId: { type: Number },
     lastReminderSent: { type: Date },
     postedAt: { type: Date, default: Date.now },
-    reminderSent: { type: Boolean, default: false }
+    reminderSent: { type: Boolean, default: false },
+    confirmationMessageId: { type: Number, default: null },
+    canceledAt: { type: Date, default: null },
+    repostNotified: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
