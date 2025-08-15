@@ -54,6 +54,7 @@ const TaskSchema = new Schema(
     confirmationMessageId: { type: Number, default: null },
     canceledAt: { type: Date, default: null },
     repostNotified: { type: Boolean, default: false },
+    menuAccessNotified: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
