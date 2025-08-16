@@ -862,11 +862,6 @@ async function checkTaskExpiries(bot) {
 
       // Handle accepted applications
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
-      
-      // NEW: Track if we need to send notifications
-      let shouldSendNoConfirmation = false;
-      let shouldSendMenuAccess = false;
-      
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
           try {
@@ -896,60 +891,42 @@ async function checkTaskExpiries(bot) {
             console.error("Error disabling buttons for user:", app.user.telegramId, err);
           }
         }
-        
-        // Check if any application was accepted but not confirmed
-        if (!app.confirmedAt) {
-          shouldSendNoConfirmation = true;
-        }
       }
 
-      // Only send notifications if we haven't already
-      if (!task.notificationsSent) {
-        // Notify creator if no one confirmed
-        if (shouldSendNoConfirmation && !task.repostNotified) {
-          try {
-            const creator = await User.findById(task.creator);
-            if (creator) {
-              const lang = creator.language || "en";
-              await bot.telegram.sendMessage(
-                creator.telegramId,
-                TEXT.noConfirmationNotification[lang],
-                Markup.inlineKeyboard([
-                  [Markup.button.callback(
-                    TEXT.repostTaskBtn[lang], 
-                    `REPOST_TASK_${task._id}`
-                  )]
-                ])
-              );
-              task.repostNotified = true;
-            }
-          } catch (err) {
-            console.error("Error notifying creator:", err);
-          }
-        }
-        
-        // Notify creator that menu is now accessible
+      // Notify creator if no one confirmed
+      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
         try {
           const creator = await User.findById(task.creator);
           if (creator) {
             const lang = creator.language || "en";
-            // Skip if we already sent the no confirmation notification
-            if (!shouldSendNoConfirmation) {
-              await bot.telegram.sendMessage(
-                creator.telegramId,
-                lang === "am" 
-                  ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-                  : "The task has expired. You can now access the menu."
-              );
-            }
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              TEXT.noConfirmationNotification[lang],
+              Markup.inlineKeyboard([
+                [Markup.button.callback(
+                  TEXT.repostTaskBtn[lang], 
+                  `REPOST_TASK_${task._id}`
+                )]
+              ])
+            );
           }
         } catch (err) {
-          console.error("Error notifying creator about menu access:", err);
+          console.error("Error notifying creator:", err);
         }
-        
-        // Mark that we've sent notifications
-        task.notificationsSent = true;
-        await task.save();
+      }
+      
+      // NEW: Notify creator that menu is now accessible (scenarios A, C, D)
+      if (!task.applicants.some(app => app.status === "Accepted" && app.confirmedAt)) {
+        const creator = await User.findById(task.creator);
+        if (creator) {
+          const lang = creator.language || "en";
+          await bot.telegram.sendMessage(
+            creator.telegramId,
+            lang === "am" 
+              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+              : "The task has expired. You can now access the menu."
+          );
+        }
       }
     }
 
@@ -959,17 +936,6 @@ async function checkTaskExpiries(bot) {
   
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
-}
-
-// ---- One-time scheduler launcher (prevents duplicate loops) ----
-let _schedulersStarted = false;
-function startSchedulers(bot) {
-  if (_schedulersStarted) return;      // already running
-  _schedulersStarted = true;
-  checkTaskExpiries(bot);              // every 60s via setTimeout in the function
-  sendReminders(bot);                  // every 60s via setTimeout in the function
-  checkPendingReminders(bot);          // run once now
-  setInterval(() => checkPendingReminders(bot), 3600000); // once per hour
 }
 
 // Add this helper function near your other utility functions
@@ -1196,14 +1162,21 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
-
 // Then connect to Mongo and launch the bot
 mongoose
   .connect(process.env.MONGODB_URI, { autoIndex: true })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     const bot = startBot(); // Make sure startBot() returns the bot instance
-    startSchedulers(bot);
+    
+    // Start the expiry checkers
+    checkTaskExpiries(bot);
+    sendReminders(bot);
+    
+    // Add these lines:
+    checkPendingReminders(bot);
+    // Run every hour to catch any missed reminders
+    setInterval(() => checkPendingReminders(bot), 3600000);
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
