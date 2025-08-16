@@ -862,6 +862,11 @@ async function checkTaskExpiries(bot) {
 
       // Handle accepted applications
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
+      
+      // NEW: Track if we need to send notifications
+      let shouldSendNoConfirmation = false;
+      let shouldSendMenuAccess = false;
+      
       for (const app of acceptedApps) {
         if (app.user && app.messageId) {
           try {
@@ -891,49 +896,60 @@ async function checkTaskExpiries(bot) {
             console.error("Error disabling buttons for user:", app.user.telegramId, err);
           }
         }
+        
+        // Check if any application was accepted but not confirmed
+        if (!app.confirmedAt) {
+          shouldSendNoConfirmation = true;
+        }
       }
 
-      // Notify creator if no one confirmed - only if we haven't already notified
-      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt) && !task.repostNotified) {
+      // Only send notifications if we haven't already
+      if (!task.notificationsSent) {
+        // Notify creator if no one confirmed
+        if (shouldSendNoConfirmation && !task.repostNotified) {
+          try {
+            const creator = await User.findById(task.creator);
+            if (creator) {
+              const lang = creator.language || "en";
+              await bot.telegram.sendMessage(
+                creator.telegramId,
+                TEXT.noConfirmationNotification[lang],
+                Markup.inlineKeyboard([
+                  [Markup.button.callback(
+                    TEXT.repostTaskBtn[lang], 
+                    `REPOST_TASK_${task._id}`
+                  )]
+                ])
+              );
+              task.repostNotified = true;
+            }
+          } catch (err) {
+            console.error("Error notifying creator:", err);
+          }
+        }
+        
+        // Notify creator that menu is now accessible
         try {
           const creator = await User.findById(task.creator);
           if (creator) {
             const lang = creator.language || "en";
-            await bot.telegram.sendMessage(
-              creator.telegramId,
-              TEXT.noConfirmationNotification[lang],
-              Markup.inlineKeyboard([
-                [Markup.button.callback(
-                  TEXT.repostTaskBtn[lang], 
-                  `REPOST_TASK_${task._id}`
-                )]
-              ])
-            );
-            // Mark that we've notified about reposting
-            task.repostNotified = true;
-            await task.save();
+            // Skip if we already sent the no confirmation notification
+            if (!shouldSendNoConfirmation) {
+              await bot.telegram.sendMessage(
+                creator.telegramId,
+                lang === "am" 
+                  ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+                  : "The task has expired. You can now access the menu."
+              );
+            }
           }
         } catch (err) {
-          console.error("Error notifying creator:", err);
+          console.error("Error notifying creator about menu access:", err);
         }
-      }
-      
-      // Notify creator that menu is now accessible (scenarios A, C, D)
-      // Only if the task is actually expired (double-check status)
-      if (task.status === "Expired" && !task.menuAccessNotified) {
-        const creator = await User.findById(task.creator);
-        if (creator) {
-          const lang = creator.language || "en";
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            lang === "am" 
-              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-              : "The task has expired. You can now access the menu."
-          );
-          // Mark that we've notified about menu access
-          task.menuAccessNotified = true;
-          await task.save();
-        }
+        
+        // Mark that we've sent notifications
+        task.notificationsSent = true;
+        await task.save();
       }
     }
 
