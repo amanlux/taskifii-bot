@@ -894,33 +894,35 @@ async function checkTaskExpiries(bot) {
       }
 
       // Notify creator if no one confirmed - only if we haven't already notified
-      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt) && !task.repostNotified) {
-        try {
-          const creator = await User.findById(task.creator);
-          if (creator) {
-            const lang = creator.language || "en";
-            await bot.telegram.sendMessage(
-              creator.telegramId,
-              TEXT.noConfirmationNotification[lang],
-              Markup.inlineKeyboard([
-                [Markup.button.callback(
-                  TEXT.repostTaskBtn[lang], 
-                  `REPOST_TASK_${task._id}`
-                )]
-              ])
-            );
-            // Mark that we've notified about reposting
-            task.repostNotified = true;
-            await task.save();
+      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
+        if (!task.repostNotified) { // Only send if not already notified
+          try {
+            const creator = await User.findById(task.creator);
+            if (creator) {
+              const lang = creator.language || "en";
+              await bot.telegram.sendMessage(
+                creator.telegramId,
+                TEXT.noConfirmationNotification[lang],
+                Markup.inlineKeyboard([
+                  [Markup.button.callback(
+                    TEXT.repostTaskBtn[lang], 
+                    `REPOST_TASK_${task._id}`
+                  )]
+                ])
+              );
+              // Mark that we've notified about reposting
+              task.repostNotified = true;
+              await task.save();
+            }
+          } catch (err) {
+            console.error("Error notifying creator:", err);
           }
-        } catch (err) {
-          console.error("Error notifying creator:", err);
         }
       }
       
       // Notify creator that menu is now accessible (scenarios A, C, D)
-      // Only if the task is actually expired (double-check status)
-      if (task.status === "Expired" && !task.menuAccessNotified) {
+      // Only if the task is actually expired (double-check status) and not already notified
+      if (!task.menuAccessNotified) {
         const creator = await User.findById(task.creator);
         if (creator) {
           const lang = creator.language || "en";
