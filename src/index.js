@@ -893,8 +893,8 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Notify creator if no one confirmed
-      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
+      // Notify creator if no one confirmed - ADD CHECK FOR ALREADY NOTIFIED
+      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt) && !task.repostNotified) {
         try {
           const creator = await User.findById(task.creator);
           if (creator) {
@@ -909,6 +909,9 @@ async function checkTaskExpiries(bot) {
                 )]
               ])
             );
+            // Mark that we've notified about reposting
+            task.repostNotified = true;
+            await task.save();
           }
         } catch (err) {
           console.error("Error notifying creator:", err);
