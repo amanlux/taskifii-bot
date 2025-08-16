@@ -893,7 +893,7 @@ async function checkTaskExpiries(bot) {
         }
       }
 
-      // Notify creator if no one confirmed - ADD CHECK FOR ALREADY NOTIFIED
+      // Notify creator if no one confirmed - only if we haven't already notified
       if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt) && !task.repostNotified) {
         try {
           const creator = await User.findById(task.creator);
@@ -918,8 +918,9 @@ async function checkTaskExpiries(bot) {
         }
       }
       
-      // NEW: Notify creator that menu is now accessible (scenarios A, C, D)
-      if (!task.applicants.some(app => app.status === "Accepted" && app.confirmedAt)) {
+      // Notify creator that menu is now accessible (scenarios A, C, D)
+      // Only if the task is actually expired (double-check status)
+      if (task.status === "Expired" && !task.menuAccessNotified) {
         const creator = await User.findById(task.creator);
         if (creator) {
           const lang = creator.language || "en";
@@ -929,6 +930,9 @@ async function checkTaskExpiries(bot) {
               ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
               : "The task has expired. You can now access the menu."
           );
+          // Mark that we've notified about menu access
+          task.menuAccessNotified = true;
+          await task.save();
         }
       }
     }
