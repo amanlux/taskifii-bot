@@ -945,6 +945,17 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
+// ---- One-time scheduler launcher (prevents duplicate loops) ----
+let _schedulersStarted = false;
+function startSchedulers(bot) {
+  if (_schedulersStarted) return;      // already running
+  _schedulersStarted = true;
+  checkTaskExpiries(bot);              // every 60s via setTimeout in the function
+  sendReminders(bot);                  // every 60s via setTimeout in the function
+  checkPendingReminders(bot);          // run once now
+  setInterval(() => checkPendingReminders(bot), 3600000); // once per hour
+}
+
 // Add this helper function near your other utility functions
 async function hasActiveTask(telegramId) {
   try {
@@ -1169,21 +1180,14 @@ app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
 
+
 // Then connect to Mongo and launch the bot
 mongoose
   .connect(process.env.MONGODB_URI, { autoIndex: true })
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas");
     const bot = startBot(); // Make sure startBot() returns the bot instance
-    
-    // Start the expiry checkers
-    checkTaskExpiries(bot);
-    sendReminders(bot);
-    
-    // Add these lines:
-    checkPendingReminders(bot);
-    // Run every hour to catch any missed reminders
-    setInterval(() => checkPendingReminders(bot), 3600000);
+    startSchedulers(bot);
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
