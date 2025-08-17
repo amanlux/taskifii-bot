@@ -829,9 +829,9 @@ async function checkTaskExpiries(bot) {
     }).populate("creator").populate("applicants.user");
     
     for (const task of tasks) {
-      // Update task status to Expired
+      // FIRST - Update task status to Expired and save immediately
       task.status = "Expired";
-      await task.save();
+      await task.save(); // Make sure this save completes before proceeding
 
       // Disable application buttons for pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
@@ -893,11 +893,15 @@ async function checkTaskExpiries(bot) {
         }
       }
 
+      // Reload the task to ensure we have the latest version with saved status
+      const freshTask = await Task.findById(task._id);
+      if (!freshTask) continue;
+
       // Notify creator if no one confirmed - only if we haven't already notified
       if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
-        if (!task.repostNotified) { // Only send if not already notified
+        if (!freshTask.repostNotified) {
           try {
-            const creator = await User.findById(task.creator);
+            const creator = await User.findById(freshTask.creator);
             if (creator) {
               const lang = creator.language || "en";
               await bot.telegram.sendMessage(
@@ -906,13 +910,13 @@ async function checkTaskExpiries(bot) {
                 Markup.inlineKeyboard([
                   [Markup.button.callback(
                     TEXT.repostTaskBtn[lang], 
-                    `REPOST_TASK_${task._id}`
+                    `REPOST_TASK_${freshTask._id}`
                   )]
                 ])
               );
               // Mark that we've notified about reposting
-              task.repostNotified = true;
-              await task.save();
+              freshTask.repostNotified = true;
+              await freshTask.save();
             }
           } catch (err) {
             console.error("Error notifying creator:", err);
@@ -920,10 +924,10 @@ async function checkTaskExpiries(bot) {
         }
       }
       
-      // Notify creator that menu is now accessible (scenarios A, C, D)
-      // Only if the task is actually expired (double-check status) and not already notified
-      if (!task.menuAccessNotified) {
-        const creator = await User.findById(task.creator);
+      // Notify creator that menu is now accessible
+      // Only if we haven't already notified
+      if (!freshTask.menuAccessNotified) {
+        const creator = await User.findById(freshTask.creator);
         if (creator) {
           const lang = creator.language || "en";
           await bot.telegram.sendMessage(
@@ -933,12 +937,11 @@ async function checkTaskExpiries(bot) {
               : "The task has expired. You can now access the menu."
           );
           // Mark that we've notified about menu access
-          task.menuAccessNotified = true;
-          await task.save();
+          freshTask.menuAccessNotified = true;
+          await freshTask.save();
         }
       }
     }
-
   } catch (err) {
     console.error("Error in checkTaskExpiries:", err);
   }
