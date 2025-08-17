@@ -2528,7 +2528,7 @@ bot.action("_DISABLED_DO_TASK", async (ctx) => {
 bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be canceled");
 });
-// Find this section in your code (around line 4000):
+
 bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
@@ -2551,7 +2551,7 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
     const task = await Task.findById(taskId);
     if (!task) return;
 
-    // Calculate the original expiry hours (this is the key change)
+    // Calculate the original expiry hours
     const originalExpiryMs = task.expiry - task.postedAt;
     const originalExpiryHours = Math.round(originalExpiryMs / (1000 * 60 * 60));
 
@@ -2566,7 +2566,7 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
       timeToComplete: task.timeToComplete,
       revisionTime: task.revisionTime,
       penaltyPerHour: task.latePenalty,
-      expiryHours: originalExpiryHours, // Use the original expiry time instead of hardcoded 24
+      expiryHours: originalExpiryHours, // Using original expiry time
       exchangeStrategy: task.exchangeStrategy
     });
 
