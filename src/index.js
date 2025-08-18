@@ -831,7 +831,7 @@ async function checkTaskExpiries(bot) {
     for (const task of tasks) {
       // FIRST - Update task status to Expired and save immediately
       task.status = "Expired";
-      await task.save(); // Make sure this save completes before proceeding
+      await task.save();
 
       // Disable application buttons for pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
@@ -897,49 +897,43 @@ async function checkTaskExpiries(bot) {
       const freshTask = await Task.findById(task._id);
       if (!freshTask) continue;
 
-      // Notify creator if no one confirmed - only if we haven't already notified
-      if (acceptedApps.length > 0 && !acceptedApps.some(app => app.confirmedAt)) {
-        if (!freshTask.repostNotified) {
-          try {
-            const creator = await User.findById(freshTask.creator);
-            if (creator) {
-              const lang = creator.language || "en";
-              await bot.telegram.sendMessage(
-                creator.telegramId,
-                TEXT.noConfirmationNotification[lang],
-                Markup.inlineKeyboard([
-                  [Markup.button.callback(
-                    TEXT.repostTaskBtn[lang], 
-                    `REPOST_TASK_${freshTask._id}`
-                  )]
-                ])
-              );
-              // Mark that we've notified about reposting
-              freshTask.repostNotified = true;
-              await freshTask.save();
-            }
-          } catch (err) {
-            console.error("Error notifying creator:", err);
-          }
-        }
-      }
-      
-      // Notify creator that menu is now accessible
-      // Only if we haven't already notified
-      if (!freshTask.menuAccessNotified) {
-        const creator = await User.findById(freshTask.creator);
-        if (creator) {
-          const lang = creator.language || "en";
+      // Get the creator
+      const creator = await User.findById(freshTask.creator);
+      if (!creator) continue;
+
+      const lang = creator.language || "en";
+
+      // Check if we have accepted applicants with no confirmations
+      const hasAcceptedWithoutConfirmations = acceptedApps.length > 0 && 
+                                           !acceptedApps.some(app => app.confirmedAt);
+
+      // Only send notifications if we haven't already
+      if (!freshTask.expiryNotified) {
+        if (hasAcceptedWithoutConfirmations) {
+          // Send the "no confirmation" message
+          await bot.telegram.sendMessage(
+            creator.telegramId,
+            TEXT.noConfirmationNotification[lang],
+            Markup.inlineKeyboard([
+              [Markup.button.callback(
+                TEXT.repostTaskBtn[lang], 
+                `REPOST_TASK_${freshTask._id}`
+              )]
+            ])
+          );
+        } else {
+          // Send the menu access message
           await bot.telegram.sendMessage(
             creator.telegramId,
             lang === "am" 
               ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
               : "The task has expired. You can now access the menu."
           );
-          // Mark that we've notified about menu access
-          freshTask.menuAccessNotified = true;
-          await freshTask.save();
         }
+
+        // Mark that we've sent the expiry notification
+        freshTask.expiryNotified = true;
+        await freshTask.save();
       }
     }
   } catch (err) {
