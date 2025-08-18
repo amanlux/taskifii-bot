@@ -908,11 +908,15 @@ async function checkTaskExpiries(bot) {
         (!freshTask.menuAccessNotified) && 
         (!shouldSendNoConfirmation && !acceptedApps.some(app => app.confirmedAt));
 
-      // Send notifications if needed
+      // Send notifications if needed - MODIFIED THIS SECTION TO PREVENT DUPLICATES
       if (shouldSendNoConfirmation) {
         const creator = await User.findById(freshTask.creator);
         if (creator) {
           const lang = creator.language || "en";
+          
+          // Mark as notified BEFORE sending to prevent race conditions
+          freshTask.repostNotified = true;
+          await freshTask.save();
           
           await bot.telegram.sendMessage(
             creator.telegramId,
@@ -924,8 +928,6 @@ async function checkTaskExpiries(bot) {
               )]
             ])
           );
-          freshTask.repostNotified = true;
-          await freshTask.save();
         }
       } else if (shouldSendMenuAccess) {
         const creator = await User.findById(freshTask.creator);
