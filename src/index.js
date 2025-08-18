@@ -897,43 +897,49 @@ async function checkTaskExpiries(bot) {
       const freshTask = await Task.findById(task._id);
       if (!freshTask) continue;
 
-      // Get the creator
-      const creator = await User.findById(freshTask.creator);
-      if (!creator) continue;
+      // Check if we need to send the "no confirmation" notification
+      const shouldSendNoConfirmation = 
+        acceptedApps.length > 0 && 
+        !acceptedApps.some(app => app.confirmedAt) && 
+        !freshTask.repostNotified;
 
-      const lang = creator.language || "en";
+      // Check if we need to send the menu access notification
+      const shouldSendMenuAccess = 
+        (!freshTask.menuAccessNotified) && 
+        (!shouldSendNoConfirmation || acceptedApps.some(app => app.confirmedAt));
 
-      // Check if we have accepted applicants with no confirmations
-      const hasAcceptedWithoutConfirmations = acceptedApps.length > 0 && 
-                                           !acceptedApps.some(app => app.confirmedAt);
-
-      // Only send notifications if we haven't already
-      if (!freshTask.expiryNotified) {
-        if (hasAcceptedWithoutConfirmations) {
-          // Send the "no confirmation" message
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            TEXT.noConfirmationNotification[lang],
-            Markup.inlineKeyboard([
-              [Markup.button.callback(
-                TEXT.repostTaskBtn[lang], 
-                `REPOST_TASK_${freshTask._id}`
-              )]
-            ])
-          );
-        } else {
-          // Send the menu access message
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            lang === "am" 
-              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-              : "The task has expired. You can now access the menu."
-          );
+      // Send notifications if needed
+      if (shouldSendNoConfirmation || shouldSendMenuAccess) {
+        const creator = await User.findById(freshTask.creator);
+        if (creator) {
+          const lang = creator.language || "en";
+          
+          if (shouldSendNoConfirmation) {
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              TEXT.noConfirmationNotification[lang],
+              Markup.inlineKeyboard([
+                [Markup.button.callback(
+                  TEXT.repostTaskBtn[lang], 
+                  `REPOST_TASK_${freshTask._id}`
+                )]
+              ])
+            );
+            freshTask.repostNotified = true;
+            await freshTask.save(); // Save immediately after sending notification
+          }
+          
+          if (shouldSendMenuAccess) {
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              lang === "am" 
+                ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+                : "The task has expired. You can now access the menu."
+            );
+            freshTask.menuAccessNotified = true;
+            await freshTask.save(); // Save immediately after sending notification
+          }
         }
-
-        // Mark that we've sent the expiry notification
-        freshTask.expiryNotified = true;
-        await freshTask.save();
       }
     }
   } catch (err) {
