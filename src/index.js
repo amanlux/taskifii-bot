@@ -930,7 +930,13 @@ async function checkTaskExpiries(bot) {
         const creator = await User.findById(freshTask.creator);
         if (creator) {
           const lang = creator.language || "en";
-          // REMOVED the duplicate notification here - it will be handled by disableExpiredTaskButtons()
+          await bot.telegram.sendMessage(
+            creator.telegramId,
+            lang === "am" 
+              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+              : "The task has expired. You can now access the menu."
+          );
+          // Mark that we've notified about menu access
           freshTask.menuAccessNotified = true;
           await freshTask.save();
         }
@@ -944,66 +950,6 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
-async function disableExpiredTaskButtons(bot) {
-  try {
-    const now = new Date();
-    const tasks = await Task.find({
-      status: "Open",
-      expiry: { $lte: now }
-    }).populate("applicants.user");
-
-    for (const task of tasks) {
-      // Update task status
-      task.status = "Expired";
-      await task.save();
-
-      // Disable buttons for accepted applicants
-      const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
-      for (const app of acceptedApps) {
-        if (app.user && app.messageId) {
-          try {
-            const user = app.user;
-            const lang = user.language || "en";
-            
-            await bot.telegram.editMessageReplyMarkup(
-              user.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
-                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
-                  ]
-                ]
-              }
-            );
-          } catch (err) {
-            console.error("Error disabling buttons for user:", app.user.telegramId, err);
-          }
-        }
-      }
-
-      // Send menu access notification if not already sent
-      if (!task.menuAccessNotified) {
-        const creator = await User.findById(task.creator);
-        if (creator) {
-          const lang = creator.language || "en";
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            lang === "am" 
-              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-              : "The task has expired. You can now access the menu."
-          );
-          task.menuAccessNotified = true;
-          await task.save();
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error in disableExpiredTaskButtons:", err);
-  }
-}
 // Add this helper function near your other utility functions
 async function hasActiveTask(telegramId) {
   try {
@@ -2514,22 +2460,6 @@ async function disableExpiredTaskButtons(bot) {
           } catch (err) {
             console.error("Error disabling buttons for user:", app.user.telegramId, err);
           }
-        }
-      }
-
-      // Send menu access notification if not already sent
-      if (!task.menuAccessNotified) {
-        const creator = await User.findById(task.creator);
-        if (creator) {
-          const lang = creator.language || "en";
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            lang === "am" 
-              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-              : "The task has expired. You can now access the menu."
-          );
-          task.menuAccessNotified = true;
-          await task.save();
         }
       }
     }
