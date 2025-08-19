@@ -908,39 +908,46 @@ async function checkTaskExpiries(bot) {
         (!freshTask.menuAccessNotified) && 
         (!shouldSendNoConfirmation && !acceptedApps.some(app => app.confirmedAt));
 
-      // Send notifications if needed - MODIFIED TO PREVENT DUPLICATES
-      if (shouldSendNoConfirmation) {
-        const creator = await User.findById(freshTask.creator);
-        if (creator) {
-          const lang = creator.language || "en";
-          
-          // Mark as notified BEFORE sending to prevent race conditions
-          freshTask.repostNotified = true;
-          await freshTask.save();
-          
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            TEXT.noConfirmationNotification[lang],
-            Markup.inlineKeyboard([
-              [Markup.button.callback(
-                TEXT.repostTaskBtn[lang], 
-                `REPOST_TASK_${freshTask._id}`
-              )]
-            ])
-          );
-        }
-      } else if (shouldSendMenuAccess) {
-        const creator = await User.findById(freshTask.creator);
-        if (creator) {
-          const lang = creator.language || "en";
-          await bot.telegram.sendMessage(
-            creator.telegramId,
-            lang === "am" 
-              ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-              : "The task has expired. You can now access the menu."
-          );
-          freshTask.menuAccessNotified = true;
-          await freshTask.save();
+      // Send notifications if needed - NEW IMPROVED LOGIC
+      const creator = await User.findById(freshTask.creator);
+      if (creator) {
+        const lang = creator.language || "en";
+        
+        // Use atomic update to ensure we only send once
+        const updateResult = await Task.updateOne(
+          { 
+            _id: freshTask._id,
+            repostNotified: { $ne: true } // Only update if not already notified
+          },
+          { 
+            $set: { 
+              repostNotified: shouldSendNoConfirmation,
+              menuAccessNotified: shouldSendMenuAccess
+            } 
+          }
+        );
+
+        // Only send if we actually updated the document (prevent race conditions)
+        if (updateResult.modifiedCount > 0) {
+          if (shouldSendNoConfirmation) {
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              TEXT.noConfirmationNotification[lang],
+              Markup.inlineKeyboard([
+                [Markup.button.callback(
+                  TEXT.repostTaskBtn[lang], 
+                  `REPOST_TASK_${freshTask._id}`
+                )]
+              ])
+            );
+          } else if (shouldSendMenuAccess) {
+            await bot.telegram.sendMessage(
+              creator.telegramId,
+              lang === "am" 
+                ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+                : "The task has expired. You can now access the menu."
+            );
+          }
         }
       }
     }
