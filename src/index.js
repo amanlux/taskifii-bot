@@ -908,7 +908,7 @@ async function checkTaskExpiries(bot) {
         (!freshTask.menuAccessNotified) && 
         (!shouldSendNoConfirmation && !acceptedApps.some(app => app.confirmedAt));
 
-      // Send notifications if needed - MODIFIED THIS SECTION TO PREVENT DUPLICATES
+      // Send notifications if needed - MODIFIED TO PREVENT DUPLICATES
       if (shouldSendNoConfirmation) {
         const creator = await User.findById(freshTask.creator);
         if (creator) {
