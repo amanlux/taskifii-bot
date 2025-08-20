@@ -959,6 +959,62 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
+async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
+  try {
+    const channelId = "-1003092603337";
+    
+    // Build the detailed message
+    const messageLines = [
+      "🏆 *TASK ASSIGNMENT CONFIRMED*",
+      "",
+      "👤 *TASK CREATOR DETAILS:*",
+      `• Full Name: ${creator.fullName || 'N/A'}`,
+      `• Phone: ${creator.phone || 'N/A'}`,
+      `• Telegram: @${creator.username || 'N/A'}`,
+      `• Email: ${creator.email || 'N/A'}`,
+      "",
+      "👥 *TASK DOER DETAILS:*",
+      `• Full Name: ${doer.fullName || 'N/A'}`,
+      `• Phone: ${doer.phone || 'N/A'}`,
+      `• Telegram: @${doer.username || 'N/A'}`,
+      `• Email: ${doer.email || 'N/A'}`,
+      "",
+      "📝 *TASK DETAILS:*",
+      `• Description: ${task.description}`,
+      `• Payment Fee: ${task.paymentFee} birr`,
+      `• Time to Complete: ${task.timeToComplete} hour(s)`,
+      `• Skill Level: ${task.skillLevel}`,
+      `• Fields: ${task.fields.join(', ')}`,
+      `• Exchange Strategy: ${task.exchangeStrategy}`,
+      `• Revision Time: ${task.revisionTime} hour(s)`,
+      `• Penalty per Hour: ${task.latePenalty} birr`,
+      `• Posted At: ${task.postedAt.toLocaleString("en-US", {
+        timeZone: "Africa/Addis_Ababa",
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true
+      })} GMT+3`,
+      `• Expires At: ${task.expiry.toLocaleString("en-US", {
+        timeZone: "Africa/Addis_Ababa",
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true
+      })} GMT+3`,
+      "",
+      "#winnertaskdoer"
+    ];
+
+    const message = messageLines.join("\n");
+    
+    await bot.telegram.sendMessage(
+      channelId,
+      message,
+      { parse_mode: "Markdown" }
+    );
+    
+    console.log("Winner task doer notification sent to channel");
+  } catch (err) {
+    console.error("Failed to send winner task doer to channel:", err);
+  }
+}
 async function sendAcceptedApplicationToChannel(bot, task, applicant, creator) {
   try {
     const channelId = "-1003092603337";
@@ -2406,6 +2462,12 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   if (application) {
     application.confirmedAt = new Date();
     await task.save();
+  }
+  
+  // NEW: Send notification to channel
+  const creator = await User.findById(task.creator);
+  if (creator) {
+    await sendWinnerTaskDoerToChannel(bot, task, user, creator);
   }
   
   const lang = user.language || "en";
