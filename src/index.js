@@ -959,6 +959,59 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
+async function sendAcceptedApplicationToChannel(bot, task, applicant, creator) {
+  try {
+    const channelId = "-1003092603337";
+    
+    // Build the detailed message
+    const messageLines = [
+      "📋 *TASK APPLICATION ACCEPTED*",
+      "",
+      "👤 *TASK CREATOR DETAILS:*",
+      `• Full Name: ${creator.fullName || 'N/A'}`,
+      `• Phone: ${creator.phone || 'N/A'}`,
+      `• Telegram: @${creator.username || 'N/A'}`,
+      "",
+      "👥 *TASK DOER DETAILS:*",
+      `• Full Name: ${applicant.fullName || 'N/A'}`,
+      `• Phone: ${applicant.phone || 'N/A'}`,
+      `• Telegram: @${applicant.username || 'N/A'}`,
+      "",
+      "📝 *TASK DETAILS:*",
+      `• Description: ${task.description.substring(0, 100)}${task.description.length > 100 ? '...' : ''}`,
+      `• Payment Fee: ${task.paymentFee} birr`,
+      `• Time to Complete: ${task.timeToComplete} hour(s)`,
+      `• Skill Level: ${task.skillLevel}`,
+      `• Fields: ${task.fields.join(', ')}`,
+      `• Exchange Strategy: ${task.exchangeStrategy}`,
+      `• Posted At: ${task.postedAt.toLocaleString("en-US", {
+        timeZone: "Africa/Addis_Ababa",
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true
+      })} GMT+3`,
+      `• Expires At: ${task.expiry.toLocaleString("en-US", {
+        timeZone: "Africa/Addis_Ababa",
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit", hour12: true
+      })} GMT+3`,
+      "",
+      "#accepted"
+    ];
+
+    const message = messageLines.join("\n");
+    
+    await bot.telegram.sendMessage(
+      channelId,
+      message,
+      { parse_mode: "Markdown" }
+    );
+    
+    console.log("Accepted application notification sent to channel");
+  } catch (err) {
+    console.error("Failed to send accepted application to channel:", err);
+  }
+}
+
 // Add this helper function near your other utility functions
 async function hasActiveTask(telegramId) {
   try {
@@ -2065,13 +2118,14 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
       { show_alert: true }
     );
   }
-  const user = await User.findById(userId);
   
-  if (!task || !user) {
+  const user = await User.findById(userId);
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  
+  if (!task || !user || !creator) {
     return ctx.reply("Error: Could not find task or user.");
   }
   
-  const creator = await User.findOne({ telegramId: ctx.from.id });
   const lang = creator?.language || "en";
   
   // Update the application status to "Accepted"
@@ -2085,6 +2139,8 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   application.messageId = ctx.callbackQuery.message.message_id;
   await task.save();
 
+  // NEW: Send notification to channel
+  await sendAcceptedApplicationToChannel(bot, task, user, creator);
   
   // Edit the original message to show highlighted Accept button and inert Decline button
   try {
