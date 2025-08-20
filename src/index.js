@@ -1015,6 +1015,7 @@ async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
     console.error("Failed to send winner task doer to channel:", err);
   }
 }
+
 async function sendAcceptedApplicationToChannel(bot, task, applicant, creator) {
   try {
     const channelId = "-1003092603337";
@@ -1027,19 +1028,23 @@ async function sendAcceptedApplicationToChannel(bot, task, applicant, creator) {
       `• Full Name: ${creator.fullName || 'N/A'}`,
       `• Phone: ${creator.phone || 'N/A'}`,
       `• Telegram: @${creator.username || 'N/A'}`,
+      `• Email: ${creator.email || 'N/A'}`,
       "",
       "👥 *TASK DOER DETAILS:*",
       `• Full Name: ${applicant.fullName || 'N/A'}`,
       `• Phone: ${applicant.phone || 'N/A'}`,
       `• Telegram: @${applicant.username || 'N/A'}`,
+      `• Email: ${applicant.email || 'N/A'}`,
       "",
       "📝 *TASK DETAILS:*",
-      `• Description: ${task.description.substring(0, 100)}${task.description.length > 100 ? '...' : ''}`,
+      `• Description: ${task.description}`,
       `• Payment Fee: ${task.paymentFee} birr`,
       `• Time to Complete: ${task.timeToComplete} hour(s)`,
       `• Skill Level: ${task.skillLevel}`,
       `• Fields: ${task.fields.join(', ')}`,
       `• Exchange Strategy: ${task.exchangeStrategy}`,
+      `• Revision Time: ${task.revisionTime} hour(s)`,
+      `• Penalty per Hour: ${task.latePenalty} birr`,
       `• Posted At: ${task.postedAt.toLocaleString("en-US", {
         timeZone: "Africa/Addis_Ababa",
         month: "short", day: "numeric", year: "numeric",
