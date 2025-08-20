@@ -941,12 +941,7 @@ async function checkTaskExpiries(bot) {
               ])
             );
           } else if (shouldSendMenuAccess) {
-            await bot.telegram.sendMessage(
-              creator.telegramId,
-              lang === "am" 
-                ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-                : "The task has expired. You can now access the menu."
-            );
+            
           }
         }
       }
@@ -2482,6 +2477,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 });
 
 // Update the DO_TASK_CANCEL handler
+// In the DO_TASK_CANCEL action handler, remove the specific notification line
 bot.action("DO_TASK_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -2529,10 +2525,10 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
     await task.save();
   }
   
-  // Send confirmation message
+  // Send confirmation message (this stays)
   await ctx.reply(TEXT.cancelConfirmed[lang]);
   
-  // Notify task creator
+  // Notify task creator (this stays)
   const creator = await User.findById(task.creator);
   if (creator) {
     const creatorLang = creator.language || "en";
@@ -2544,13 +2540,14 @@ bot.action("DO_TASK_CANCEL", async (ctx) => {
       message
     );
 
-    // NEW: Notify creator that menu is now accessible (scenario B)
-    await ctx.telegram.sendMessage(
-      creator.telegramId,
-      creatorLang === "am" 
-        ? "ተግዳሮቱ ተሰርዟል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
-        : "The task has been canceled. You can now access the menu."
-    );
+    // REMOVED: The specific message you want to eliminate
+    // This is the line that was sending "The task has been canceled. You can now access the menu."
+    // await ctx.telegram.sendMessage(
+    //   creator.telegramId,
+    //   creatorLang === "am" 
+    //     ? "ተግዳሮቱ ተሰርዟል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+    //     : "The task has been canceled. You can now access the menu."
+    // );
   }
 });
 
