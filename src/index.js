@@ -2325,6 +2325,27 @@ bot.action("_DISABLED_SET_LANG_EN", async (ctx) => {
 bot.action("_DISABLED_SET_LANG_AM", async (ctx) => {
   await ctx.answerCbQuery();
 });
+
+// Add these new disabled action handlers near your other _DISABLED_ handlers
+bot.action("_DISABLED_DO_TASK_CONFIRMED", async (ctx) => {
+  await ctx.answerCbQuery("You've already confirmed this task");
+});
+
+bot.action("_DISABLED_DO_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task has been taken by another doer");
+});
+
+bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task can no longer be canceled");
+});
+
+bot.action("_DISABLED_ACCEPT", async (ctx) => {
+  await ctx.answerCbQuery("This task has already been taken by a doer");
+});
+
+bot.action("_DISABLED_DECLINE", async (ctx) => {
+  await ctx.answerCbQuery("This task has already been taken by a doer");
+});
 // ─────────── Language Change Handler ───────────
 bot.action("CHANGE_LANGUAGE", async (ctx) => {
   await ctx.answerCbQuery();
@@ -2443,7 +2464,7 @@ bot.action("SET_LANG_AM", async (ctx) => {
 });
 
 
-// Add this near your other action handlers (around line 2500)
+// REPLACE your existing DO_TASK_CONFIRM handler with this:
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -2577,7 +2598,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     await ctx.telegram.sendMessage(creator.telegramId, creatorMessage);
   }
   
-  // NEW: Send notification to channel
+  // Send notification to channel
   if (creator) {
     await sendWinnerTaskDoerToChannel(bot, task, user, creator);
   }
@@ -2587,30 +2608,9 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     : "✅ Task confirmation received! You can now work on the task.");
 });
 
-// Add these dummy handlers for the new disabled actions
-bot.action("_DISABLED_DO_TASK_CONFIRMED", async (ctx) => {
-  await ctx.answerCbQuery("You've already confirmed this task");
-});
-
-bot.action("_DISABLED_DO_TASK", async (ctx) => {
-  await ctx.answerCbQuery("This task has been taken by another doer");
-});
-
-bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
-  await ctx.answerCbQuery("This task can no longer be canceled");
-});
-
-bot.action("_DISABLED_ACCEPT", async (ctx) => {
-  await ctx.answerCbQuery("This task has already been taken by a doer");
-});
-
-bot.action("_DISABLED_DECLINE", async (ctx) => {
-  await ctx.answerCbQuery("This task has already been taken by a doer");
-});
-
 // Update the DO_TASK_CANCEL handler
 // In the DO_TASK_CANCEL action handler, remove the specific notification line
-bot.action("DO_TASK_CANCEL", async (ctx) => {
+bot.action("K_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return;
