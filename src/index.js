@@ -2459,7 +2459,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     "applicants.user": user._id,
     "applicants.status": "Accepted",
     status: "Open"
-  }).populate("applicants.user");
+  }).populate("applicants.user").populate("creator");
   
   if (!task) {
     return;
@@ -2529,7 +2529,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
           }
         );
         
-        // Notify other accepted task doers
+        // 3. Notify other accepted task doers
         const notification = otherLang === "am" 
           ? "❌ ይቅርታ፣ ሌላ የተግዳሮት አፈፃፀሚ ይህን ተግዳሮት ከወሰደ በኋላ ነው። እባክዎ ሌሎች ተግዳሮቶችን ይፈልጉ።"
           : "❌ Sorry, another task doer has already taken this task. Please look for other tasks to apply to.";
@@ -2541,47 +2541,52 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     }
   }
   
-  // 3. Make all application buttons inert for the task creator
+  // 4. Make all application buttons inert for the task creator
   const pendingApps = task.applicants.filter(app => app.status === "Pending");
-  const creator = await User.findById(task.creator);
   
-  if (creator) {
-    const creatorLang = creator.language || "en";
-    
-    for (const app of pendingApps) {
-      if (app.messageId) {
-        try {
-          await ctx.telegram.editMessageReplyMarkup(
-            creator.telegramId,
-            app.messageId,
-            undefined,
-            {
-              inline_keyboard: [
-                [
-                  Markup.button.callback(TEXT.acceptBtn[creatorLang], "_DISABLED_ACCEPT"),
-                  Markup.button.callback(TEXT.declineBtn[creatorLang], "_DISABLED_DECLINE")
+  if (task.creator) {
+    const creator = await User.findById(task.creator);
+    if (creator) {
+      const creatorLang = creator.language || "en";
+      
+      for (const app of pendingApps) {
+        if (app.messageId) {
+          try {
+            await ctx.telegram.editMessageReplyMarkup(
+              creator.telegramId,
+              app.messageId,
+              undefined,
+              {
+                inline_keyboard: [
+                  [
+                    Markup.button.callback(TEXT.acceptBtn[creatorLang], "_DISABLED_ACCEPT"),
+                    Markup.button.callback(TEXT.declineBtn[creatorLang], "_DISABLED_DECLINE")
+                  ]
                 ]
-              ]
-            }
-          );
-        } catch (err) {
-          console.error("Error disabling application buttons:", err);
+              }
+            );
+          } catch (err) {
+            console.error("Error disabling application buttons:", err);
+          }
         }
       }
+      
+      // Notify the task creator that someone has confirmed
+      const doerName = user.fullName || `@${user.username}` || "Anonymous";
+      const creatorMessage = creatorLang === "am"
+        ? `✅ ${doerName} ተግዳሮቱን ለመስራት አረጋገጠ! አሁን ስራውን መጀመር ይችላሉ።`
+        : `✅ ${doerName} has confirmed they will do the task! You can now start working together.`;
+      
+      await ctx.telegram.sendMessage(creator.telegramId, creatorMessage);
     }
-    
-    // Notify the task creator that someone has confirmed
-    const doerName = user.fullName || `@${user.username}` || "Anonymous";
-    const creatorMessage = creatorLang === "am"
-      ? `✅ ${doerName} ተግዳሮቱን ለመስራት አረጋገጠ! አሁን ስራውን መጀመር ይችላሉ።`
-      : `✅ ${doerName} has confirmed they will do the task! You can now start working together.`;
-    
-    await ctx.telegram.sendMessage(creator.telegramId, creatorMessage);
   }
   
   // Send notification to channel
-  if (creator) {
-    await sendWinnerTaskDoerToChannel(bot, task, user, creator);
+  if (task.creator) {
+    const creator = await User.findById(task.creator);
+    if (creator) {
+      await sendWinnerTaskDoerToChannel(bot, task, user, creator);
+    }
   }
   
   return ctx.reply(lang === "am" 
