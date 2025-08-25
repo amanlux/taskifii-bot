@@ -2325,27 +2325,6 @@ bot.action("_DISABLED_SET_LANG_EN", async (ctx) => {
 bot.action("_DISABLED_SET_LANG_AM", async (ctx) => {
   await ctx.answerCbQuery();
 });
-
-// Add these new disabled action handlers near your other _DISABLED_ handlers
-bot.action("_DISABLED_DO_TASK_CONFIRMED", async (ctx) => {
-  await ctx.answerCbQuery("You've already confirmed this task");
-});
-
-bot.action("_DISABLED_DO_TASK", async (ctx) => {
-  await ctx.answerCbQuery("This task has been taken by another doer");
-});
-
-bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
-  await ctx.answerCbQuery("This task can no longer be canceled");
-});
-
-bot.action("_DISABLED_ACCEPT", async (ctx) => {
-  await ctx.answerCbQuery("This task has already been taken by a doer");
-});
-
-bot.action("_DISABLED_DECLINE", async (ctx) => {
-  await ctx.answerCbQuery("This task has already been taken by a doer");
-});
 // ─────────── Language Change Handler ───────────
 bot.action("CHANGE_LANGUAGE", async (ctx) => {
   await ctx.answerCbQuery();
@@ -2464,7 +2443,7 @@ bot.action("SET_LANG_AM", async (ctx) => {
 });
 
 
-// REPLACE your existing DO_TASK_CONFIRM handler with this:
+// Replace your existing DO_TASK_CONFIRM handler with this enhanced version
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -2475,7 +2454,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     "applicants.user": user._id,
     "applicants.status": "Accepted",
     status: "Open" // Only allow if task is still open
-  });
+  }).populate("applicants.user");
   
   if (!task) {
     // Don't show any message since the expiry notification was already sent
@@ -2499,7 +2478,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 
   // Update the application to confirmed
   const application = task.applicants.find(app => 
-    app.user.toString() === user._id.toString()
+    app.user._id.toString() === user._id.toString()
   );
   
   if (application) {
@@ -2526,14 +2505,14 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   // 2. Make buttons inert for all other accepted applicants
   const otherAcceptedApps = task.applicants.filter(app => 
     app.status === "Accepted" && 
-    app.user.toString() !== user._id.toString() &&
+    app.user._id.toString() !== user._id.toString() &&
     app.messageId // Ensure we have a message ID to edit
   );
   
   for (const app of otherAcceptedApps) {
-    const otherUser = await User.findById(app.user);
-    if (otherUser && app.messageId) {
+    if (app.user && app.messageId) {
       try {
+        const otherUser = app.user;
         const otherLang = otherUser.language || "en";
         
         await ctx.telegram.editMessageReplyMarkup(
@@ -2555,7 +2534,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
         
         await ctx.telegram.sendMessage(otherUser.telegramId, notification);
       } catch (err) {
-        console.error("Error updating buttons for user:", app.user, err);
+        console.error("Error updating buttons for user:", app.user._id, err);
       }
     }
   }
@@ -2606,6 +2585,27 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   return ctx.reply(lang === "am" 
     ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
     : "✅ Task confirmation received! You can now work on the task.");
+});
+
+// Add these dummy handlers for the new disabled actions (place them near your other _DISABLED handlers)
+bot.action("_DISABLED_DO_TASK_CONFIRMED", async (ctx) => {
+  await ctx.answerCbQuery("You've already confirmed this task");
+});
+
+bot.action("_DISABLED_DO_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task has been taken by another doer");
+});
+
+bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task can no longer be canceled");
+});
+
+bot.action("_DISABLED_ACCEPT", async (ctx) => {
+  await ctx.answerCbQuery("This task has already been taken by a doer");
+});
+
+bot.action("_DISABLED_DECLINE", async (ctx) => {
+  await ctx.answerCbQuery("This task has already been taken by a doer");
 });
 
 // Update the DO_TASK_CANCEL handler
