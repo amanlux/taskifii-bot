@@ -959,85 +959,7 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
-async function notifyOtherAcceptedApplicants(bot, task, confirmedDoerId) {
-  try {
-    const otherAcceptedApps = task.applicants.filter(app => 
-      app.status === "Accepted" && 
-      app.user.toString() !== confirmedDoerId.toString() &&
-      !app.confirmedAt
-    );
-    
-    for (const app of otherAcceptedApps) {
-      const doer = await User.findById(app.user);
-      if (doer) {
-        const lang = doer.language || "en";
-        const message = lang === "am" 
-          ? "❌ ይቅርታ፣ ሌላ ተግዳሮት አድራጊ በፍጥነት 'ተግዳሮቱን ስራ' የሚለውን ቁልፍ ተጫኗል። እባክዎ ሌሎች ተግዳሮቶችን ይፈልጉ።"
-          : "❌ Sorry, another task doer clicked 'Do the task' faster. Please look for other tasks to apply to.";
-        
-        await bot.telegram.sendMessage(doer.telegramId, message);
-        
-        // Disable buttons for this applicant
-        if (app.messageId) {
-          try {
-            await bot.telegram.editMessageReplyMarkup(
-              doer.telegramId,
-              app.messageId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK"),
-                    Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")
-                  ]
-                ]
-              }
-            );
-          } catch (err) {
-            console.error("Error disabling buttons for user:", doer.telegramId, err);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error in notifyOtherAcceptedApplicants:", err);
-  }
-}
 
-// Add this helper function to disable all application buttons for the task creator
-async function disableAllApplicationButtons(bot, task) {
-  try {
-    const creator = await User.findById(task.creator);
-    if (!creator) return;
-    
-    const lang = creator.language || "en";
-    
-    const pendingApps = task.applicants.filter(app => app.status === "Pending");
-    for (const app of pendingApps) {
-      if (app.messageId) {
-        try {
-          await bot.telegram.editMessageReplyMarkup(
-            creator.telegramId,
-            app.messageId,
-            undefined,
-            {
-              inline_keyboard: [
-                [
-                  Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-                  Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-                ]
-              ]
-            }
-          );
-        } catch (err) {
-          console.error("Error disabling application buttons:", err);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error in disableAllApplicationButtons:", err);
-  }
-}
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
     const channelId = "-1003092603337";
@@ -2521,7 +2443,7 @@ bot.action("SET_LANG_AM", async (ctx) => {
 });
 
 
-// Update the DO_TASK_CONFIRM handler
+// Add this near your other action handlers (around line 2500)
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -2539,47 +2461,123 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     return;
   }
 
-  const lang = user.language || "en";
+  // Check if someone has already confirmed this task
+  const alreadyConfirmed = task.applicants.some(app => 
+    app.status === "Accepted" && app.confirmedAt
+  );
   
-  try {
-    // Edit the original message to maintain vertical layout with highlighted button
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        // First button gets checkmark and is disabled
-        [Markup.button.callback(`✔ ${TEXT.doTaskBtn[lang]}`, "_DISABLED_DO_TASK")],
-        // Second button remains disabled but without checkmark
-        [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")]
-      ]
-    });
-  } catch (err) {
-    console.error("Failed to edit message buttons:", err);
-    // Fallback - send a new message if editing fails
-    await ctx.reply(
-      TEXT.cancelConfirmed[lang],
-      Markup.inlineKeyboard([
-        [Markup.button.callback(`✔ ${TEXT.doTaskBtn[lang]}`, "_DISABLED_DO_TASK")],
-        [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")]
-      ])
+  if (alreadyConfirmed) {
+    const lang = user.language || "en";
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "❌ ይህ ተግዳሮት በሌላ አፈፃፀሚ ተወስዷል" 
+        : "❌ This task has already been taken by another doer",
+      { show_alert: true }
     );
   }
 
-  // Update application status
+  // Update the application to confirmed
   const application = task.applicants.find(app => 
     app.user.toString() === user._id.toString()
   );
+  
   if (application) {
     application.confirmedAt = new Date();
     await task.save();
   }
   
-  // NEW: Notify other accepted applicants and disable their buttons
-  await notifyOtherAcceptedApplicants(bot, task, user._id);
+  const lang = user.language || "en";
   
-  // NEW: Disable all application buttons for the task creator
-  await disableAllApplicationButtons(bot, task);
+  // 1. Make buttons inert for the clicker with highlight on "Do the task"
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        // First button gets checkmark and is disabled
+        [Markup.button.callback(`✅ ${TEXT.doTaskBtn[lang]}`, "_DISABLED_DO_TASK_CONFIRMED")],
+        // Second button is disabled without checkmark
+        [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_CANCEL_TASK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Failed to edit message buttons:", err);
+  }
+  
+  // 2. Make buttons inert for all other accepted applicants
+  const otherAcceptedApps = task.applicants.filter(app => 
+    app.status === "Accepted" && 
+    app.user.toString() !== user._id.toString() &&
+    app.messageId // Ensure we have a message ID to edit
+  );
+  
+  for (const app of otherAcceptedApps) {
+    const otherUser = await User.findById(app.user);
+    if (otherUser && app.messageId) {
+      try {
+        const otherLang = otherUser.language || "en";
+        
+        await ctx.telegram.editMessageReplyMarkup(
+          otherUser.telegramId,
+          app.messageId,
+          undefined,
+          {
+            inline_keyboard: [
+              [Markup.button.callback(TEXT.doTaskBtn[otherLang], "_DISABLED_DO_TASK")],
+              [Markup.button.callback(TEXT.cancelBtn[otherLang], "_DISABLED_CANCEL_TASK")]
+            ]
+          }
+        );
+        
+        // 3. Notify other accepted task doers
+        const notification = otherLang === "am" 
+          ? "❌ ይቅርታ፣ ሌላ የተግዳሮት አፈፃፀሚ ይህን ተግዳሮት ከወሰደ በኋላ ነው። እባክዎ ሌሎች ተግዳሮቶችን ይፈልጉ።"
+          : "❌ Sorry, another task doer has already taken this task. Please look for other tasks to apply to.";
+        
+        await ctx.telegram.sendMessage(otherUser.telegramId, notification);
+      } catch (err) {
+        console.error("Error updating buttons for user:", app.user, err);
+      }
+    }
+  }
+  
+  // 4. Make all application buttons inert for the task creator
+  const pendingApps = task.applicants.filter(app => app.status === "Pending");
+  const creator = await User.findById(task.creator);
+  
+  if (creator) {
+    const creatorLang = creator.language || "en";
+    
+    for (const app of pendingApps) {
+      if (app.messageId) {
+        try {
+          await ctx.telegram.editMessageReplyMarkup(
+            creator.telegramId,
+            app.messageId,
+            undefined,
+            {
+              inline_keyboard: [
+                [
+                  Markup.button.callback(TEXT.acceptBtn[creatorLang], "_DISABLED_ACCEPT"),
+                  Markup.button.callback(TEXT.declineBtn[creatorLang], "_DISABLED_DECLINE")
+                ]
+              ]
+            }
+          );
+        } catch (err) {
+          console.error("Error disabling application buttons:", err);
+        }
+      }
+    }
+    
+    // Notify the task creator that someone has confirmed
+    const doerName = user.fullName || `@${user.username}` || "Anonymous";
+    const creatorMessage = creatorLang === "am"
+      ? `✅ ${doerName} ተግዳሮቱን ለመስራት አረጋገጠ! አሁን ስራውን መጀመር ይችላሉ።`
+      : `✅ ${doerName} has confirmed they will do the task! You can now start working together.`;
+    
+    await ctx.telegram.sendMessage(creator.telegramId, creatorMessage);
+  }
   
   // NEW: Send notification to channel
-  const creator = await User.findById(task.creator);
   if (creator) {
     await sendWinnerTaskDoerToChannel(bot, task, user, creator);
   }
@@ -2587,6 +2585,27 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   return ctx.reply(lang === "am" 
     ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
     : "✅ Task confirmation received! You can now work on the task.");
+});
+
+// Add these dummy handlers for the new disabled actions
+bot.action("_DISABLED_DO_TASK_CONFIRMED", async (ctx) => {
+  await ctx.answerCbQuery("You've already confirmed this task");
+});
+
+bot.action("_DISABLED_DO_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task has been taken by another doer");
+});
+
+bot.action("_DISABLED_CANCEL_TASK", async (ctx) => {
+  await ctx.answerCbQuery("This task can no longer be canceled");
+});
+
+bot.action("_DISABLED_ACCEPT", async (ctx) => {
+  await ctx.answerCbQuery("This task has already been taken by a doer");
+});
+
+bot.action("_DISABLED_DECLINE", async (ctx) => {
+  await ctx.answerCbQuery("This task has already been taken by a doer");
 });
 
 // Update the DO_TASK_CANCEL handler
