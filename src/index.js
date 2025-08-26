@@ -2484,7 +2484,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 
 // Update the DO_TASK_CANCEL handler
 // In the DO_TASK_CANCEL action handler, remove the specific notification line
-bot.action("K_CANCEL", async (ctx) => {
+bot.action("DO_TASK_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return;
