@@ -8,7 +8,7 @@ const ApplicantSchema = new Schema({
   file: { type: String, default: null },
   status: { 
     type: String, 
-    enum: ["Pending", "Accepted", "Declined", "Canceled"],
+    enum: ["Pending", "Accepted", "Declined", "Canceled", "Confirmed"],
     default: "Pending" 
   },
   messageId: { type: Number },
@@ -41,7 +41,7 @@ const TaskSchema = new Schema(
     exchangeStrategy: { type: String, enum: ["100%", "30:40:30", "50:50"], required: true },
     status: { 
       type: String, 
-      enum: ["Open", "Taken", "Canceled", "Completed", "Expired", "PendingConfirmation"], // Added "Expired"
+      enum: ["Open", "Taken", "Canceled",  "InProgress", "Completed", "Expired", "PendingConfirmation"], // Added "Expired"
       default: "Open" 
     },
     applicants: { type: [ApplicantSchema], default: [] },

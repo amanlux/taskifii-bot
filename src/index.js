@@ -975,7 +975,7 @@ async function handleFirstDoerWins(bot, taskId, winningDoerId) {
 
     // 1. Update the winning application to "Confirmed"
     const winningApp = task.applicants.find(app => 
-      app.user._id.toString() === winningDoerId.toString()
+      app.user && app.user._id.toString() === winningDoerId.toString()
     );
     
     if (winningApp) {
@@ -986,6 +986,7 @@ async function handleFirstDoerWins(bot, taskId, winningDoerId) {
     // 2. Disable buttons for all other accepted applicants
     const otherAcceptedApps = task.applicants.filter(app => 
       app.status === "Accepted" && 
+      app.user && 
       app.user._id.toString() !== winningDoerId.toString()
     );
 
@@ -996,7 +997,7 @@ async function handleFirstDoerWins(bot, taskId, winningDoerId) {
         try {
           const doerLang = app.user.language || "en";
           
-          // Edit the message to show disabled buttons
+          // Edit the message to show disabled buttons - KEEP THE SAME LAYOUT
           await bot.telegram.editMessageReplyMarkup(
             app.user.telegramId,
             app.messageId,
@@ -1065,6 +1066,7 @@ async function handleFirstDoerWins(bot, taskId, winningDoerId) {
     console.error("Error in handleFirstDoerWins:", err);
   }
 }
+
 
 async function checkForMultipleConfirmations(bot, taskId) {
   try {
@@ -2599,7 +2601,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     return;
   }
 
-  // Make the buttons inert immediately for this user
+  // Make the buttons inert immediately for this user - KEEP THE SAME LAYOUT
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
@@ -2615,7 +2617,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 
   // Handle the "first doer wins" logic
   await handleFirstDoerWins(bot, task._id, user._id);
-  await checkForMultipleConfirmations(bot, task._id);
+  
   const lang = user.language || "en";
   return ctx.reply(lang === "am" 
     ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መጀመር ይችላሉ።" 
