@@ -996,6 +996,7 @@ async function handleFirstDoerWins(bot, taskId, winningDoerId) {
         try {
           const doerLang = app.user.language || "en";
           
+          // Edit the message to show disabled buttons
           await bot.telegram.editMessageReplyMarkup(
             app.user.telegramId,
             app.messageId,
@@ -1047,7 +1048,11 @@ async function handleFirstDoerWins(bot, taskId, winningDoerId) {
       }
     }
 
-    // 4. Notify the task creator that someone confirmed
+    // 4. Update task status and save
+    task.status = "InProgress";
+    await task.save();
+
+    // 5. Notify the task creator that someone confirmed
     const creatorLang = task.creator.language || "en";
     const doerName = winningDoer.fullName || `@${winningDoer.username}` || "Anonymous";
     const creatorMsg = creatorLang === "am" 
@@ -1055,14 +1060,43 @@ async function handleFirstDoerWins(bot, taskId, winningDoerId) {
       : `✅ ${doerName} has confirmed they'll do the task! They can now start working.`;
     
     await bot.telegram.sendMessage(task.creator.telegramId, creatorMsg);
-
-    await task.save();
     
   } catch (err) {
     console.error("Error in handleFirstDoerWins:", err);
   }
 }
 
+async function checkForMultipleConfirmations(bot, taskId) {
+  try {
+    const task = await Task.findById(taskId).populate('applicants.user');
+    if (!task) return;
+    
+    // Count how many applicants have confirmed
+    const confirmedApps = task.applicants.filter(app => app.status === "Confirmed");
+    
+    if (confirmedApps.length > 1) {
+      // If multiple confirmations, only keep the first one
+      const firstConfirmation = confirmedApps.sort((a, b) => a.confirmedAt - b.confirmedAt)[0];
+      
+      for (const app of confirmedApps) {
+        if (app._id.toString() !== firstConfirmation._id.toString()) {
+          app.status = "NotSelected";
+          
+          // Notify the user they were too late
+          const doerLang = app.user.language || "en";
+          const notSelectedMsg = TEXT.notSelectedNotification[doerLang]
+            .replace("[creator]", task.creator.fullName || `@${task.creator.username}`);
+          
+          await bot.telegram.sendMessage(app.user.telegramId, notSelectedMsg);
+        }
+      }
+      
+      await task.save();
+    }
+  } catch (err) {
+    console.error("Error in checkForMultipleConfirmations:", err);
+  }
+}
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
     const channelId = "-1003092603337";
@@ -2569,8 +2603,10 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [Markup.button.callback(`✅ ${TEXT.doTaskBtn[user.language || "en"]}`, "_DISABLED_DO_TASK")],
-        [Markup.button.callback(TEXT.cancelBtn[user.language || "en"], "_DISABLED_CANCEL_TASK")]
+        [
+          Markup.button.callback(`✅ ${TEXT.doTaskBtn[user.language || "en"]}`, "_DISABLED_DO_TASK"),
+          Markup.button.callback(TEXT.cancelBtn[user.language || "en"], "_DISABLED_CANCEL_TASK")
+        ]
       ]
     });
   } catch (err) {
@@ -2579,12 +2615,13 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 
   // Handle the "first doer wins" logic
   await handleFirstDoerWins(bot, task._id, user._id);
-  
+  await checkForMultipleConfirmations(bot, task._id);
   const lang = user.language || "en";
   return ctx.reply(lang === "am" 
     ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መጀመር ይችላሉ።" 
     : "✅ Task confirmation received! You can now start working on the task.");
 });
+
 
 // Update the DO_TASK_CANCEL handler
 // In the DO_TASK_CANCEL action handler, remove the specific notification line
