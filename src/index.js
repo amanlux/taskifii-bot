@@ -855,7 +855,10 @@ async function checkTaskExpiries(bot) {
               }
             );
           } catch (err) {
-            console.error("Error disabling application buttons:", err);
+            // Silently handle message not found errors
+            if (!err.message.includes("message to edit not found")) {
+              console.error("Error disabling application buttons:", err);
+            }
           }
         }
       }
@@ -863,14 +866,14 @@ async function checkTaskExpiries(bot) {
       // Handle accepted applications
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
       for (const app of acceptedApps) {
-        if (app.user && app.messageId) {
+        if (app.user && app.doerMessageId) {
           try {
             const user = app.user;
             const lang = user.language || "en";
             
             await bot.telegram.editMessageReplyMarkup(
               user.telegramId,
-              app.messageId,
+              app.doerMessageId,
               undefined,
               {
                 inline_keyboard: [
@@ -888,11 +891,13 @@ async function checkTaskExpiries(bot) {
               TEXT.doerTimeUpNotification[lang]
             );
           } catch (err) {
-            console.error("Error disabling buttons for user:", app.user.telegramId, err);
+            // Silently handle message not found errors
+            if (!err.message.includes("message to edit not found")) {
+              console.error("Error disabling buttons for user:", app.user.telegramId, err);
+            }
           }
         }
       }
-
       // Reload the task to ensure we have the latest version with saved status
       const freshTask = await Task.findById(task._id);
       if (!freshTask) continue;
@@ -2249,6 +2254,7 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   return ctx.reply(creatorMessage);
 });
 
+
 // Updated handler for Decline button
 bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -2462,7 +2468,13 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   }).populate("applicants.user").populate("creator");
   
   if (!task) {
-    return;
+    const lang = user.language || "en";
+    return ctx.answerCbQuery(
+      lang === "am" 
+        ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል" 
+        : "❌ This task is no longer available",
+      { show_alert: true }
+    );
   }
 
   // Check if someone has already confirmed this task
@@ -2507,8 +2519,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   // 2. Make buttons inert for all other accepted applicants
   const otherAcceptedApps = task.applicants.filter(app => 
     app.status === "Accepted" && 
-    app.user._id.toString() !== user._id.toString() &&
-    app.doerMessageId // Use the stored message ID
+    app.user._id.toString() !== user._id.toString()
   );
   
   for (const app of otherAcceptedApps) {
@@ -2537,6 +2548,14 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
         await ctx.telegram.sendMessage(otherUser.telegramId, notification);
       } catch (err) {
         console.error("Error updating buttons for user:", app.user._id, err);
+        // If message not found, send a new notification instead
+        const otherUser = app.user;
+        const otherLang = otherUser.language || "en";
+        const notification = otherLang === "am" 
+          ? "❌ ይቅርታ፣ ሌላ የተግዳሮት አፈፃፀሚ ይህን ተግዳሮት ከወሰደ በኋላ ነው። እባክዎ ሌሎች ተግዳሮቶችን ይፈልጉ።"
+          : "❌ Sorry, another task doer has already taken this task. Please look for other tasks to apply to.";
+        
+        await ctx.telegram.sendMessage(otherUser.telegramId, notification);
       }
     }
   }
@@ -2567,6 +2586,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
             );
           } catch (err) {
             console.error("Error disabling application buttons:", err);
+            // If message not found, continue without error
           }
         }
       }
@@ -2593,6 +2613,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
     : "✅ Task confirmation received! You can now work on the task.");
 });
+
 
 // Add these dummy handlers for the new disabled actions (place them near your other _DISABLED handlers)
 bot.action("_DISABLED_DO_TASK_CONFIRMED", async (ctx) => {
