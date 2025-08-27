@@ -485,6 +485,10 @@ const TEXT = {
   en: "Terms & Conditions",
   am: "የታስኪፋይ ህግጋቶች"
   },
+  taskAlreadyTaken: {
+  en: "This task has already been taken.",
+  am: "ይህ ተግዳሮት ቀድሞ ተወስዷል።"
+  },
 
   
   
@@ -1492,6 +1496,11 @@ function askSkillLevel(ctx, lang = null) {
         return ctx.reply(TEXT.taskExpired[lang]);
       }
       
+      // If a doer has already confirmed, show a simple message and stop.
+      if (decisionsLocked(task)) {
+        const lang = user?.language || "en";
+        return ctx.reply(TEXT.taskAlreadyTaken[lang]);
+      }
       // NEW CHECK: Prevent creators from applying to their own tasks
       if (user && task.creator.toString() === user._id.toString()) {
         const lang = user.language || "en";
@@ -2178,6 +2187,14 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
       lang === "am" ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" : "❌ This task has expired",
+      { show_alert: true }
+    );
+  }
+
+  // If a doer has already confirmed (first-click-wins), stop the flow.
+  if (decisionsLocked(task)) {
+    return ctx.answerCbQuery(
+      TEXT.taskAlreadyTaken[lang],
       { show_alert: true }
     );
   }
