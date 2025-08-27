@@ -2444,47 +2444,107 @@ bot.action("SET_LANG_AM", async (ctx) => {
 
 
 // Dummy handlers for the confirmation buttons
+// Replace the whole DO_TASK_CONFIRM action handler with this:
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return;
-  
-  // Find the task where this user was accepted
-  const task = await Task.findOne({
+
+  const lang = user.language || "en";
+  const now = new Date();
+
+  // Find the accepted, open, non-expired task for this user
+  let task = await Task.findOne({
     "applicants.user": user._id,
     "applicants.status": "Accepted",
-    status: "Open" // Only allow if task is still open
+    status: "Open",
+    expiry: { $gt: now }
   });
-  
+
+  // If nothing eligible is found, just make buttons inert and quietly return
   if (!task) {
-    // Don't show any message since the expiry notification was already sent
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK_CONFIRM")],
+          [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")]
+        ]
+      });
+    } catch (_) {}
     return;
   }
 
-  // Rest of your existing confirmation logic...
-  const application = task.applicants.find(app => 
-    app.user.toString() === user._id.toString()
+  // ATOMIC "first click wins":
+  // - Only set confirmedAt if:
+  //   * the task is still open and not expired
+  //   * THIS user is an accepted applicant with no confirmedAt/canceledAt
+  //   * NOBODY ELSE has confirmedAt yet
+  const updated = await Task.findOneAndUpdate(
+    {
+      _id: task._id,
+      status: "Open",
+      expiry: { $gt: now },
+      applicants: {
+        $elemMatch: {
+          user: user._id,
+          status: "Accepted",
+          confirmedAt: { $exists: false },
+          canceledAt: { $exists: false }
+        }
+      },
+      $nor: [{ applicants: { $elemMatch: { confirmedAt: { $exists: true } } } }]
+    },
+    { $set: { "applicants.$.confirmedAt": now } },
+    { new: true }
   );
-  if (application) {
-    application.confirmedAt = new Date();
-    await task.save();
+
+  // If we couldn't update, someone else won (or it just expired).
+  if (!updated) {
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK_CONFIRM")],
+          [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")]
+        ]
+      });
+    } catch (_) {}
+
+    return ctx.reply(
+      lang === "am"
+        ? "❌ ቀደም ሲል ሌላ አመልካች ጀምሮታል።"
+        : "❌ Someone else already started this task."
+    );
   }
-  
-  // NEW: Send notification to channel
-  const creator = await User.findById(task.creator);
+
+  // Winner: highlight "Do the task" and make both buttons inert (still visible)
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(`✔ ${TEXT.doTaskBtn[lang]}`, "_DISABLED_DO_TASK_CONFIRM")],
+        [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error highlighting/locking buttons:", err);
+  }
+
+  // Notify creator/channel using your existing helper
+  const creator = await User.findById(updated.creator);
   if (creator) {
-    await sendWinnerTaskDoerToChannel(bot, task, user, creator);
+    await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
   }
-  
-  const lang = user.language || "en";
-  return ctx.reply(lang === "am" 
-    ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
-    : "✅ Task confirmation received! You can now work on the task.");
+
+  return ctx.reply(
+    lang === "am"
+      ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።"
+      : "✅ Task confirmation received! You can now work on the task."
+  );
 });
+
 
 // Update the DO_TASK_CANCEL handler
 // In the DO_TASK_CANCEL action handler, remove the specific notification line
-bot.action("K_CANCEL", async (ctx) => {
+bot.action("DO_TASK_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return;
