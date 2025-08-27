@@ -959,38 +959,6 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
-// Disable Accept/Decline on ALL applications shown to the task creator (inert but visible)
-async function disableCreatorApplicationButtonsForTask(bot, taskId) {
-  try {
-    const task = await Task.findById(taskId).populate("creator");
-    if (!task || !task.creator) return;
-
-    const creator = task.creator;
-    const lang = creator.language || "en";
-
-    for (const app of task.applicants) {
-      if (!app.messageId) continue; // only messages the creator actually received
-      try {
-        await bot.telegram.editMessageReplyMarkup(
-          creator.telegramId,
-          app.messageId,
-          undefined,
-          {
-            inline_keyboard: [[
-              Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-              Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-            ]]
-          }
-        );
-      } catch (err) {
-        console.error("Error disabling creator buttons for application:", task._id, app.user?.toString?.(), err);
-      }
-    }
-  } catch (err) {
-    console.error("disableCreatorApplicationButtonsForTask failed:", err);
-  }
-}
-
 
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
@@ -2560,8 +2528,36 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     console.error("Error highlighting/locking buttons:", err);
   }
 
-  // NEW: make all Accept/Decline buttons inert for the creator on every application
-  await disableCreatorApplicationButtonsForTask(bot, updated._id);
+  // AFTER you highlight the winner's buttons inside the DO_TASK_CONFIRM handler:
+  try {
+    const creator = await User.findById(updated.creator);
+    if (creator) {
+      const creatorLang = creator.language || "en";
+
+      // Disable Accept/Decline on all PENDING applications the creator hasn't acted on
+      const pendingApps = (updated.applicants || []).filter(a => a.status === "Pending" && a.messageId);
+      for (const app of pendingApps) {
+        try {
+          await bot.telegram.editMessageReplyMarkup(
+            creator.telegramId,
+            app.messageId,
+            undefined,
+            {
+              inline_keyboard: [[
+                Markup.button.callback(TEXT.acceptBtn[creatorLang], "_DISABLED_ACCEPT"),
+                Markup.button.callback(TEXT.declineBtn[creatorLang], "_DISABLED_DECLINE")
+              ]]
+            }
+          );
+        } catch (err) {
+          console.error("Error disabling creator's pending Accept/Decline after confirmation:", err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Creator/pending disable block failed:", err);
+  }
+
   // Notify creator/channel using your existing helper
   const creator = await User.findById(updated.creator);
   if (creator) {
