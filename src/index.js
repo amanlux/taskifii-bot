@@ -904,11 +904,9 @@ async function checkTaskExpiries(bot) {
         !freshTask.repostNotified;
 
       // Check if we need to send the menu access notification
-      // ADDED: Check that no applicants have confirmed status
       const shouldSendMenuAccess = 
         (!freshTask.menuAccessNotified) && 
-        (!shouldSendNoConfirmation && !acceptedApps.some(app => app.confirmedAt)) &&
-        !freshTask.applicants.some(app => app.status === "Confirmed"); // Add this line
+        (!shouldSendNoConfirmation && !acceptedApps.some(app => app.confirmedAt));
 
       // Send notifications if needed - NEW IMPROVED LOGIC
       const creator = await User.findById(freshTask.creator);
@@ -962,143 +960,6 @@ async function checkTaskExpiries(bot) {
 }
 
 
-async function handleFirstDoerWins(bot, taskId, winningDoerId) {
-  try {
-    const task = await Task.findById(taskId)
-      .populate('applicants.user')
-      .populate('creator');
-    
-    if (!task) return;
-
-    const winningDoer = await User.findById(winningDoerId);
-    if (!winningDoer) return;
-
-    // 1. Update the winning application to "Confirmed"
-    const winningApp = task.applicants.find(app => 
-      app.user && app.user._id.toString() === winningDoerId.toString()
-    );
-    
-    if (winningApp) {
-      winningApp.status = "Confirmed";
-      winningApp.confirmedAt = new Date();
-    }
-
-    // 2. Disable buttons for all other accepted applicants
-    const otherAcceptedApps = task.applicants.filter(app => 
-      app.status === "Accepted" && 
-      app.user && 
-      app.user._id.toString() !== winningDoerId.toString()
-    );
-
-    for (const app of otherAcceptedApps) {
-      app.status = "NotSelected";
-      
-      if (app.user && app.messageId) {
-        try {
-          const doerLang = app.user.language || "en";
-          
-          // Edit the message to show disabled buttons - KEEP THE SAME LAYOUT
-          await bot.telegram.editMessageReplyMarkup(
-            app.user.telegramId,
-            app.messageId,
-            undefined,
-            {
-              inline_keyboard: [
-                [
-                  Markup.button.callback(TEXT.doTaskBtn[doerLang], "_DISABLED_DO_TASK"),
-                  Markup.button.callback(TEXT.cancelBtn[doerLang], "_DISABLED_CANCEL_TASK")
-                ]
-              ]
-            }
-          );
-
-          // Notify other doers they weren't selected
-          const notSelectedMsg = TEXT.notSelectedNotification[doerLang]
-            .replace("[creator]", task.creator.fullName || `@${task.creator.username}`);
-          
-          await bot.telegram.sendMessage(app.user.telegramId, notSelectedMsg);
-        } catch (err) {
-          console.error("Error notifying other doers:", err);
-        }
-      }
-    }
-
-    // 3. Disable all application buttons for the task creator
-    const pendingApps = task.applicants.filter(app => app.status === "Pending");
-    for (const app of pendingApps) {
-      if (app.messageId && task.creator) {
-        try {
-          const creatorLang = task.creator.language || "en";
-          
-          await bot.telegram.editMessageReplyMarkup(
-            task.creator.telegramId,
-            app.messageId,
-            undefined,
-            {
-              inline_keyboard: [
-                [
-                  Markup.button.callback(TEXT.acceptBtn[creatorLang], "_DISABLED_ACCEPT"),
-                  Markup.button.callback(TEXT.declineBtn[creatorLang], "_DISABLED_DECLINE")
-                ]
-              ]
-            }
-          );
-        } catch (err) {
-          console.error("Error disabling creator buttons:", err);
-        }
-      }
-    }
-
-    // 4. Update task status and save
-    task.status = "InProgress";
-    await task.save();
-
-    // 5. Notify the task creator that someone confirmed
-    const creatorLang = task.creator.language || "en";
-    const doerName = winningDoer.fullName || `@${winningDoer.username}` || "Anonymous";
-    const creatorMsg = creatorLang === "am" 
-      ? `✅ ${doerName} ተግዳሮቱን ለመስራት አረጋገጠ(ች)! አሁን ስራውን መጀመር ይችላሉ።`
-      : `✅ ${doerName} has confirmed they'll do the task! They can now start working.`;
-    
-    await bot.telegram.sendMessage(task.creator.telegramId, creatorMsg);
-    
-  } catch (err) {
-    console.error("Error in handleFirstDoerWins:", err);
-  }
-}
-
-
-async function checkForMultipleConfirmations(bot, taskId) {
-  try {
-    const task = await Task.findById(taskId).populate('applicants.user');
-    if (!task) return;
-    
-    // Count how many applicants have confirmed
-    const confirmedApps = task.applicants.filter(app => app.status === "Confirmed");
-    
-    if (confirmedApps.length > 1) {
-      // If multiple confirmations, only keep the first one
-      const firstConfirmation = confirmedApps.sort((a, b) => a.confirmedAt - b.confirmedAt)[0];
-      
-      for (const app of confirmedApps) {
-        if (app._id.toString() !== firstConfirmation._id.toString()) {
-          app.status = "NotSelected";
-          
-          // Notify the user they were too late
-          const doerLang = app.user.language || "en";
-          const notSelectedMsg = TEXT.notSelectedNotification[doerLang]
-            .replace("[creator]", task.creator.fullName || `@${task.creator.username}`);
-          
-          await bot.telegram.sendMessage(app.user.telegramId, notSelectedMsg);
-        }
-      }
-      
-      await task.save();
-    }
-  } catch (err) {
-    console.error("Error in checkForMultipleConfirmations:", err);
-  }
-}
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
     const channelId = "-1003092603337";
@@ -1344,13 +1205,12 @@ async function sendReminders(bot) {
     
     for (const task of tasks) {
       // Only get applications that:
-      // - Are accepted (not confirmed)
+      // - Are accepted
       // - Haven't been confirmed
       // - Haven't been canceled
       // - Haven't had a reminder sent yet
-      // CHANGED: Filter by status "Accepted" instead of checking confirmedAt
       const acceptedApps = task.applicants.filter(app => 
-        app.status === "Accepted" &&  // Only accepted, not confirmed
+        app.status === "Accepted" && 
         !app.confirmedAt && 
         !app.canceledAt &&
         !app.reminderSent
@@ -2593,7 +2453,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   const task = await Task.findOne({
     "applicants.user": user._id,
     "applicants.status": "Accepted",
-    status: "Open"
+    status: "Open" // Only allow if task is still open
   });
   
   if (!task) {
@@ -2601,33 +2461,30 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     return;
   }
 
-  // Make the buttons inert immediately for this user - KEEP THE SAME LAYOUT
-  try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [
-          Markup.button.callback(`✅ ${TEXT.doTaskBtn[user.language || "en"]}`, "_DISABLED_DO_TASK"),
-          Markup.button.callback(TEXT.cancelBtn[user.language || "en"], "_DISABLED_CANCEL_TASK")
-        ]
-      ]
-    });
-  } catch (err) {
-    console.error("Failed to edit message buttons:", err);
+  // Rest of your existing confirmation logic...
+  const application = task.applicants.find(app => 
+    app.user.toString() === user._id.toString()
+  );
+  if (application) {
+    application.confirmedAt = new Date();
+    await task.save();
   }
-
-  // Handle the "first doer wins" logic
-  await handleFirstDoerWins(bot, task._id, user._id);
+  
+  // NEW: Send notification to channel
+  const creator = await User.findById(task.creator);
+  if (creator) {
+    await sendWinnerTaskDoerToChannel(bot, task, user, creator);
+  }
   
   const lang = user.language || "en";
   return ctx.reply(lang === "am" 
-    ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መጀመር ይችላሉ።" 
-    : "✅ Task confirmation received! You can now start working on the task.");
+    ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።" 
+    : "✅ Task confirmation received! You can now work on the task.");
 });
-
 
 // Update the DO_TASK_CANCEL handler
 // In the DO_TASK_CANCEL action handler, remove the specific notification line
-bot.action("DO_TASK_CANCEL", async (ctx) => {
+bot.action("K_CANCEL", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return;
