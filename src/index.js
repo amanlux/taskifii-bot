@@ -1074,6 +1074,11 @@ async function sendAcceptedApplicationToChannel(bot, task, applicant, creator) {
   }
 }
 
+function decisionsLocked(task) {
+  // lock is true if we set decisionsLockedAt OR any applicant already confirmed
+  return Boolean(task.decisionsLockedAt) || task.applicants?.some(a => !!a.confirmedAt);
+}
+
 // Add this helper function near your other utility functions
 async function hasActiveTask(telegramId) {
   try {
@@ -2159,75 +2164,84 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const userId = ctx.match[2];
-  
-  // Find the task and check if it's canceled or expired
+
+  // Load task & basic guards (unchanged behavior for canceled/expired)
   const task = await Task.findById(taskId);
   if (!task || task.status === "Canceled") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" 
-        ? "❌ ይህ ተግዳሮት ተሰርዟል" 
-        : "❌ This task has been canceled",
+      lang === "am" ? "❌ ይህ ተግዳሮት ተሰርዟል" : "❌ This task has been canceled",
       { show_alert: true }
     );
   }
   if (task.status === "Expired") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" 
-        ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" 
-        : "❌ This task has expired",
+      lang === "am" ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" : "❌ This task has expired",
       { show_alert: true }
     );
   }
-  
+
   const user = await User.findById(userId);
   const creator = await User.findOne({ telegramId: ctx.from.id });
-  
   if (!task || !user || !creator) {
     return ctx.reply("Error: Could not find task or user.");
   }
-  
-  const lang = creator?.language || "en";
-  
-  // Update the application status to "Accepted"
-  const application = task.applicants.find(app => app.user.toString() === user._id.toString());
-  if (!application) {
-    return ctx.reply("Application not found.");
-  }
-  
-  application.status = "Accepted";
-  // Store the message ID that will be sent to the doer
-  application.messageId = ctx.callbackQuery.message.message_id;
-  await task.save();
+  const lang = creator.language || "en";
 
-  // NEW: Send notification to channel
-  await sendAcceptedApplicationToChannel(bot, task, user, creator);
-  
-  // Edit the original message to show highlighted Accept button and inert Decline button
+  // 🔒 If decisions are locked and this app is still Pending, be *inert* (silent no-op)
+  if (decisionsLocked(task)) {
+    const app = task.applicants.find(a => a.user.toString() === user._id.toString());
+    if (app && app.status === "Pending") {
+      await ctx.answerCbQuery(); // silent no-op
+      return;
+    }
+  }
+
+  // ⚙️ Atomic accept (only when not locked and still Pending)
+  const applyOk = await Task.updateOne(
+    {
+      _id: task._id,
+      decisionsLockedAt: { $exists: false },
+      applicants: { $elemMatch: { user: user._id, status: "Pending" } }
+    },
+    { $set: { "applicants.$.status": "Accepted" } }
+  );
+
+  // If we couldn't modify (locked or no longer pending), be inert:
+  if (!applyOk.modifiedCount) {
+    await ctx.answerCbQuery(); // silent no-op
+    return;
+  }
+
+  // (optional) persist the creator-side messageId for later inert/disable visuals
+  const appNow = task.applicants.find(a => a.user.toString() === user._id.toString());
+  if (appNow) {
+    appNow.messageId = ctx.callbackQuery.message.message_id;
+    await task.save();
+  }
+
+  // Nice-to-have visuals: highlight Accept, disable Decline (unchanged)
   try {
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [
-          Markup.button.callback(`✅ ${TEXT.acceptBtn[lang]}`, "_DISABLED_ACCEPT"),
-          Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
-        ]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(`✅ ${TEXT.acceptBtn[lang]}`, "_DISABLED_ACCEPT"),
+        Markup.button.callback(TEXT.declineBtn[lang], "_DISABLED_DECLINE")
+      ]]
     });
   } catch (err) {
     console.error("Failed to edit message buttons:", err);
   }
-  
-  // Notify the task doer they've been accepted
+
+  // Notify the doer (same as before)
   const doerLang = user.language || "en";
-  const expiryTime = task.expiry.toLocaleString(doerLang === "am" ? "am-ET" : "en-US", {
-    timeZone: "Africa/Addis_Ababa",
-    month: "short", day: "numeric", year: "numeric",
-    hour: "numeric", minute: "2-digit", hour12: true
-  }) + " GMT+3";
-  
+  const expiryTime = task.expiry.toLocaleString(
+    doerLang === "am" ? "am-ET" : "en-US",
+    { timeZone: "Africa/Addis_Ababa", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }
+  ) + " GMT+3";
+
   const acceptMessage = TEXT.applicationAccepted[doerLang].replace("[expiry time]", expiryTime);
-  
+
   await ctx.telegram.sendMessage(
     user.telegramId,
     acceptMessage,
@@ -2236,79 +2250,89 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
       [Markup.button.callback(TEXT.cancelBtn[doerLang], "DO_TASK_CANCEL")]
     ])
   );
-  
-  // Notify the task creator
+
+  // (optional) channel ping you already had
+  await sendAcceptedApplicationToChannel(bot, task, user, creator);
+
+  // Notify creator (same as before)
   const applicantName = user.fullName || `@${user.username}` || "Anonymous";
   const creatorMessage = TEXT.creatorNotification[lang].replace("[applicant]", applicantName);
-  
   return ctx.reply(creatorMessage);
 });
 
-// Updated handler for Decline button
+
+// ✅ Updated handler for Decline button (first-click-wins safe, inert when locked)
 bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const userId = ctx.match[2];
-  
-  // Find the task and check if it's canceled or expired
+
+  // Load task & basic guards (unchanged behavior for canceled/expired)
   const task = await Task.findById(taskId);
   if (!task || task.status === "Canceled") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" 
-        ? "❌ ይህ ተግዳሮት ተሰርዟል" 
-        : "❌ This task has been canceled",
+      lang === "am" ? "❌ ይህ ተግዳሮት ተሰርዟል" : "❌ This task has been canceled",
       { show_alert: true }
     );
   }
   if (task.status === "Expired") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" 
-        ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" 
-        : "❌ This task has expired",
+      lang === "am" ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" : "❌ This task has expired",
       { show_alert: true }
     );
   }
+
   const user = await User.findById(userId);
-  
-  if (!task || !user) {
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  if (!task || !user || !creator) {
     return ctx.reply("Error: Could not find task or user.");
   }
-  
-  const creator = await User.findOne({ telegramId: ctx.from.id });
-  const lang = creator?.language || "en";
-  
-  // Update the application status to "Declined"
-  const application = task.applicants.find(app => app.user.toString() === user._id.toString());
-  if (!application) {
-    return ctx.reply("Application not found.");
+  const lang = creator.language || "en";
+
+  // 🔒 If decisions are locked and this app is still Pending, be *inert* (silent no-op)
+  if (decisionsLocked(task)) {
+    const app = task.applicants.find(a => a.user.toString() === user._id.toString());
+    if (app && app.status === "Pending") {
+      await ctx.answerCbQuery(); // silent no-op
+      return;
+    }
   }
-  
-  application.status = "Declined";
-  await task.save();
-  
-  // Edit the original message to show highlighted Decline button and inert Accept button
+
+  // ⚙️ Atomic decline (only when not locked and still Pending)
+  const declineOk = await Task.updateOne(
+    {
+      _id: task._id,
+      decisionsLockedAt: { $exists: false },
+      applicants: { $elemMatch: { user: user._id, status: "Pending" } }
+    },
+    { $set: { "applicants.$.status": "Declined" } }
+  );
+
+  // If we couldn't modify (locked or no longer pending), be inert:
+  if (!declineOk.modifiedCount) {
+    await ctx.answerCbQuery(); // silent no-op
+    return;
+  }
+
+  // Nice-to-have visuals: highlight Decline, disable Accept (unchanged)
   try {
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [
-          Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
-          Markup.button.callback(`✅ ${TEXT.declineBtn[lang]}`, "_DISABLED_DECLINE")
-        ]
-      ]
+      inline_keyboard: [[
+        Markup.button.callback(TEXT.acceptBtn[lang], "_DISABLED_ACCEPT"),
+        Markup.button.callback(`✅ ${TEXT.declineBtn[lang]}`, "_DISABLED_DECLINE")
+      ]]
     });
   } catch (err) {
     console.error("Failed to edit message buttons:", err);
   }
-  
-  // Notify the task doer they've been declined
+
+  // Notify doer (same as before)
   const doerLang = user.language || "en";
-  return ctx.telegram.sendMessage(
-    user.telegramId,
-    TEXT.applicationDeclined[doerLang]
-  );
+  await ctx.telegram.sendMessage(user.telegramId, TEXT.applicationDeclined[doerLang]);
 });
+
 
 bot.action("_DISABLED_CHANGE_LANGUAGE", async (ctx) => {
   await ctx.answerCbQuery();
@@ -2494,7 +2518,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
       },
       $nor: [{ applicants: { $elemMatch: { confirmedAt: { $exists: true } } } }]
     },
-    { $set: { "applicants.$.confirmedAt": now } },
+    { $set: { "applicants.$.confirmedAt": now, decisionsLockedAt: now } },
     { new: true }
   );
 
@@ -2528,36 +2552,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     console.error("Error highlighting/locking buttons:", err);
   }
 
-  // AFTER you highlight the winner's buttons inside the DO_TASK_CONFIRM handler:
-  try {
-    const creator = await User.findById(updated.creator);
-    if (creator) {
-      const creatorLang = creator.language || "en";
-
-      // Disable Accept/Decline on all PENDING applications the creator hasn't acted on
-      const pendingApps = (updated.applicants || []).filter(a => a.status === "Pending" && a.messageId);
-      for (const app of pendingApps) {
-        try {
-          await bot.telegram.editMessageReplyMarkup(
-            creator.telegramId,
-            app.messageId,
-            undefined,
-            {
-              inline_keyboard: [[
-                Markup.button.callback(TEXT.acceptBtn[creatorLang], "_DISABLED_ACCEPT"),
-                Markup.button.callback(TEXT.declineBtn[creatorLang], "_DISABLED_DECLINE")
-              ]]
-            }
-          );
-        } catch (err) {
-          console.error("Error disabling creator's pending Accept/Decline after confirmation:", err);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Creator/pending disable block failed:", err);
-  }
-
+  
   // Notify creator/channel using your existing helper
   const creator = await User.findById(updated.creator);
   if (creator) {
