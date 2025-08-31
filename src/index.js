@@ -2705,19 +2705,25 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     });
 
     // Send message with two stacked buttons
-    const sent = await ctx.telegram.sendMessage(
-      creator.telegramId,
-      longText,
-      {
-        parse_mode: "Markdown",
-        reply_markup: {
-          inline_keyboard: [
-            [Markup.button.callback(TEXT.missionAccomplishedBtn[creatorLang], `FINALIZE_MISSION_${updated._id}`)],
-            [Markup.button.callback(TEXT.reportBtn[creatorLang],               `FINALIZE_REPORT_${updated._id}`)]
-          ]
+    let sent;
+    try {
+      sent = await ctx.telegram.sendMessage(
+        creator.telegramId,
+        longText,
+        {
+          // NOTE: no parse_mode on purpose — avoids Telegram Markdown entity errors
+          reply_markup: {
+            inline_keyboard: [
+              [Markup.button.callback(TEXT.missionAccomplishedBtn[creatorLang], `FINALIZE_MISSION_${updated._id}`)],
+              [Markup.button.callback(TEXT.reportBtn[creatorLang],               `FINALIZE_REPORT_${updated._id}`)]
+            ]
+          }
         }
-      }
-    );
+      );
+    } catch (err) {
+      console.error("Failed to DM creator:", err);
+    }
+
 
     // Start countdown: when time is up, make both buttons inert (still shown)
     const chatId = creator.telegramId;
