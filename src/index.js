@@ -489,13 +489,10 @@ const TEXT = {
   en: "This task has already been taken.",
   am: "ይህ ተግዳሮት ቀድሞ ተወስዷል።"
   },
-  creatorWinnerOfficial100: {
-  en:
-  "🏆 [winnertaskdoer] is now officially your Task Doer (100% strategy).\n\nWhen they finish, they'll send the completed work directly to you via their personal Telegram or Gmail. Please check your inboxes regularly within the next [timeToComplete] hour(s).\n\nIf you don't receive the completed task within that time, you can start deducting [penaltyPerHour] birr per hour from the task doer's fee until delivery.\n\nAfter you receive the completed task, you will have [revisionWindow] to review and request fixes — please use this time efficiently.",
-  am:
-  "🏆 [winnertaskdoer] ከአሁን ጀምሮ የተግዳሮትዎ መጀመሪያ የተመረጠ አካል ነው (100% ስልት)።\n\nስራውን ሲጨርሱ የተጠናቀቀውን ሥራ በግል የቴሌግራም አካውንታቸው ወይም ኢሜይል በመጠቀም በቀጥታ ወደ እርስዎ ያላካሉ። እባክዎ በሚቀጥለው [timeToComplete] ሰዓት ውስጥ መልቀቂያዎችዎን በተደጋጋሚ ያረጋግጡ።\n\nበዚህ ጊዜ ውስጥ የተጠናቀቀውን ሥራ ካልተቀበሉ በየሰዓቱ [penaltyPerHour] ብር ከክፍያው መቀነስ ጀምር ይችላሉ።\n\nየተጠናቀቀውን ሥራ ከተቀበሉ በኋላ ስህተቶችን ለመፈለግ እና ለመጠገን [revisionWindow] ጊዜ አለዎት፤ እባክዎ ይህን ጊዜ በብቃት ይጠቀሙ።"
+  winnerDoerNotification100: {
+  en: `🎉 [winner] is officially your task doer for: "${taskDescription}"!\n\nOnce they complete the task, they will send it directly to you through your personal Telegram account or email. Please check your inboxes regularly within the [completionTime] hours timeframe.\n\nIf the task doer doesn't submit the completed work within [completionTime] hours, you can start deducting [penaltyAmount] birr per hour from their payment.\n\nOnce you receive the completed task, you'll have [revisionTime] to review it and request any necessary fixes. Use this time efficiently to communicate any issues to the task doer as soon as possible.`,
+  am: `🎉 [winner] አሁን በይፋ ለ"${taskDescription}" ተግዳሮት አድራጊዎ ነው!\n\nተግዳሮቱን ከጨረሱ በኋላ፣ በግል ቴሌግራም አካውንትዎ ወይም ኢሜይል በቀጥታ ይላኩልዎታል። እባክዎ በ[completionTime] ሰዓት ውስጥ የኢንቦክስዎን በተደጋጋሚ ይፈትሹ።\n\nተግዳሮት አድራጊው የተጠናቀቀውን ስራ በ[completionTime] ሰዓት ውስጥ ካላስገቡ፣ ከክፍያቸው በእያንዳንዱ ሰዓት [penaltyAmount] ብር ማነስ ይችላሉ።\n\nየተጠናቀቀውን ተግዳሮት ከተቀበሉ በኋላ፣ ለግምገማ እና ለማሻሻል ጥያቄዎች [revisionTime] ይኖርዎታል። በተግዳሮት አድራጊው ላይ ያሉ ማናቸውንም ጉድለቶች በቅርቡ ለማሳወቅ ይህንን ጊዜ በብቃት ይጠቀሙ።`
   },
-
 
   
   
@@ -2493,6 +2490,7 @@ bot.action("SET_LANG_AM", async (ctx) => {
 
 // Dummy handlers for the confirmation buttons
 // Replace the whole DO_TASK_CONFIRM action handler with this:
+// Replace the existing DO_TASK_CONFIRM action handler with this updated version
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -2523,10 +2521,6 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   }
 
   // ATOMIC "first click wins":
-  // - Only set confirmedAt if:
-  //   * the task is still open and not expired
-  //   * THIS user is an accepted applicant with no confirmedAt/canceledAt
-  //   * NOBODY ELSE has confirmedAt yet
   const updated = await Task.findOneAndUpdate(
     {
       _id: task._id,
@@ -2576,39 +2570,52 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     console.error("Error highlighting/locking buttons:", err);
   }
 
-  
+  // NEW: Send notification to creator if exchange strategy is 100%
+  if (updated.exchangeStrategy === "100%") {
+    const creator = await User.findById(updated.creator);
+    if (creator) {
+      const creatorLang = creator.language || "en";
+      const winnerName = user.fullName || `@${user.username}` || "Anonymous";
+      
+      // Format revision time for display
+      let revisionTimeDisplay;
+      if (Number.isInteger(updated.revisionTime)) {
+        revisionTimeDisplay = `${updated.revisionTime} ${creatorLang === "am" ? "ሰዓት(ዎች)" : "hour(s)"}`;
+      } else {
+        const minutes = Math.round(updated.revisionTime * 60);
+        revisionTimeDisplay = `${minutes} ${creatorLang === "am" ? "ደቂቃ(ዎች)" : "minute(s)"}`;
+      }
+      
+      // Prepare the notification message
+      const notificationMessage = TEXT.winnerDoerNotification100[creatorLang]
+        .replace("[winner]", winnerName)
+        .replace("[taskDescription]", updated.description.length > 50 
+          ? updated.description.substring(0, 47) + "..." 
+          : updated.description)
+        .replace("[completionTime]", updated.timeToComplete.toString())
+        .replace("[penaltyAmount]", updated.latePenalty.toString())
+        .replace("[revisionTime]", revisionTimeDisplay);
+
+      // Send the notification to the creator
+      try {
+        await ctx.telegram.sendMessage(creator.telegramId, notificationMessage);
+      } catch (err) {
+        console.error("Failed to send winner notification to creator:", err);
+      }
+    }
+  }
+
   // Notify creator/channel using your existing helper
   const creator = await User.findById(updated.creator);
   if (creator) {
     await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
   }
-  
-  if (creator && updated.exchangeStrategy === "100%") {
-    const creatorLang = creator.language || "en";
-    const doerName =
-      user.fullName ||
-      (user.username ? `@${user.username}` : "the task doer");
 
-    // revisionTime can be fractional (e.g., 0.5 hours = 30 minutes)
-    const rev = Number(updated.revisionTime ?? 0);
-    const revisionWindow = Number.isInteger(rev)
-      ? `${rev} hour(s)`
-      : `${Math.round(rev * 60)} minute(s)`;
-
-    const msg = TEXT.creatorWinnerOfficial100[creatorLang]
-      .replace("[winnertaskdoer]", doerName)
-      .replace("[timeToComplete]", String(updated.timeToComplete ?? ""))
-      .replace("[penaltyPerHour]", String(updated.latePenalty ?? ""))
-      .replace("[revisionWindow]", revisionWindow);
-
-    await ctx.telegram.sendMessage(creator.telegramId, msg);
-  }
   return ctx.reply(
     lang === "am"
       ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።"
       : "✅ Task confirmation received! You can now work on the task."
   );
-
 });
 
 
