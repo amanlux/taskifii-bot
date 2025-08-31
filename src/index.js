@@ -489,13 +489,11 @@ const TEXT = {
   en: "This task has already been taken.",
   am: "ይህ ተግዳሮት ቀድሞ ተወስዷል።"
   },
-  missionAccomplishedBtn: {
-    en: "Mission accomplished",
-    am: "ሚሽኑ ተጠናቋል"
-  },
-  reportBtn: {
-    en: "Report",
-    am: "ሪፖርት"
+  creatorWinnerOfficial100: {
+  en:
+  "🏆 [winnertaskdoer] is now officially your Task Doer (100% strategy).\n\nWhen they finish, they'll send the completed work directly to you via their personal Telegram or Gmail. Please check your inboxes regularly within the next [timeToComplete] hour(s).\n\nIf you don't receive the completed task within that time, you can start deducting [penaltyPerHour] birr per hour from the task doer's fee until delivery.\n\nAfter you receive the completed task, you will have [revisionWindow] to review and request fixes — please use this time efficiently.",
+  am:
+  "🏆 [winnertaskdoer] ከአሁን ጀምሮ የተግዳሮትዎ መጀመሪያ የተመረጠ አካል ነው (100% ስልት)።\n\nስራውን ሲጨርሱ የተጠናቀቀውን ሥራ በግል የቴሌግራም አካውንታቸው ወይም ኢሜይል በመጠቀም በቀጥታ ወደ እርስዎ ያላካሉ። እባክዎ በሚቀጥለው [timeToComplete] ሰዓት ውስጥ መልቀቂያዎችዎን በተደጋጋሚ ያረጋግጡ።\n\nበዚህ ጊዜ ውስጥ የተጠናቀቀውን ሥራ ካልተቀበሉ በየሰዓቱ [penaltyPerHour] ብር ከክፍያው መቀነስ ጀምር ይችላሉ።\n\nየተጠናቀቀውን ሥራ ከተቀበሉ በኋላ ስህተቶችን ለመፈለግ እና ለመጠገን [revisionWindow] ጊዜ አለዎት፤ እባክዎ ይህን ጊዜ በብቃት ይጠቀሙ።"
   },
 
 
@@ -971,96 +969,7 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
-// Format minutes to "X hours Y minutes" with basic EN/AM localization
-function formatHM(totalMinutes, lang = "en") {
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  if (lang === "am") {
-    const hTxt = h > 0 ? `${h} ሰዓት` : "";
-    const mTxt = m > 0 ? `${m} ደቂቃ` : "";
-    return [hTxt, mTxt].filter(Boolean).join(" ");
-  }
-  const hTxt = h > 0 ? `${h} hour${h === 1 ? "" : "s"}` : "";
-  const mTxt = m > 0 ? `${m} minute${m === 1 ? "" : "s"}` : "";
-  return [hTxt, mTxt].filter(Boolean).join(" ");
-}
 
-// Make a neat, structured list of a doer's bank options
-function renderBankDetails(user, lang = "en") {
-  if (!user?.bankDetails?.length) {
-    return lang === "am" ? "• ምንም የክፍያ አማራጭ አልተጨመረም" : "• No banking options provided";
-  }
-  return user.bankDetails.map((b, i) => `• ${b.bankName || "Bank"} — ${b.accountNumber || "N/A"}`).join("\n");
-}
-
-function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revMinutes, penaltyHoursToZero }) {
-  const doerName = doer.fullName || (doer.username ? `@${doer.username}` : "Task Doer");
-  const timeToCompleteH = task.timeToComplete; // integer hours
-  const penaltyPerHour = task.penaltyPerHour ?? task.latePenalty ?? 0; // be tolerant to schema naming
-  const paymentFee = task.paymentFee || 0;
-  const revisionNice =
-    revMinutes < 60
-      ? (creatorLang === "am" ? `${revMinutes} ደቂቃ` : `${revMinutes} minute${revMinutes === 1 ? "" : "s"}`)
-      : (creatorLang === "am"
-          ? `${(revMinutes/60).toString()} ሰዓት`
-          : `${(revMinutes/60).toString()} hour${revMinutes/60 === 1 ? "" : "s"}`);
-
-  const totalNice = formatHM(totalMinutes, creatorLang);
-  const banks = renderBankDetails(doer, creatorLang);
-  const contactLines = [
-    doer.phone ? (creatorLang === "am" ? `• ስልክ: ${doer.phone}` : `• Phone: ${doer.phone}`) : null,
-    doer.username ? (creatorLang === "am" ? `• ቴሌግራም: @${doer.username}` : `• Telegram: @${doer.username}`) : null,
-    doer.email ? (creatorLang === "am" ? `• ኢሜይል: ${doer.email}` : `• Gmail: ${doer.email}`) : null
-  ].filter(Boolean).join("\n");
-
-  if (creatorLang === "am") {
-    return [
-      `✅ *${doerName}* ከእንግዲህ ጀምሮ የተግዳሮትዎ ተግባራዊ አፈፃፀም አድርጎ ተመድቧል (100% ስልት).`,
-      "",
-      `• ከዚህ በኋላ አስከ *${timeToCompleteH} ሰዓት* ውስጥ ተግባሩን ያቅርቡ ዘንድ የጊዜ ገደብ አለ።`,
-      `• የማሻሻያ ጊዜ፡ ${revisionNice}.`,
-      `• በየሰዓቱ የቅጣት መጠን፡ ${penaltyPerHour} ብር/ሰዓት.`,
-      "",
-      `🧭 የጊዜ መቁጠሪያ ይጀምራል ከአሁን፤ ከሁሉም ጊዜዎች ድምር (መጨረሻ ማቅረብ + ማሻሻያ + 30 ደቂቃ ለክፍያ + የቅጣት ሰዓታት ${penaltyHoursToZero}) ጠቅላላ ጊዜ፡ *${totalNice}*.`,
-      `• ተግባሩ በመጨረሻ ሲደርስ ተግባሩን ለእርስዎ በቀጥታ በቴሌግራም ወይም በጄሜል ይላካል። የመልእክት ሳጥኖችዎን በተደጋጋሚ ያረጋግጡ እስከ *${timeToCompleteH} ሰዓት*.`,
-      `• ተግባሩ በዚያ ጊዜ ካልተላከ የቅጣት መቀነስ በየሰዓቱ ይጀምራል ( ${penaltyPerHour} ብር/ሰዓት ) እስከ 0 ድረስ (ግምት፡ ${penaltyHoursToZero} ሰዓታት).`,
-      "",
-      "💳 *የክፍያ አማራጮች የተደረጉ ቅንብሮች*",
-      banks,
-      "",
-      "📞 *የአድራሻ መረጃ*",
-      contactLines || "• የሚገኙ መረጃዎች አልተሞላም",
-      "",
-      "⚠️ ከተሰጠው መግለጫ ውጭ ስራ መድረግ አይቻልም።",
-      "",
-      `✅ ተግባሩ ሲፈቀድ እና እርስዎ ሲጸድቁ የክፍያ መረጃውን ለተግባር አድርጉ እና ደረሰኝ ለተልኮ።`,
-      `⏳ በ *${totalNice}* ውስጥ “ሚሽኑ ተጠናቋል” ወይም “ሪፖርት” ካልጫኑ እኛ እንደ “ሚሽኑ ተጠናቋል” ተብሎ ይቆጠራል፤ ስለዚህ ጊዜን በጥንቃቄ ይከታተሉ።`
-    ].join("\n");
-  }
-
-  return [
-    `✅ *${doerName}* is now officially your task doer (strategy: 100%).`,
-    "",
-    `• Time to complete: *${timeToCompleteH} hour(s)*.`,
-    `• Revision time: ${revisionNice}.`,
-    `• Penalty per hour: ${penaltyPerHour} birr/hour.`,
-    "",
-    `🧭 A countdown starts now. Total window (complete + revision + 30 min to pay + penalty runway ${penaltyHoursToZero}h): *${totalNice}*.`,
-    `• When the doer finishes, they will send the completed work directly to you via Telegram or Gmail — please check your inbox regularly during the *${timeToCompleteH} hours*.`,
-    `• If the work isn’t submitted within that time, the fee begins decreasing by ${penaltyPerHour} birr each hour until it reaches 0 (est. ${penaltyHoursToZero} hour${penaltyHoursToZero === 1 ? "" : "s"}).`,
-    "",
-    "💳 *Doer’s banking option(s)*",
-    banks,
-    "",
-    "📞 *Contact the doer*",
-    contactLines || "• No contact info provided",
-    "",
-    "⚠️ You may not ask for anything outside the original task description.",
-    "",
-    `✅ After you approve the completed task, send the fee using the doer’s banking option(s) *and* send them the payment receipt.`,
-    `⏳ If you don’t tap “Mission accomplished” or “Report” within *${totalNice}*, Taskifii will treat it as “Mission accomplished,” so please keep an eye on the time.`
-  ].join("\n");
-}
 
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
@@ -2584,7 +2493,6 @@ bot.action("SET_LANG_AM", async (ctx) => {
 
 // Dummy handlers for the confirmation buttons
 // Replace the whole DO_TASK_CONFIRM action handler with this:
-// Replace the whole DO_TASK_CONFIRM action handler with this:
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -2668,118 +2576,40 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     console.error("Error highlighting/locking buttons:", err);
   }
 
+  
   // Notify creator/channel using your existing helper
   const creator = await User.findById(updated.creator);
   if (creator) {
     await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
   }
+  
+  if (creator && updated.exchangeStrategy === "100%") {
+    const creatorLang = creator.language || "en";
+    const doerName =
+      user.fullName ||
+      (user.username ? `@${user.username}` : "the task doer");
 
-  // Tell the winner they can proceed
-  await ctx.reply(
+    // revisionTime can be fractional (e.g., 0.5 hours = 30 minutes)
+    const rev = Number(updated.revisionTime ?? 0);
+    const revisionWindow = Number.isInteger(rev)
+      ? `${rev} hour(s)`
+      : `${Math.round(rev * 60)} minute(s)`;
+
+    const msg = TEXT.creatorWinnerOfficial100[creatorLang]
+      .replace("[winnertaskdoer]", doerName)
+      .replace("[timeToComplete]", String(updated.timeToComplete ?? ""))
+      .replace("[penaltyPerHour]", String(updated.latePenalty ?? ""))
+      .replace("[revisionWindow]", revisionWindow);
+
+    await ctx.telegram.sendMessage(creator.telegramId, msg);
+  }
+  return ctx.reply(
     lang === "am"
-      ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል!\n\nYou can now work on the task."
-      : "✅ Confirmation received.\n\nYou can now work on the task."
+      ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።"
+      : "✅ Task confirmation received! You can now work on the task."
   );
 
-  // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
-  if ((updated.exchangeStrategy || "").trim() === "100%") {
-    const creatorLang = creator?.language || "en";
-
-    // Compute the timing pieces
-    const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
-    const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60)); // keep user's decimal input
-    const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
-    const fee = updated.paymentFee || 0;
-    const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
-
-    // Total window: complete + revision + 30 min buffer + penalty runway
-    const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
-
-    const longText = buildWinnerCreatorMessage({
-      task: updated,
-      doer: user,
-      creatorLang,
-      totalMinutes,
-      revMinutes,
-      penaltyHoursToZero
-    });
-
-    // Send message with two stacked buttons
-    let sent;
-    try {
-      sent = await ctx.telegram.sendMessage(
-        creator.telegramId,
-        longText,
-        {
-          // NOTE: no parse_mode on purpose — avoids Telegram Markdown entity errors
-          reply_markup: {
-            inline_keyboard: [
-              [Markup.button.callback(TEXT.missionAccomplishedBtn[creatorLang], `FINALIZE_MISSION_${updated._id}`)],
-              [Markup.button.callback(TEXT.reportBtn[creatorLang],               `FINALIZE_REPORT_${updated._id}`)]
-            ]
-          }
-        }
-      );
-    } catch (err) {
-      console.error("Failed to DM creator:", err);
-    }
-
-
-    // Start countdown: when time is up, make both buttons inert (still shown)
-    const chatId = creator.telegramId;
-    const messageId = sent.message_id;
-    setTimeout(async () => {
-      try {
-        await ctx.telegram.editMessageReplyMarkup(
-          chatId,
-          messageId,
-          undefined,
-          {
-            inline_keyboard: [
-              [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[creatorLang]}`, `_DISABLED_MISSION_${updated._id}`)],
-              [Markup.button.callback(TEXT.reportBtn[creatorLang],                        `_DISABLED_REPORT_${updated._id}`)]
-            ]
-          }
-        );
-      } catch (e) {
-        console.error("Failed to disable Mission/Report buttons after countdown:", e);
-      }
-    }, totalMinutes * 60 * 1000); // ms
-  }
 });
-
-// Dummy: Mission accomplished (no-op for now)
-bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-  // Keep visible but do nothing meaningful
-  try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[lang]}`, `_DISABLED_MISSION_${ctx.match[1]}`)],
-        [Markup.button.callback(TEXT.reportBtn[lang],                     `FINALIZE_REPORT_${ctx.match[1]}`)]
-      ]
-    });
-  } catch (_) {}
-});
-
-// Dummy: Report (no-op for now)
-bot.action(/^FINALIZE_REPORT_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-  // Keep visible but do nothing meaningful
-  try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [
-        [Markup.button.callback(TEXT.missionAccomplishedBtn[lang],        `FINALIZE_MISSION_${ctx.match[1]}`)],
-        [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,              `_DISABLED_REPORT_${ctx.match[1]}`)]
-      ]
-    });
-  } catch (_) {}
-});
-
 
 
 // Update the DO_TASK_CANCEL handler
