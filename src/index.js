@@ -489,6 +489,19 @@ const TEXT = {
   en: "This task has already been taken.",
   am: "ይህ ተግዳሮት ቀድሞ ተወስዷል።"
   },
+  missionAccomplishedBtn: { 
+  en: "Mission accomplished",
+  am: "ተልእኮ ተጠናቋል"
+  },
+  reportBtn: { 
+  en: "Report", 
+  am: "ሪፖርት"
+  },
+  countdownDone: { 
+  en: "⏳ Time is up. The buttons are now disabled.", 
+  am: "⏳ ጊዜ አልቋል። ቁልፎቹ ተሰናክለዋል።" 
+  },
+
 
   
   
@@ -961,6 +974,109 @@ async function checkTaskExpiries(bot) {
   
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
+}
+
+function formatHoursMinutes(totalHours) {
+  const totalMins = Math.max(0, Math.round(totalHours * 60));
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  const hPart = h > 0 ? `${h} hour(s)` : "";
+  const mPart = m > 0 ? `${m} minute(s)` : "";
+  return [hPart, mPart].filter(Boolean).join(" ");
+}
+
+function formatRevision(rev, lang) {
+  if (Number.isInteger(rev)) {
+    return lang === "am" ? `${rev} ሰዓት(ዎች)` : `${rev} hour(s)`;
+  }
+  const minutes = Math.round(rev * 60);
+  return lang === "am" ? `${minutes} ደቂቃ(ዎች)` : `${minutes} minute(s)`;
+}
+
+function formatBankDetails(list) {
+  if (!Array.isArray(list) || list.length === 0) return "• N/A";
+  return list.map(b => `• ${b.bankName || "Bank"} — ${b.accountNumber || "N/A"}`).join("\n");
+}
+
+/**
+ * Builds + sends the creator message for 100% strategy and starts the local countdown.
+ * Safe: no schema changes; no interference with other timers.
+ */
+async function notifyCreatorWinner100(bot, task, doer, creator) {
+  const lang = creator.language || "en";
+  const paymentFee = task.paymentFee || 0;
+  const penaltyPerHour = task.penaltyPerHour ?? task.latePenalty ?? 0;  // fall back if older field name
+  const timeToComplete = task.timeToComplete || 0;        // hours
+  const revisionTime   = task.revisionTime   || 0;        // hours (may be fractional)
+  const payBufferHrs   = 0.5;                             // 30 minutes
+  const hoursToZero    = penaltyPerHour > 0 ? (paymentFee / penaltyPerHour) : 0;
+
+  // Total window to “finalize everything”
+  const totalWindowHours = timeToComplete + revisionTime + payBufferHrs + hoursToZero;
+  const deadlineAt = new Date(Date.now() + totalWindowHours * 3600 * 1000).toLocaleString(
+    "en-US",
+    { timeZone: "Africa/Addis_Ababa", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }
+  ) + " GMT+3";
+
+  const revisionDisplay = formatRevision(revisionTime, lang);
+  const totalWindowText = formatHoursMinutes(totalWindowHours);
+  const bankDetails     = formatBankDetails(doer.bankDetails);
+
+  const msg = [
+    "🏁 *Official Update (100% exchange)*",
+    "",
+    `✅ *${doer.fullName || "Your task doer"}* is officially your task doer.`,
+    "",
+    `• They will send the *completed task directly to you* via *Telegram (@${doer.username || "N/A"})* or *Gmail (${doer.email || "N/A"})*.`,
+    `• Please check your inboxes regularly during the *${timeToComplete} hour(s)* given to complete and submit the task.`,
+    penaltyPerHour > 0
+      ? `• If they don’t submit within that time, a penalty of *${penaltyPerHour} birr/hour* will start reducing the fee.`
+      : `• No late penalty was set for this task.`,
+    "",
+    `• After you receive the completed task, you have *${revisionDisplay}* for revisions — use it efficiently to report fixes quickly.`,
+    "",
+    `• Including: completion time, revision time, *30 minutes* extra for payment, and the hours for the fee to reach 0 birr under penalty, you have *${totalWindowText}* to finalize everything.`,
+    `• *Deadline:* ${deadlineAt}`,
+    "",
+    "*Payment to the task doer*",
+    `• Once you approve the completed task, you must pay the task fee via the doer’s banking option(s):`,
+    bankDetails,
+    `• After sending the fee, also send the *receipt* to the task doer.`,
+    "",
+    "*Important*",
+    "• Do not request anything *outside the original task description*.",
+    "",
+    "*Contact the task doer*",
+    `• Phone: ${doer.phone || "N/A"}`,
+    `• Telegram: @${doer.username || "N/A"}`,
+    `• Gmail: ${doer.email || "N/A"}`
+  ].join("\n");
+
+  const buttons = Markup.inlineKeyboard([
+    [Markup.button.callback(TEXT.missionAccomplishedBtn[lang], `MISSION_ACCOMPLISHED_${task._id}`)],
+    [Markup.button.callback(TEXT.reportBtn[lang], `REPORT_${task._id}`)]
+  ]);
+
+  const sent = await bot.telegram.sendMessage(creator.telegramId, msg, { parse_mode: "Markdown", ...buttons });
+
+  // After the countdown, freeze the two buttons (still visible, inert)
+  const freezeMs = Math.max(0, Math.round(totalWindowHours * 3600 * 1000));
+  setTimeout(async () => {
+    try {
+      await bot.telegram.editMessageReplyMarkup(
+        creator.telegramId,
+        sent.message_id,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(TEXT.missionAccomplishedBtn[lang], "_DISABLED_MISSION")],
+            [Markup.button.callback(TEXT.reportBtn[lang], "_DISABLED_REPORT")]
+          ]
+        }
+      );
+      await bot.telegram.sendMessage(creator.telegramId, TEXT.countdownDone[lang]);
+    } catch (_) {}
+  }, freezeMs);
 }
 
 
@@ -2363,6 +2479,14 @@ bot.action("_DISABLED_SET_LANG_EN", async (ctx) => {
   await ctx.answerCbQuery();
 });
 
+bot.action(/^MISSION_ACCOMPLISHED_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery("Thanks! This button will be enabled soon.", { show_alert: true });
+});
+
+bot.action(/^REPORT_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery("Thanks! This button will be enabled soon.", { show_alert: true });
+});
+
 bot.action("_DISABLED_SET_LANG_AM", async (ctx) => {
   await ctx.answerCbQuery();
 });
@@ -2574,7 +2698,13 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   const creator = await User.findById(updated.creator);
   if (creator) {
     await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
+    
+     // ✅ NEW: Only for 100% exchange strategy, send the long creator message + countdown
+    if (updated.exchangeStrategy === "100%") {
+      await notifyCreatorWinner100(bot, updated, user, creator);
+    }
   }
+  
 
   return ctx.reply(
     lang === "am"
