@@ -1180,6 +1180,73 @@ function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revM
     `⏳ If you don’t tap “Mission accomplished” or “Report” within *${totalNice}*, Taskifii will treat it as “Mission accomplished,” so please keep an eye on the time.`
   ].join("\n");
 }
+function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinutes, penaltyHoursToZero }) {
+  const timeToCompleteH = task.timeToComplete || 0; // integer hours
+  const penaltyPerHour = task.penaltyPerHour ?? task.latePenalty ?? 0; // tolerate older field names
+  const totalNice = formatHM(totalMinutes, doerLang);
+
+  const revNice =
+    revMinutes < 60
+      ? (doerLang === "am" ? `${revMinutes} ደቂቃ` : `${revMinutes} minute${revMinutes === 1 ? "" : "s"}`)
+      : (doerLang === "am"
+          ? `${(revMinutes/60).toString()} ሰዓት`
+          : `${(revMinutes/60).toString()} hour${revMinutes/60 === 1 ? "" : "s"}`);
+
+  const creatorHandle = creator?.username ? `@${creator.username}` : (doerLang === "am" ? "ያልተሰጠ" : "N/A");
+  const creatorEmail  = creator?.email || (doerLang === "am" ? "ያልተሰጠ" : "N/A");
+  const creatorPhone  = creator?.phone;
+
+  const banks = renderBankDetails(task?.doerUser || creator, doerLang); // we’ll pass the actual doer user when calling
+
+  if (doerLang === "am") {
+    return [
+      `🎉 እንኳን ደስ አለዎት! ከአሁን ጀምሮ ለዚህ ተግባር የስራ አከናውን ተመድበዋል።`,
+      "",
+      `📝 *የተግባሩ መግለጫ:* ${task.description}`,
+      "",
+      `📮 *ማቅረብ:* የተጠናቀቀውን ስራ በቀጥታ ለተግባር ፈጣሪው በቴሌግራም: ${creatorHandle} ወይም በጄሜይል: ${creatorEmail} ይላኩ እና ይህ በ *${timeToCompleteH} ሰዓት* ውስጥ መሆን አለበት።`,
+      `⏱ ከዚያ በኋላ ተግባር ፈጣሪው ስርዓተ-ማሻሻያ ጊዜ *${revNice}* ይኖረዋል—ስለዚህ በዚያን ጊዜ ላይ በንቃት ዝግጁ ቆይታ ያድርጉ።`,
+      "",
+      `⚖️ ቅጣት: በ *${timeToCompleteH} ሰዓት* ውስጥ ካልተላከ ክፍያው በየሰዓቱ *${penaltyPerHour} ብር* ይቀንሳል እስከ 0 ድረስ (ግምት: ${penaltyHoursToZero} ሰዓት).`,
+      "",
+      `🧭 *ጠቅላላ መቁጠሪያ:* መስጠት + ማሻሻያ + 30 ደቂቃ ለክፍያ + የቅጣት መውረድ (${penaltyHoursToZero}h) ማስታሰቢያ ድምር = *${totalNice}*.`,
+      `• በዚህ ጊዜ ውስጥ “*${TEXT.missionAccomplishedBtn.am}*” ወይም “*${TEXT.reportBtn.am}*” መጫን አለብዎት።`,
+      `• በ *${totalNice}* ውስጥ የአንዱንም አቋራጭ ካላጫኑ ስርአቱ እንደ “*${TEXT.missionAccomplishedBtn.am}*” ተደርጓል ይቆጠራል—ስለዚህ ጊዜን በጥንቃቄ ይከታተሉ።`,
+      "",
+      `💳 *የክፍያ አማራጮችዎ:*`,
+      banks,
+      "",
+      `🧾 እርስዎ የላኩት ስራ ከተጸየፈ በኋላ ፈጣሪው ክፍያውን በእነዚህ አማራጮች መካከል መላክ እና ደረሰኝ መላክ አለበት።`,
+      creatorPhone ? `📞 ፈጣሪው ማመለስ ካቋረጠ በዚህ ስልክ ይደውሉ፡ ${creatorPhone}` : null,
+      "",
+      `⚠️ የመጀመሪያው የተግባር መግለጫ ውጭ ስራ መጠየቅ አይፈቀድም።`,
+    ].filter(Boolean).join("\n");
+  }
+
+  // English
+  return [
+    `🎉 You are now the official task doer for this task.`,
+    "",
+    `📝 *Task description:* ${task.description}`,
+    "",
+    `📮 *Submit to the creator:* send the completed work directly via Telegram: ${creatorHandle} or Gmail: ${creatorEmail} within *${timeToCompleteH} hour(s)*.`,
+    `⏱ After you submit, the creator has *${revNice}* for revisions—stay available and responsive during that time.`,
+    "",
+    `⚖️ Penalty: if the work isn’t submitted within the allotted time, the fee decreases by *${penaltyPerHour} birr/hour* until it reaches 0 (est. ${penaltyHoursToZero} hour${penaltyHoursToZero === 1 ? "" : "s"}).`,
+    "",
+    `🧭 *Overall timer:* complete + revision + 30 min for payment + penalty runway (${penaltyHoursToZero}h) = *${totalNice}*.`,
+    `• Within this window you must tap “*${TEXT.missionAccomplishedBtn.en}*” (after receiving payment) or “*${TEXT.reportBtn.en}*” (if there’s a disagreement).`,
+    `• If you don’t tap either within *${totalNice}*, Taskifii will treat it as “*${TEXT.missionAccomplishedBtn.en}*.”`,
+    "",
+    `💳 *Your banking option(s):*`,
+    banks,
+    "",
+    `🧾 After the creator approves your work, they must send the task fee via your banking option(s) *and* send you the payment receipt.`,
+    creatorPhone ? `📞 If the creator doesn’t reply on Telegram/Gmail, call: ${creatorPhone}` : null,
+    "",
+    `⚠️ The creator may not ask for anything outside the original task description.`,
+  ].filter(Boolean).join("\n");
+}
 
 // Add this helper function near your other utility functions
 async function hasActiveTask(telegramId) {
@@ -2734,11 +2801,64 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
   }
 
-  return ctx.reply(
-    lang === "am"
-      ? "✅ የስራ ማረጋገጫ ተቀባይነት አግኝቷል! አሁን ስራውን መስራት ይችላሉ።"
-      : "✅ Task confirmation received! You can now work on the task."
-  );
+  // Build doer-facing long message + two stacked buttons + countdown
+  const doerLang = lang; // user's language
+  const creatorUser = await User.findById(updated.creator);
+
+  // compute timing pieces (same approach you already use for creator)
+  const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
+  const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60)); // keep decimal inputs
+  const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
+  const fee = updated.paymentFee || 0;
+  const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
+
+  // Total = complete + revision + 30min for payment + penalty runway
+  const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
+
+  // IMPORTANT: pass the actual doer to render bank options
+  updated.doerUser = user;
+
+  const doerText = buildWinnerDoerMessage({
+    task: updated,
+    creator: creatorUser,
+    doerLang,
+    totalMinutes,
+    revMinutes,
+    penaltyHoursToZero
+  });
+
+  // Send to the *doer* with two vertically stacked buttons
+  const doerSent = await ctx.reply(doerText, {
+    parse_mode: "Markdown",
+    reply_markup: {
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.missionAccomplishedBtn[doerLang], `DOER_MISSION_${updated._id}`)],
+        [Markup.button.callback(TEXT.reportBtn[doerLang],               `DOER_REPORT_${updated._id}`)]
+      ]
+    }
+  });
+
+  // Start countdown: when time is up, keep buttons visible but inert
+  setTimeout(async () => {
+    try {
+      await ctx.telegram.editMessageReplyMarkup(
+        doerSent.chat.id,
+        doerSent.message_id,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[doerLang]}`, `_DISABLED_DOER_MISSION_${updated._id}`)],
+            [Markup.button.callback(TEXT.reportBtn[doerLang],                      `_DISABLED_DOER_REPORT_${updated._id}`)]
+          ]
+        }
+      );
+    } catch (e) {
+      console.error("Failed to disable Doer Mission/Report buttons after countdown:", e);
+    }
+  }, totalMinutes * 60 * 1000);
+
+  return;
+
 });
 // Dummy: Mission accomplished (no-op for now)
 bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
@@ -2767,6 +2887,35 @@ bot.action(/^FINALIZE_REPORT_(.+)$/, async (ctx) => {
       inline_keyboard: [
         [Markup.button.callback(TEXT.missionAccomplishedBtn[lang],        `FINALIZE_MISSION_${ctx.match[1]}`)],
         [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,              `_DISABLED_REPORT_${ctx.match[1]}`)]
+      ]
+    });
+  } catch (_) {}
+});
+// Dummy: Doer "Mission accomplished" (no-op for now)
+bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[lang]}`, `_DISABLED_DOER_MISSION_${ctx.match[1]}`)],
+        [Markup.button.callback(TEXT.reportBtn[lang],                     `_DISABLED_DOER_REPORT_${ctx.match[1]}`)]
+      ]
+    });
+  } catch (_) {}
+});
+
+// Dummy: Doer "Report" (no-op for now)
+bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.missionAccomplishedBtn[lang],        `_DISABLED_DOER_MISSION_${ctx.match[1]}`)],
+        [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,              `_DISABLED_DOER_REPORT_${ctx.match[1]}`)]
       ]
     });
   } catch (_) {}
