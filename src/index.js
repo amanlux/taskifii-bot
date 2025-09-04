@@ -1488,9 +1488,9 @@ async function unbanUserEverywhere(ctx, userDoc) {
   try { await EngagementLock.updateMany({ user: userDoc._id, active: true }, { $set: { active: false, releasedAt: new Date() } }); }
   catch (e) { console.error("release locks on unban failed", e); }
 }
-async function sendEscalationSummaryToChannel(bot, task, creator, doer, reportedByRole) {
+// Accepts EITHER a Telegraf bot OR ctx.telegram
+async function sendEscalationSummaryToChannel(botOrTelegram, task, creator, doer, reportedByRole) {
   try {
-    // 10 task details (same fields you already post in other notifications)
     const lines = [
       "🚨 *TASK ESCALATED (Report clicked before Mission Accomplished)*",
       `• Reported by: *${reportedByRole.toUpperCase()}*`,
@@ -1518,16 +1518,21 @@ async function sendEscalationSummaryToChannel(bot, task, creator, doer, reported
       `• Exchange Strategy: ${task.exchangeStrategy}`,
       `• Revision Time: ${task.revisionTime} hour(s)`,
       `• Penalty per Hour: ${(task.penaltyPerHour ?? task.latePenalty) || 0} birr/hour`,
-      `• Posted At: ${task.postedAt?.toLocaleString("en-US",{timeZone:"Africa/Addis_Ababa",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true})} GMT+3`,
-      `• Expires At: ${task.expiry?.toLocaleString("en-US",{timeZone:"Africa/Addis_Ababa",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true})} GMT+3`,
+      `• Posted At: ${task.postedAt?.toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })} GMT+3`,
+      `• Expires At: ${task.expiry?.toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })} GMT+3`,
       "",
       "#escalated"
     ];
-    await bot.telegram.sendMessage(ESCALATION_CHANNEL_ID, lines.join("\n"), { parse_mode: "Markdown" });
+
+    // If a full Telegraf bot was passed, use its .telegram; otherwise use the Telegram client directly
+    const api = botOrTelegram.telegram ? botOrTelegram.telegram : botOrTelegram;
+
+    await api.sendMessage(ESCALATION_CHANNEL_ID, lines.join("\n"), { parse_mode: "Markdown" });
   } catch (e) {
     console.error("Failed to send escalation summary:", e);
   }
 }
+
 
 async function sendReminders(bot) {
   try {
