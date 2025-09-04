@@ -123,6 +123,97 @@ async function releaseLocksForTask(taskId) {
     { $set: { active: false, releasedAt: new Date() } }
   );
 }
+// ───────────────── Report Escalation: models & helpers ─────────────────
+const BanSchema = new mongoose.Schema({
+  user:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  task:   { type: mongoose.Schema.Types.ObjectId, ref: 'Task', required: true, index: true },
+  reason: { type: String },
+  active: { type: Boolean, default: true, index: true },
+  createdAt: { type: Date, default: Date.now },
+  releasedAt: Date
+}, { versionKey: false });
+BanSchema.index({ user: 1, task: 1, active: 1 }, { unique: true });
+const Ban = mongoose.models.Ban || mongoose.model('Ban', BanSchema);
+
+const TaskActionUiSchema = new mongoose.Schema({
+  task:    { type: mongoose.Schema.Types.ObjectId, ref: 'Task', unique: true, index: true },
+  creator: { telegramId: Number, messageId: Number },
+  doer:    { telegramId: Number, messageId: Number }
+}, { versionKey: false, minimize: true });
+const TaskActionUi = mongoose.models.TaskActionUi || mongoose.model('TaskActionUi', TaskActionUiSchema);
+
+// Compute the same “total nice countdown” you use elsewhere (complete + revision + 30 + penalty runway)
+function computeTotalMinutes(task) {
+  const timeToCompleteMins = (task.timeToComplete || 0) * 60;
+  const revMinutes = Math.max(0, Math.round((task.revisionTime || 0) * 60));
+  const penaltyPerHour = task.penaltyPerHour ?? task.latePenalty ?? 0;
+  const fee = task.paymentFee || 0;
+  const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
+  return timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
+}
+
+// Ban / Unban / Checks
+async function isBanned(telegramId) {
+  const u = await User.findOne({ telegramId });
+  if (!u) return false;
+  return !!(await Ban.findOne({ user: u._id, active: true }).lean());
+}
+async function banUserForTask(userId, taskId, reason = 'reported') {
+  await Ban.updateOne(
+    { user: userId, task: taskId, active: true },
+    { $setOnInsert: { reason, createdAt: new Date() } },
+    { upsert: true }
+  );
+}
+async function unbanUserForTask(userId, taskId) {
+  await Ban.updateMany(
+    { user: userId, task: taskId, active: true },
+    { $set: { active: false, releasedAt: new Date() } }
+  );
+}
+async function releaseLockForUserTask(taskId, userId) {
+  await EngagementLock.updateOne(
+    { task: taskId, user: userId, active: true },
+    { $set: { active: false, releasedAt: new Date() } }
+  );
+}
+
+// Build the giant admin-channel message with both profiles + 10 task details
+function buildGiantMessageForAdmin(task, creator, doer) {
+  const fmt = (d) => d ? d.toLocaleString("en-US", {
+    timeZone: "Africa/Addis_Ababa", month: "short", day: "numeric", year: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true
+  }) + " GMT+3" : "N/A";
+
+  const lines = [
+    "🚨 *REPORT TRIGGERED*",
+    "",
+    "👤 *TASK CREATOR PROFILE*",
+    `• Full Name: ${creator?.fullName || 'N/A'}`,
+    `• Telegram: @${creator?.username || 'N/A'} (id: ${creator?.telegramId || 'N/A'})`,
+    `• Email: ${creator?.email || 'N/A'}`,
+    `• Phone: ${creator?.phone || 'N/A'}`,
+    "",
+    "👥 *TASK DOER PROFILE*",
+    `• Full Name: ${doer?.fullName || 'N/A'}`,
+    `• Telegram: @${doer?.username || 'N/A'} (id: ${doer?.telegramId || 'N/A'})`,
+    `• Email: ${doer?.email || 'N/A'}`,
+    `• Phone: ${doer?.phone || 'N/A'}`,
+    "",
+    "📝 *TASK DETAILS (10)*",
+    `1) Description: ${task.description || 'N/A'}`,
+    `2) Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : 'N/A'}`,
+    `3) Skill Level: ${task.skillLevel || 'N/A'}`,
+    `4) Payment Fee: ${task.paymentFee ?? 'N/A'} birr`,
+    `5) Time to Complete: ${task.timeToComplete ?? 'N/A'} hour(s)`,
+    `6) Revision Time: ${task.revisionTime ?? 'N/A'} hour(s)`,
+    `7) Penalty per Hour: ${(task.penaltyPerHour ?? task.latePenalty) || 0} birr`,
+    `8) Exchange Strategy: ${task.exchangeStrategy || 'N/A'}`,
+    `9) Posted At: ${fmt(task.postedAt)}`,
+    `10) Expires At: ${fmt(task.expiry)}`
+  ];
+  return lines.join("\n");
+}
 
 // ------------------------------------
 
@@ -1703,7 +1794,27 @@ bot.use(async (ctx, next) => {
     return next();
   }
 });
- 
+
+// ───────────────── Ban guard (global) ─────────────────
+bot.use(async (ctx, next) => {
+  try {
+    if (!ctx.from) return next();
+    if (!(await isBanned(ctx.from.id))) return next();
+
+    if (ctx.callbackQuery) await ctx.answerCbQuery(); // clear spinner if any
+    const u = await User.findOne({ telegramId: ctx.from.id });
+    const lang = u?.language || 'en';
+    const msg = (lang === 'am')
+      ? "⛔ በአሁኑ ጊዜ ከዚህ ቦት ተከልክለዋል። በፕሮፋይል አድሚን ቻናል ያለውን “Unban user” ቁልፍ በመጫን ማውጣት ይቻላል።"
+      : "⛔ You’re temporarily banned from using the bot. Anyone can unban you by pressing the “Unban user” button under your profile in the admin channel.";
+    await ctx.reply(msg);
+    return;
+  } catch (e) {
+    console.error("ban guard error:", e);
+    return next();
+  }
+});
+
 
 
   // ─────────── /start Handler ───────────
@@ -2824,8 +2935,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     console.error("Error highlighting/locking buttons:", err);
   }
 
-  // ── NEW: ADD THIS CODE BLOCK RIGHT HERE ──
-  // Lock both participants until you release them
+  // ── NEW: Lock both participants until you release them ──
   try {
     const creatorUser = await User.findById(updated.creator);
     if (creatorUser) {
@@ -2834,6 +2944,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   } catch (e) {
     console.error('failed to set engagement locks:', e);
   } 
+
   // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
   if ((updated.exchangeStrategy || "").trim() === "100%") {
     const creatorLang = (await User.findById(updated.creator))?.language || "en";
@@ -2867,10 +2978,17 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
         reply_markup: {
           inline_keyboard: [
             [Markup.button.callback(TEXT.missionAccomplishedBtn[creatorLang], `FINALIZE_MISSION_${updated._id}`)],
-            [Markup.button.callback(TEXT.reportBtn[creatorLang],               `FINALIZE_REPORT_${updated._id}`)]
+            [Markup.button.callback(TEXT.reportBtn[creatorLang], `FINALIZE_REPORT_${updated._id}`)]
           ]
         }
       }
+    );
+
+    // NEW: remember creator UI (for later inert/highlight from report)
+    await TaskActionUi.updateOne(
+      { task: updated._id },
+      { $set: { "creator.telegramId": creator.telegramId, "creator.messageId": sent.message_id } },
+      { upsert: true }
     );
 
     // Start countdown: when time is up, make both buttons inert (still shown)
@@ -2885,7 +3003,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
           {
             inline_keyboard: [
               [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[creatorLang]}`, `_DISABLED_MISSION_${updated._id}`)],
-              [Markup.button.callback(TEXT.reportBtn[creatorLang],                        `_DISABLED_REPORT_${updated._id}`)]
+              [Markup.button.callback(TEXT.reportBtn[creatorLang], `_DISABLED_REPORT_${updated._id}`)]
             ]
           }
         );
@@ -2933,10 +3051,17 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     reply_markup: {
       inline_keyboard: [
         [Markup.button.callback(TEXT.missionAccomplishedBtn[doerLang], `DOER_MISSION_${updated._id}`)],
-        [Markup.button.callback(TEXT.reportBtn[doerLang],               `DOER_REPORT_${updated._id}`)]
+        [Markup.button.callback(TEXT.reportBtn[doerLang], `DOER_REPORT_${updated._id}`)]
       ]
     }
   });
+
+  // NEW: remember doer UI (for later inert/highlight from report)
+  await TaskActionUi.updateOne(
+    { task: updated._id },
+    { $set: { "doer.telegramId": doerSent.chat.id, "doer.messageId": doerSent.message_id } },
+    { upsert: true }
+  );
 
   // Start countdown: when time is up, keep buttons visible but inert
   setTimeout(async () => {
@@ -2948,7 +3073,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
         {
           inline_keyboard: [
             [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[doerLang]}`, `_DISABLED_DOER_MISSION_${updated._id}`)],
-            [Markup.button.callback(TEXT.reportBtn[doerLang],                      `_DISABLED_DOER_REPORT_${updated._id}`)]
+            [Markup.button.callback(TEXT.reportBtn[doerLang], `_DISABLED_DOER_REPORT_${updated._id}`)]
           ]
         }
       );
@@ -2958,7 +3083,6 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   }, totalMinutes * 60 * 1000);
 
   return;
-
 });
 // Dummy: Mission accomplished (no-op for now)
 bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
@@ -2976,21 +3100,108 @@ bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
   } catch (_) {}
 });
 
-// Dummy: Report (no-op for now)
+// ───────────────── Creator REPORT (finalize) ─────────────────
 bot.action(/^FINALIZE_REPORT_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-  // Keep visible but do nothing meaningful
+  const taskId = ctx.match[1];
+
+  const reporter = await User.findOne({ telegramId: ctx.from.id });
+  const lang = reporter?.language || "en";
+
+  // Load full task with participants
+  const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
+  if (!task) return;
+
+  // Only proceed if before "Mission accomplished" and before the total countdown window
+  const totalMinutes = computeTotalMinutes(task);                                     // same math as your flow
+  const startAt = task.decisionsLockedAt;                                             // set at “first click wins” :contentReference[oaicite:8]{index=8}
+  const deadline = startAt ? new Date(startAt.getTime() + totalMinutes * 60 * 1000) : null;
+  if (!startAt || (deadline && new Date() > deadline)) {
+    // Outside window → just make this message inert & exit
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(TEXT.missionAccomplishedBtn[lang], `_DISABLED_MISSION_${task._id}`)],
+          [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,       `_DISABLED_REPORT_${task._id}`)]
+        ]
+      });
+    } catch (_) {}
+    return;
+  }
+
+  // Identify both users
+  const creator = await User.findById(task.creator);
+  const winnerApp = task.applicants?.find(a => !!a.confirmedAt);
+  const doer = winnerApp ? await User.findById(winnerApp.user) : null;
+
+  // 1) UI: highlight & inert on reporter’s message
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [Markup.button.callback(TEXT.missionAccomplishedBtn[lang],        `FINALIZE_MISSION_${ctx.match[1]}`)],
-        [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,              `_DISABLED_REPORT_${ctx.match[1]}`)]
+        [Markup.button.callback(TEXT.missionAccomplishedBtn[lang], `_DISABLED_MISSION_${task._id}`)],
+        [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,       `_DISABLED_REPORT_${task._id}`)]
       ]
     });
   } catch (_) {}
+
+  // 1b) UI: make the DOER’s buttons inert and highlight "Report" too (if we know the message)
+  try {
+    const ref = await TaskActionUi.findOne({ task: task._id }).lean();
+    if (ref?.doer?.telegramId && ref?.doer?.messageId && doer) {
+      const doerLang = doer.language || "en";
+      await ctx.telegram.editMessageReplyMarkup(
+        ref.doer.telegramId,
+        ref.doer.messageId,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(TEXT.missionAccomplishedBtn[doerLang], `_DISABLED_DOER_MISSION_${task._id}`)],
+            [Markup.button.callback(`✔ ${TEXT.reportBtn[doerLang]}`,       `_DISABLED_DOER_REPORT_${task._id}`)]
+          ]
+        }
+      );
+    }
+  } catch (e) {
+    console.error("Failed to inert/highlight doer buttons after creator report:", e);
+  }
+
+  // 2) Notify the creator with the provided contacts
+  const reporterMsg = (lang === "am")
+    ? "ማንኛውንም ችግኝ ለማሳወቅ ይህን ተጠቃሚ ይጠቀሙ፡ @gftttfggh ወይም ኢሜይል: ggfvh@fhghg.jhg ወይም ስልክ: 4994994949."
+    : "Whatever issue you have, please report it to @gftttfggh or email ggfvh@fhghg.jhg or phone 4994994949.";
+  await ctx.reply(reporterMsg);
+
+  // 3) Ban BOTH participants from the bot & the group
+  const groupId = "-1002239730204";
+  try {
+    if (creator) {
+      await banUserForTask(creator._id, task._id, "creator_reported");
+      try { await ctx.telegram.banChatMember(groupId, creator.telegramId); } catch (e) { console.error("ban creator in group", e); }
+    }
+    if (doer) {
+      await banUserForTask(doer._id, task._id, "creator_reported");
+      try { await ctx.telegram.banChatMember(groupId, doer.telegramId); } catch (e) { console.error("ban doer in group", e); }
+    }
+  } catch (e) {
+    console.error("ban both users error:", e);
+  }
+
+  // 4) Broadcast to admin channel with “Unban user” buttons
+  const adminChannel = "-1002432632907";
+  const giant = buildGiantMessageForAdmin(task, creator, doer);
+  const kb = {
+    inline_keyboard: [
+      [Markup.button.callback("Unban Creator", `UNBAN_USER_${creator?._id}_${task._id}`)],
+      ...(doer ? [[Markup.button.callback("Unban Doer", `UNBAN_USER_${doer._id}_${task._id}`)]] : [])
+    ]
+  };
+  try {
+    await ctx.telegram.sendMessage(adminChannel, giant, { parse_mode: "Markdown", reply_markup: kb });
+  } catch (e) {
+    console.error("send giant admin message error:", e);
+  }
 });
+
 // Dummy: Doer "Mission accomplished" (no-op for now)
 bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -3006,20 +3217,105 @@ bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
   } catch (_) {}
 });
 
-// Dummy: Doer "Report" (no-op for now)
+// ───────────────── Doer REPORT (finalize) ─────────────────
 bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
+  const taskId = ctx.match[1];
+
+  const reporter = await User.findOne({ telegramId: ctx.from.id });
+  const lang = reporter?.language || "en";
+
+  const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
+  if (!task) return;
+
+  const totalMinutes = computeTotalMinutes(task);
+  const startAt = task.decisionsLockedAt;
+  const deadline = startAt ? new Date(startAt.getTime() + totalMinutes * 60 * 1000) : null;
+  if (!startAt || (deadline && new Date() > deadline)) {
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(TEXT.missionAccomplishedBtn[lang], `_DISABLED_DOER_MISSION_${task._id}`)],
+          [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,       `_DISABLED_DOER_REPORT_${task._id}`)]
+        ]
+      });
+    } catch (_) {}
+    return;
+  }
+
+  // Identify both users
+  const winnerApp = task.applicants?.find(a => !!a.confirmedAt);
+  const doer = winnerApp ? await User.findById(winnerApp.user) : null;
+  const creator = task.creator ? await User.findById(task.creator) : null;
+
+  // 1) UI: highlight & inert on reporter’s message (doer’s)
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
-        [Markup.button.callback(TEXT.missionAccomplishedBtn[lang],        `_DISABLED_DOER_MISSION_${ctx.match[1]}`)],
-        [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,              `_DISABLED_DOER_REPORT_${ctx.match[1]}`)]
+        [Markup.button.callback(TEXT.missionAccomplishedBtn[lang], `_DISABLED_DOER_MISSION_${task._id}`)],
+        [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,       `_DISABLED_DOER_REPORT_${task._id}`)]
       ]
     });
   } catch (_) {}
+
+  // 1b) UI: make the CREATOR’s buttons inert & highlight "Report"
+  try {
+    const ref = await TaskActionUi.findOne({ task: task._id }).lean();
+    if (ref?.creator?.telegramId && ref?.creator?.messageId && creator) {
+      const creatorLang = creator.language || "en";
+      await ctx.telegram.editMessageReplyMarkup(
+        ref.creator.telegramId,
+        ref.creator.messageId,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(TEXT.missionAccomplishedBtn[creatorLang], `_DISABLED_MISSION_${task._id}`)],
+            [Markup.button.callback(`✔ ${TEXT.reportBtn[creatorLang]}`,       `_DISABLED_REPORT_${task._id}`)]
+          ]
+        }
+      );
+    }
+  } catch (e) {
+    console.error("Failed to inert/highlight creator buttons after doer report:", e);
+  }
+
+  // 2) Notify the doer with the provided contacts
+  const reporterMsg = (lang === "am")
+    ? "ማንኛውንም ችግኝ ለመሪፖርት ይህን ተጠቃሚ ይጠቀሙ፡ @gftttfggh ወይም ኢሜይል: ggfvh@fhghg.jhg ወይም ስልክ: 9949499494."
+    : "Whatever issue you have, please report it to @gftttfggh or email ggfvh@fhghg.jhg or phone 9949499494.";
+  await ctx.reply(reporterMsg);
+
+  // 3) Ban BOTH participants from the bot & the group
+  const groupId = "-1002239730204";
+  try {
+    if (creator) {
+      await banUserForTask(creator._id, task._id, "doer_reported");
+      try { await ctx.telegram.banChatMember(groupId, creator.telegramId); } catch (e) { console.error("ban creator in group", e); }
+    }
+    if (doer) {
+      await banUserForTask(doer._id, task._id, "doer_reported");
+      try { await ctx.telegram.banChatMember(groupId, doer.telegramId); } catch (e) { console.error("ban doer in group", e); }
+    }
+  } catch (e) {
+    console.error("ban both users error:", e);
+  }
+
+  // 4) Broadcast to admin channel with “Unban user” buttons
+  const adminChannel = "-1002432632907";
+  const giant = buildGiantMessageForAdmin(task, creator, doer);
+  const kb = {
+    inline_keyboard: [
+      ...(creator ? [[Markup.button.callback("Unban Creator", `UNBAN_USER_${creator._id}_${task._id}`)]] : []),
+      ...(doer ? [[Markup.button.callback("Unban Doer", `UNBAN_USER_${doer._id}_${task._id}`)]] : [])
+    ]
+  };
+  try {
+    await ctx.telegram.sendMessage(adminChannel, giant, { parse_mode: "Markdown", reply_markup: kb });
+  } catch (e) {
+    console.error("send giant admin message error:", e);
+  }
 });
+
 
 
 // Update the DO_TASK_CANCEL handler
@@ -3189,6 +3485,20 @@ async function disableExpiredTaskApplicationButtons(bot) {
 
 
 
+// ───────────────── Unban user (anyone can press) ─────────────────
+bot.action(/^UNBAN_USER_([a-f0-9]{24})_([a-f0-9]{24})$/i, async (ctx) => {
+  await ctx.answerCbQuery("Unbanning…");
+  const [, userId, taskId] = ctx.match;
+
+  const u = await User.findById(userId);
+  if (!u) return ctx.reply("User not found.");
+
+  await unbanUserForTask(userId, taskId);
+  try { await ctx.telegram.unbanChatMember("-1002239730204", u.telegramId); } catch (_) {}
+  await releaseLockForUserTask(taskId, userId);
+
+  await ctx.reply(`✅ Unbanned ${u.fullName || (u.username ? '@'+u.username : u.telegramId)} and restored access.`);
+});
 
 bot.action("_DISABLED_ACCEPT", async (ctx) => {
   await ctx.answerCbQuery("This task has expired and can no longer be accepted");
