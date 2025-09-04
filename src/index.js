@@ -1823,7 +1823,8 @@ bot.use(async (ctx, next) => {
     const isFindTask   = (data === 'FIND_TASK');                              // Find Task button (menu)
     const isPostTask   = (data === 'POST_TASK');                              // Post Task button (menu)
     const isEditBack   = (data === 'EDIT_BACK');                              // Back to menu from edit
-
+    const isPostConfirm = (data === 'TASK_POST_CONFIRM');
+    
     if (isStartCmd || isApplyCmd || isApplyBtn || isFindTask || isPostTask || isEditBack) {
       if (ctx.callbackQuery) await ctx.answerCbQuery(); // clear spinner if it came from a button
       await ctx.reply(lockedMsg);
@@ -2747,6 +2748,16 @@ bot.action("_DISABLED_CHANGE_LANGUAGE", async (ctx) => {
 bot.action("_DISABLED_VIEW_TERMS", async (ctx) => {
   await ctx.answerCbQuery();
 });
+bot.action("_DISABLED_TASK_POST_CONFIRM", async (ctx) => {
+  const u = await User.findOne({ telegramId: ctx.from.id });
+  const lang = u?.language || "en";
+  await ctx.answerCbQuery(
+    lang === 'am'
+      ? "በአሁኑ ጊዜ ተግዳሮት መለጠፍ አይችሉም፤ እባክዎ እስከሁኔታው ሲያበቃ ድረስ ይጠብቁ።"
+      : "You can’t post a task right now. Please wait until the current task is resolved.",
+    { show_alert: true }
+  );
+});
 
 bot.action("_DISABLED_SET_LANG_EN", async (ctx) => {
   await ctx.answerCbQuery();
@@ -3262,6 +3273,23 @@ bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
 
   await unbanUserEverywhere(ctx, u);
   await ctx.reply(`User ${u.fullName || u.username || u.telegramId} has been unbanned and can now use Taskifii normally.`);
+  try {
+    const draft = await TaskDraft.findOne({ creatorTelegramId: u.telegramId });
+    if (draft) {
+      const lang = u.language || "en";
+      await ctx.telegram.sendMessage(
+        u.telegramId,
+        buildPreviewText(draft, u),
+        Markup.inlineKeyboard([
+          [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+          [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        ])
+      );
+    }
+  } catch (e) {
+    console.error("Failed to send restored Post Task preview after unban:", e);
+  }
+
 });
 
 
@@ -3493,13 +3521,20 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
     });
 
     // Rest of the code remains exactly the same...
+    const locked = await isEngagementLocked(ctx.from.id);
+    const u = await User.findOne({ telegramId: ctx.from.id });
+    const lang = u?.language || "en";
     await ctx.reply(
-      buildPreviewText(draft, user),
+      buildPreviewText(draft, u),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ])
     );
+
     
     // Send instructions
     const instructions = lang === "am" 
@@ -4183,13 +4218,18 @@ async function handleDescription(ctx, draft) {
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ መግለጫው ተዘምኗል" : "✅ Description updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4244,13 +4284,18 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
     await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4322,13 +4367,18 @@ async function handleRelatedFile(ctx, draft) {
     await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4425,13 +4475,18 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ መስኮች ተዘምነዋል" : "✅ Fields updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4485,13 +4540,18 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ የስልጠና ደረጃ ተዘምኗል" : "✅ Skill level updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4522,13 +4582,18 @@ async function handlePaymentFee(ctx, draft) {
     await ctx.reply(lang === "am" ? "✅ የክፍያ መጠን ተዘምኗል" : "✅ Payment fee updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4557,13 +4622,18 @@ async function handleTimeToComplete(ctx, draft) {
     await ctx.reply(lang === "am" ? "✅ የስራ ጊዜ ተዘምኗል" : "✅ Time to complete updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4631,13 +4701,18 @@ async function handlePenaltyPerHour(ctx, draft) {
     await ctx.reply(lang === "am" ? "✅ የቅጣት መጠን ተዘምኗል" : "✅ Penalty per hour updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4665,13 +4740,18 @@ async function handleExpiryHours(ctx, draft) {
     await ctx.reply(lang === "am" ? "✅ የማብቂያ ጊዜ ተዘምኗል" : "✅ Expiry time updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -4837,10 +4917,14 @@ bot.action(/TASK_EX_(.+)/, async (ctx) => {
     .join("\n");
 
   ctx.session.taskFlow = null;
+  const locked = await isEngagementLocked(ctx.from.id);
   return ctx.reply(preview,
     Markup.inlineKeyboard([
       [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-      [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+      [ locked
+        ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+        : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+      ]
     ], { parse_mode: "Markdown" })
   );
 
@@ -4931,13 +5015,18 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
     await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
+    const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        [ locked
+          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
       ], { parse_mode: "Markdown" })
     );
+
     ctx.session.taskFlow = null;
     return;
   }
@@ -5111,6 +5200,30 @@ bot.action("EDIT_exchangeStrategy", async (ctx) => {
 bot.action("TASK_POST_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   
+  // EARLY EXIT WHEN LOCKED — keep button visible but inert
+  const me = await User.findOne({ telegramId: ctx.from.id });
+  const meLang = me?.language || "en";
+
+  if (await isEngagementLocked(ctx.from.id)) {
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(meLang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+          [Markup.button.callback(meLang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")]
+        ]
+      });
+    } catch (_) {}
+
+    await ctx.answerCbQuery(
+      meLang === 'am'
+        ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ተግዳሮት መለጠፍ አይችሉም።"
+        : "You're actively involved in a task right now, so you can't post a task until this one is fully sorted.",
+      { show_alert: true }
+    );
+    return;
+  }
+
+
   // Get the draft and user
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
@@ -6005,7 +6118,7 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
   
   //bot.action("EDIT_PROFILE", (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_BAN_.+/, (ctx) => ctx.answerCbQuery());
-  bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
+  //bot.action(/ADMIN_UNBAN_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_CONTACT_.+/, (ctx) => ctx.answerCbQuery());
   bot.action(/ADMIN_REVIEW_.+/, (ctx) => ctx.answerCbQuery());
 
