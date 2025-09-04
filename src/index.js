@@ -1756,64 +1756,64 @@ function askSkillLevel(ctx, lang = null) {
   );
 }
 // ───────────────── Engagement-lock guard (read-only gate) ─────────────────
-bot.use(async (ctx, next) => {
-  try {
-    if (!ctx.from) return next();
+  bot.use(async (ctx, next) => {
+    try {
+      if (!ctx.from) return next();
 
-    // If not locked, continue as normal
-    if (!(await isEngagementLocked(ctx.from.id))) {
+      // If not locked, continue as normal
+      if (!(await isEngagementLocked(ctx.from.id))) {
+        return next();
+      }
+
+      // Compose the bilingual message without touching TEXT object
+      const user = ctx.session?.user || await User.findOne({ telegramId: ctx.from.id });
+      const lang = user?.language || 'en';
+      const lockedMsg = (lang === 'am')
+        ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮቶች ላይ መመልከት/መመዝገብ ወይም ተግዳሮት መለጠፍ አይችሉም።"
+        : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+
+      // We only intercept the actions you specified:
+      const isStartCmd   = !!(ctx.message?.text === '/start');                 // menu via /start
+      const isApplyCmd   = !!(ctx.message?.text?.startsWith('/apply_'));       // /apply_<id>
+      const data         = ctx.callbackQuery?.data;
+      const isApplyBtn   = !!(data && data.startsWith('APPLY_'));              // Apply button
+      const isFindTask   = (data === 'FIND_TASK');                              // Find Task button (menu)
+      const isPostTask   = (data === 'POST_TASK');                              // Post Task button (menu)
+      const isEditBack   = (data === 'EDIT_BACK');                              // Back to menu from edit
+
+      if (isStartCmd || isApplyCmd || isApplyBtn || isFindTask || isPostTask || isEditBack) {
+        if (ctx.callbackQuery) await ctx.answerCbQuery(); // clear spinner if it came from a button
+        await ctx.reply(lockedMsg);
+        return; // do not proceed to underlying handlers
+      }
+
+      // Everything else continues normally
+      return next();
+    } catch (e) {
+      console.error('engagement lock guard error:', e);
       return next();
     }
+  });
 
-    // Compose the bilingual message without touching TEXT object
-    const user = ctx.session?.user || await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || 'en';
-    const lockedMsg = (lang === 'am')
-      ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮቶች ላይ መመልከት/መመዝገብ ወይም ተግዳሮት መለጠፍ አይችሉም።"
-      : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+  // ───────────────── Ban guard (global) ─────────────────
+  bot.use(async (ctx, next) => {
+    try {
+      if (!ctx.from) return next();
+      if (!(await isBanned(ctx.from.id))) return next();
 
-    // We only intercept the actions you specified:
-    const isStartCmd   = !!(ctx.message?.text === '/start');                 // menu via /start
-    const isApplyCmd   = !!(ctx.message?.text?.startsWith('/apply_'));       // /apply_<id>
-    const data         = ctx.callbackQuery?.data;
-    const isApplyBtn   = !!(data && data.startsWith('APPLY_'));              // Apply button
-    const isFindTask   = (data === 'FIND_TASK');                              // Find Task button (menu)
-    const isPostTask   = (data === 'POST_TASK');                              // Post Task button (menu)
-    const isEditBack   = (data === 'EDIT_BACK');                              // Back to menu from edit
-
-    if (isStartCmd || isApplyCmd || isApplyBtn || isFindTask || isPostTask || isEditBack) {
-      if (ctx.callbackQuery) await ctx.answerCbQuery(); // clear spinner if it came from a button
-      await ctx.reply(lockedMsg);
-      return; // do not proceed to underlying handlers
+      if (ctx.callbackQuery) await ctx.answerCbQuery(); // clear spinner if any
+      const u = await User.findOne({ telegramId: ctx.from.id });
+      const lang = u?.language || 'en';
+      const msg = (lang === 'am')
+        ? "⛔ በአሁኑ ጊዜ ከዚህ ቦት ተከልክለዋል። በፕሮፋይል አድሚን ቻናል ያለውን “Unban user” ቁልፍ በመጫን ማውጣት ይቻላል።"
+        : "⛔ You’re temporarily banned from using the bot. Anyone can unban you by pressing the “Unban user” button under your profile in the admin channel.";
+      await ctx.reply(msg);
+      return;
+    } catch (e) {
+      console.error("ban guard error:", e);
+      return next();
     }
-
-    // Everything else continues normally
-    return next();
-  } catch (e) {
-    console.error('engagement lock guard error:', e);
-    return next();
-  }
-});
-
-// ───────────────── Ban guard (global) ─────────────────
-bot.use(async (ctx, next) => {
-  try {
-    if (!ctx.from) return next();
-    if (!(await isBanned(ctx.from.id))) return next();
-
-    if (ctx.callbackQuery) await ctx.answerCbQuery(); // clear spinner if any
-    const u = await User.findOne({ telegramId: ctx.from.id });
-    const lang = u?.language || 'en';
-    const msg = (lang === 'am')
-      ? "⛔ በአሁኑ ጊዜ ከዚህ ቦት ተከልክለዋል። በፕሮፋይል አድሚን ቻናል ያለውን “Unban user” ቁልፍ በመጫን ማውጣት ይቻላል።"
-      : "⛔ You’re temporarily banned from using the bot. Anyone can unban you by pressing the “Unban user” button under your profile in the admin channel.";
-    await ctx.reply(msg);
-    return;
-  } catch (e) {
-    console.error("ban guard error:", e);
-    return next();
-  }
-});
+  });
 
 
 
@@ -2852,6 +2852,7 @@ bot.action("SET_LANG_AM", async (ctx) => {
 
 // Dummy handlers for the confirmation buttons
 // Replace the whole DO_TASK_CONFIRM action handler with this:
+// Replace the whole DO_TASK_CONFIRM action handler with this:
 bot.action("DO_TASK_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -2881,11 +2882,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     return;
   }
 
-  // ATOMIC "first click wins":
-  // - Only set confirmedAt if:
-  //   * the task is still open and not expired
-  //   * THIS user is an accepted applicant with no confirmedAt/canceledAt
-  //   * NOBODY ELSE has confirmedAt yet
+  // ATOMIC "first click wins"
   const updated = await Task.findOneAndUpdate(
     {
       _id: task._id,
@@ -2915,7 +2912,6 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
         ]
       });
     } catch (_) {}
-
     return ctx.reply(
       lang === "am"
         ? "❌ ቀደም ሲል ሌላ አመልካች ጀምሮታል።"
@@ -2935,7 +2931,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     console.error("Error highlighting/locking buttons:", err);
   }
 
-  // ── NEW: Lock both participants until you release them ──
+  // Keep your engagement-lock (from your last step)
   try {
     const creatorUser = await User.findById(updated.creator);
     if (creatorUser) {
@@ -2943,7 +2939,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     }
   } catch (e) {
     console.error('failed to set engagement locks:', e);
-  } 
+  }
 
   // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
   if ((updated.exchangeStrategy || "").trim() === "100%") {
@@ -2951,7 +2947,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 
     // Compute the timing pieces
     const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
-    const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60)); // keep user's decimal input
+    const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
     const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
     const fee = updated.paymentFee || 0;
     const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
@@ -2969,7 +2965,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
       penaltyHoursToZero
     });
 
-    // Send message with two stacked buttons
+    // Send message with two stacked buttons  (creator side)
     const sent = await ctx.telegram.sendMessage(
       creator.telegramId,
       longText,
@@ -2978,13 +2974,13 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
         reply_markup: {
           inline_keyboard: [
             [Markup.button.callback(TEXT.missionAccomplishedBtn[creatorLang], `FINALIZE_MISSION_${updated._id}`)],
-            [Markup.button.callback(TEXT.reportBtn[creatorLang], `FINALIZE_REPORT_${updated._id}`)]
+            [Markup.button.callback(TEXT.reportBtn[creatorLang],               `FINALIZE_REPORT_${updated._id}`)]
           ]
         }
       }
     );
 
-    // NEW: remember creator UI (for later inert/highlight from report)
+    // NEW (#3): remember creator UI (for later inert/highlight from Report)
     await TaskActionUi.updateOne(
       { task: updated._id },
       { $set: { "creator.telegramId": creator.telegramId, "creator.messageId": sent.message_id } },
@@ -3003,7 +2999,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
           {
             inline_keyboard: [
               [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[creatorLang]}`, `_DISABLED_MISSION_${updated._id}`)],
-              [Markup.button.callback(TEXT.reportBtn[creatorLang], `_DISABLED_REPORT_${updated._id}`)]
+              [Markup.button.callback(TEXT.reportBtn[creatorLang],                        `_DISABLED_REPORT_${updated._id}`)]
             ]
           }
         );
@@ -3012,8 +3008,8 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
       }
     }, totalMinutes * 60 * 1000); // ms
   }
-  
-  // Notify creator/channel using your existing helper
+
+  // Notify creator/channel (your existing helper)
   const creator = await User.findById(updated.creator);
   if (creator) {
     await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
@@ -3023,9 +3019,9 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   const doerLang = lang; // user's language
   const creatorUser = await User.findById(updated.creator);
 
-  // compute timing pieces (same approach you already use for creator)
+  // compute timing pieces (same approach as for creator)
   const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
-  const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60)); // keep decimal inputs
+  const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
   const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
   const fee = updated.paymentFee || 0;
   const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
@@ -3051,12 +3047,12 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     reply_markup: {
       inline_keyboard: [
         [Markup.button.callback(TEXT.missionAccomplishedBtn[doerLang], `DOER_MISSION_${updated._id}`)],
-        [Markup.button.callback(TEXT.reportBtn[doerLang], `DOER_REPORT_${updated._id}`)]
+        [Markup.button.callback(TEXT.reportBtn[doerLang],               `DOER_REPORT_${updated._id}`)]
       ]
     }
   });
 
-  // NEW: remember doer UI (for later inert/highlight from report)
+  // NEW (#3): remember doer UI (for later inert/highlight from Report)
   await TaskActionUi.updateOne(
     { task: updated._id },
     { $set: { "doer.telegramId": doerSent.chat.id, "doer.messageId": doerSent.message_id } },
@@ -3073,7 +3069,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
         {
           inline_keyboard: [
             [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[doerLang]}`, `_DISABLED_DOER_MISSION_${updated._id}`)],
-            [Markup.button.callback(TEXT.reportBtn[doerLang], `_DISABLED_DOER_REPORT_${updated._id}`)]
+            [Markup.button.callback(TEXT.reportBtn[doerLang],                      `_DISABLED_DOER_REPORT_${updated._id}`)]
           ]
         }
       );
@@ -3084,6 +3080,7 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
 
   return;
 });
+
 // Dummy: Mission accomplished (no-op for now)
 bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
