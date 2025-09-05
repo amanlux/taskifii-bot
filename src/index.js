@@ -1815,21 +1815,24 @@ bot.use(async (ctx, next) => {
       ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮቶች ላይ መመልከት/መመዝገብ ወይም ተግዳሮት መለጠፍ አይችሉም።"
       : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
-    // We only intercept the actions you specified:
-    const isStartCmd   = !!(ctx.message?.text === '/start');                 // menu via /start
-    const isApplyCmd   = !!(ctx.message?.text?.startsWith('/apply_'));       // /apply_<id>
+    // Detect both plain /start and /start with payload; also deep-link apply payloads
+    const isStartCmd   = !!(ctx.message?.text?.startsWith('/start') || typeof ctx.startPayload === 'string');
+    const isDeepLinkApply = !!(typeof ctx.startPayload === 'string' && ctx.startPayload.startsWith('apply_'));
+    const isApplyCmd   = !!(ctx.message?.text?.startsWith('/apply_')); // /apply_<id>
     const data         = ctx.callbackQuery?.data;
-    const isApplyBtn   = !!(data && data.startsWith('APPLY_'));              // Apply button
-    const isFindTask   = (data === 'FIND_TASK');                              // Find Task button (menu)
-    const isPostTask   = (data === 'POST_TASK');                              // Post Task button (menu)
-    const isEditBack   = (data === 'EDIT_BACK');                              // Back to menu from edit
+    const isApplyBtn   = !!(data && data.startsWith('APPLY_'));
+    const isFindTask   = (data === 'FIND_TASK');
+    const isPostTask   = (data === 'POST_TASK');
+    const isEditBack   = (data === 'EDIT_BACK');
     const isPostConfirm = (data === 'TASK_POST_CONFIRM');
-    
-    if (isStartCmd || isApplyCmd || isApplyBtn || isFindTask || isPostTask || isEditBack) {
-      if (ctx.callbackQuery) await ctx.answerCbQuery(); // clear spinner if it came from a button
+
+    // Intercept these while locked
+    if (isStartCmd || isDeepLinkApply || isApplyCmd || isApplyBtn || isFindTask || isPostTask || isEditBack || isPostConfirm) {
+      if (ctx.callbackQuery) await ctx.answerCbQuery();
       await ctx.reply(lockedMsg);
-      return; // do not proceed to underlying handlers
+      return;
     }
+
 
     // Everything else continues normally
     return next();
@@ -1847,7 +1850,17 @@ bot.use(async (ctx, next) => {
   bot.start(async (ctx) => {
     // Initialize session
     ctx.session = ctx.session || {};
-    
+    // HARD-GUARD: block all menu/apply flows while engagement-locked
+    if (await isEngagementLocked(ctx.from.id)) {
+      const u0 = await User.findOne({ telegramId: ctx.from.id });
+      const lang0 = u0?.language || 'en';
+      const msg0 = (lang0 === 'am')
+        ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።"
+        : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+      await ctx.reply(msg0);
+      return;
+    }
+
     // Check if user has an active task
     const hasActive = await hasActiveTask(ctx.from.id);
     if (hasActive) {
