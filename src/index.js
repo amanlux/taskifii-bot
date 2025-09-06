@@ -114,6 +114,363 @@ BanlistSchema.index({ telegramId: 1 }, { unique: true, sparse: true });
 
 const Banlist = mongoose.models.Banlist
   || mongoose.model('Banlist', BanlistSchema);
+// ------------------------------------
+//  Finalization (Mission/Report + Ratings)
+// ------------------------------------
+const GIANT_MESSAGE_CHANNEL_ID = -1002289847417; // per your request
+
+const FinalizationSchema = new mongoose.Schema({
+  task:   { type: mongoose.Schema.Types.ObjectId, ref: 'Task', unique: true, required: true },
+  creator:{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  doer:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+
+  // What each side clicked + where those buttons live (so we can edit them inert)
+  creatorMissionAt: Date,
+  creatorReportAt:  Date,
+  doerMissionAt:    Date,
+  doerReportAt:     Date,
+  creatorOutcomeMsg: { chatId: Number, messageId: Number },
+  doerOutcomeMsg:    { chatId: Number, messageId: Number },
+
+  // Ratings (1..5) that each person gave the other
+  ratings: {
+    fromCreator: { type: Number, min: 1, max: 5 },
+    fromDoer:    { type: Number, min: 1, max: 5 }
+  },
+
+  // Prevent double-adding money
+  paidOut: {
+    doerEarnCounted:    { type: Boolean, default: false },
+    creatorSpentCounted:{ type: Boolean, default: false }
+  },
+
+  finalizedAt: Date
+}, { versionKey: false });
+
+const Finalization = mongoose.models.Finalization
+  || mongoose.model('Finalization', FinalizationSchema);
+
+// Unlock only one side (not everyone)
+async function releaseLockForOneUser(taskId, userId) {
+  await EngagementLock.updateOne(
+    { task: taskId, user: userId, active: true },
+    { $set: { active: false, releasedAt: new Date() } }
+  );
+}
+
+// Pretty helpers
+function nameOf(u) {
+  return u?.fullName || u?.username ? `@${u.username}` : `User ${u?.telegramId}`;
+}
+function starsRow(labelStar = "☆") {
+  return [1,2,3,4,5].map(n => Markup.button.callback(labelStar, `_RATE_PLACEHOLDER_${n}`));
+}
+function buildSelectedStarsRow(selected) {
+  return [1,2,3,4,5].map(n =>
+    Markup.button.callback(n <= selected ? "⭐" : "☆", `_INERT_RATE_${n}`)
+  );
+}
+
+// Make both Mission/Report buttons inert; highlight Mission if it was clicked
+async function inertOutcomeButtons(bot, chatId, messageId, lang, missionWasClicked) {
+  if (!chatId || !messageId) return;
+  try {
+    await bot.telegram.editMessageReplyMarkup(
+      chatId,
+      messageId,
+      undefined,
+      {
+        inline_keyboard: [[
+          Markup.button.callback(
+            missionWasClicked ? `✅ ${TEXT.missionAccomplishedBtn[lang||"en"]}` : TEXT.missionAccomplishedBtn[lang||"en"],
+            "_INERT_MISSION"
+          ),
+          Markup.button.callback(TEXT.reportBtn[lang||"en"], "_INERT_REPORT")
+        ]]
+      }
+    );
+  } catch (_) { /* non-fatal if message was edited/deleted already */ }
+}
+
+// Record that someone clicked Mission or Report (call this from your existing handlers)
+async function noteOutcomeClick({ taskId, role, type, ctx }) {
+  // role: 'creator'|'doer' ; type: 'mission'|'report'
+  const task = await Task.findById(taskId).populate('creator').populate('applicants.user');
+  if (!task) return;
+
+  // You likely already know the winner's userId in your handler; if not, infer it from task
+  // Adjust 'winnerUserId' lookup to your schema if different:
+  // Prefer your acceptedDoer; fallback to Confirmed, then Accepted
+  const winnerUserId =
+    task.acceptedDoer
+    || (task.applicants?.find(a => a.status === "Confirmed")?.user)
+    || (task.applicants?.find(a => a.status === "Accepted")?.user)
+    || null;
+
+
+  const creator = await User.findById(task.creator);
+  const doer    = winnerUserId ? await User.findById(winnerUserId) : null;
+  if (!creator || !doer) return;
+
+  const f = await Finalization.findOneAndUpdate(
+    { task: task._id },
+    {
+      $setOnInsert: { creator: creator._id, doer: doer._id },
+      ...(role === 'creator' && type === 'mission' ? { creatorMissionAt: new Date() } : {}),
+      ...(role === 'creator' && type === 'report'  ? { creatorReportAt:  new Date() } : {}),
+      ...(role === 'doer'    && type === 'mission' ? { doerMissionAt:    new Date() } : {}),
+      ...(role === 'doer'    && type === 'report'  ? { doerReportAt:     new Date() } : {}),
+      ...(role === 'creator' ? { creatorOutcomeMsg: { chatId: ctx.chat.id, messageId: ctx.callbackQuery.message.message_id } } : {}),
+      ...(role === 'doer'    ? { doerOutcomeMsg:    { chatId: ctx.chat.id, messageId: ctx.callbackQuery.message.message_id } } : {})
+    },
+    { upsert: true, new: true }
+  );
+
+  // If you want to instantly highlight that Mission was clicked while the countdown is still running:
+  if (type === 'mission') {
+    await inertOutcomeButtons(
+      ctx.telegram,
+      ctx.chat.id,
+      ctx.callbackQuery.message.message_id,
+      creator.language || "en",
+      true
+    );
+  }
+}
+
+// Build the "giant message" for channel -1002289847417
+function buildGiantMessage({task, creator, doer}) {
+  const lines = [];
+  lines.push(`🚨 *Task Finalized (Countdown Ended)*`);
+  lines.push("");
+  lines.push("*Task Details*");
+  if (task.description) lines.push(`• *Description:* ${task.description}`);
+  if (task.fields?.length) lines.push(`• *Fields:* ${task.fields.join(", ")}`);
+  if (task.skillLevel) lines.push(`• *Skill Level:* ${task.skillLevel}`);
+  if (task.paymentFee != null) lines.push(`• *Payment Fee:* ${task.paymentFee} birr`);
+  if (task.timeToComplete != null) lines.push(`• *Time to Complete:* ${task.timeToComplete} hour(s)`);
+  if (task.revisionTime != null) lines.push(`• *Revision Time:* ${task.revisionTime} hour(s)`);
+  if (task.penaltyPerHour != null) lines.push(`• *Penalty/Hour:* ${task.penaltyPerHour} birr`);
+  if (task.exchangeStrategy) lines.push(`• *Exchange Strategy:* ${task.exchangeStrategy}`);
+  lines.push("");
+
+  const formatUser = (u, label) => [
+    `*${label}*`,
+    `• Name: ${u.fullName || "N/A"}`,
+    `• @${u.username || "N/A"} • Telegram ID: ${u.telegramId}`,
+    `• Phone: ${u.phone || "N/A"} • Email: ${u.email || "N/A"}`,
+    `• Stats: earned ${u.stats?.totalEarned?.toFixed(2) ?? "0.00"} birr, spent ${u.stats?.totalSpent?.toFixed(2) ?? "0.00"} birr`,
+    `• Rating: ${(u.stats?.averageRating ?? 0).toFixed(1)} ★ (${u.stats?.ratingCount ?? 0} ratings)`
+  ].join("\n");
+
+  lines.push(formatUser(creator, "Task Creator"));
+  lines.push("");
+  lines.push(formatUser(doer, "Winner Task Doer"));
+  lines.push("");
+  lines.push("_This message was auto-posted because the total countdown ended with no reports and/or a mission click without the other side responding in time._");
+  return lines.join("\n");
+}
+
+// Send the one-row rating prompt
+async function sendRatingPrompt(bot, raterUser, targetUser, task, targetRole /* 'creator' or 'doer' */) {
+  const lang = raterUser.language || "en";
+  const theirName = targetUser.fullName || (targetUser.username ? `@${targetUser.username}` : `User ${targetUser.telegramId}`);
+
+  const msgEn = targetRole === 'creator'
+    ? `🎉 Congratulations on finishing and delivering!\n\nThank you for doing your part. Taskifii is happy to include *${raterUser.fullName || '@'+raterUser.username || 'you'}* as a trustworthy, responsible, and valuable member of Taskifii.\n\nYou’ve reached the final step: please rate the task creator *${theirName}* from 1–5 stars.\n\n*This is required* before you can use Taskifii again.\n\n(1 star = Very poor, 2 = Poor, 3 = Average, 4 = Good, 5 = Excellent)`
+    : `🎉 Congrats on delegating a task!\n\nThank you for doing your part. Taskifii is happy to include *${raterUser.fullName || '@'+raterUser.username || 'you'}* as a trustworthy and valuable member of Taskifii.\n\nYou’ve reached the final step: please rate the task doer *${theirName}* from 1–5 stars.\n\n*This is required* before you can use Taskifii again.\n\n(1 star = Very poor, 2 = Poor, 3 = Average, 4 = Good, 5 = Excellent)`;
+
+  const msgAm = targetRole === 'creator'
+    ? `🎉 ስራውን በተሳካ ሁኔታ አጠናቀቁ እና አስረከቡ። አመሰግናለን!\n\nTaskifii እርስዎን እንደ እምነት ያለው፣ ኃላፊ እና እጅግ ዋጋ ያለው አባል ለመያዝ ደስ ይላል።\n\nአሁን መጨረሻ ደረጃው ደርሶልዎታል፤ እባክዎ *${theirName}* የተግዳሮቱን ፈጣሪ ከ1 እስከ 5 ኮከብ ይደርጉ።\n\n*ማስገባት አስፈላጊ ነው* ከዚህ በኋላ ቦቱን ለመጠቀም።\n\n(1 = በጣም መጥፎ, 2 = መጥፎ, 3 = መካከለኛ, 4 = ጥሩ, 5 = እጅግ ጥሩ)`
+    : `🎉 ተግዳሮት ማስወጣት ተሳክቶዎታል! አመሰግናለን!\n\nTaskifii እርስዎን እንደ እምነት ያለው እና ዋጋ ያለው አባል ለመያዝ ደስ ይላል።\n\nአሁን መጨረሻ ደረጃው ደርሶልዎታል፤ እባክዎ *${theirName}* የስራ አድራጊውን ከ1 እስከ 5 ኮከብ ይደርጉ።\n\n*ማስገባት አስፈላጊ ነው* ከዚህ በኋላ ቦቱን ለመጠቀም።\n\n(1 = በጣም መጥፎ, 2 = መጥፎ, 3 = መካከለኛ, 4 = ጥሩ, 5 = እጅግ ጥሩ)`;
+
+  const text = (lang === "am") ? msgAm : msgEn;
+
+  // Start with 5 hollow stars on ONE ROW
+  const keyboard = [[
+    Markup.button.callback("☆", `RATE:${task._id}:${targetRole}:1`),
+    Markup.button.callback("☆", `RATE:${task._id}:${targetRole}:2`),
+    Markup.button.callback("☆", `RATE:${task._id}:${targetRole}:3`),
+    Markup.button.callback("☆", `RATE:${task._id}:${targetRole}:4`),
+    Markup.button.callback("☆", `RATE:${task._id}:${targetRole}:5`)
+  ]];
+
+  await bot.telegram.sendMessage(
+    raterUser.telegramId,
+    text,
+    { parse_mode: "Markdown", reply_markup: { inline_keyboard: keyboard } }
+  );
+}
+
+// Call this when your "total nice countdown" ends for a task (see integration notes below)
+async function handleCountdownEnded(bot, taskId) {
+  const task = await Task.findById(taskId).populate('creator').populate('applicants.user');
+  if (!task) return;
+
+  // Identify the winner (adjust to your schema)
+  // Prefer your acceptedDoer; fallback to Confirmed, then Accepted
+  const winnerUserId =
+    task.acceptedDoer
+    || (task.applicants?.find(a => a.status === "Confirmed")?.user)
+    || (task.applicants?.find(a => a.status === "Accepted")?.user)
+    || null;
+
+  const creator = await User.findById(task.creator);
+  const doer    = winnerUserId ? await User.findById(winnerUserId) : null;
+  if (!creator || !doer) return;
+
+  const f = await Finalization.findOneAndUpdate(
+    { task: task._id },
+    { $setOnInsert: { creator: creator._id, doer: doer._id } },
+    { upsert: true, new: true }
+  );
+
+  // If *any* report exists before time is up, we respect your existing report/escalation flow → do nothing here
+  if (f.creatorReportAt || f.doerReportAt) return;
+
+  // Cases you requested:
+  // - Someone clicked Mission (no report from the other) before time up
+  // - Or nobody clicked anything before time up
+  // Make buttons inert (still shown), highlight Mission if it was clicked
+  const creatorMission = !!f.creatorMissionAt;
+  const doerMission    = !!f.doerMissionAt;
+
+  await inertOutcomeButtons(bot, f.creatorOutcomeMsg?.chatId, f.creatorOutcomeMsg?.messageId, creator.language || "en", creatorMission);
+  await inertOutcomeButtons(bot, f.doerOutcomeMsg?.chatId,    f.doerOutcomeMsg?.messageId,    doer.language || "en",    doerMission);
+
+  // Giant message to your channel
+  try {
+    await bot.telegram.sendMessage(
+      GIANT_MESSAGE_CHANNEL_ID,
+      buildGiantMessage({ task, creator, doer }),
+      { parse_mode: "Markdown" }
+    );
+  } catch (_) {}
+
+  // Send both sides the rating one-row UI (mandatory)
+  await sendRatingPrompt(bot, doer, creator, task, 'creator');
+  await sendRatingPrompt(bot, creator, doer, task, 'doer');
+
+  await Finalization.updateOne({ _id: f._id }, { $set: { finalizedAt: new Date() } });
+}
+
+// Handle rating clicks: RATE:<taskId>:<targetRole>:<1-5>
+function registerRatingActions(bot) {
+  bot.action(/^RATE:([0-9a-fA-F]{24}):(creator|doer):([1-5])$/, async (ctx) => {
+    try {
+      const [, taskIdHex, targetRole, scoreStr] = ctx.match;
+      const score = parseInt(scoreStr, 10);
+
+      const raterTgId = ctx.from.id;
+      const task = await Task.findById(taskIdHex).populate('creator').populate('applicants.user');
+      if (!task) return ctx.answerCbQuery("Task not found.");
+
+      // Prefer your acceptedDoer; fallback to Confirmed, then Accepted
+      const winnerUserId =
+        task.acceptedDoer
+        || (task.applicants?.find(a => a.status === "Confirmed")?.user)
+        || (task.applicants?.find(a => a.status === "Accepted")?.user)
+        || null;
+
+      const creator = await User.findById(task.creator);
+      const doer    = winnerUserId ? await User.findById(winnerUserId) : null;
+      if (!creator || !doer) return ctx.answerCbQuery("Participants not found.");
+
+      const rater = await User.findOne({ telegramId: raterTgId });
+      if (!rater) return ctx.answerCbQuery("User not found.");
+
+      const f = await Finalization.findOne({ task: task._id });
+      if (!f) return ctx.answerCbQuery("Finalization not found.");
+
+      // Determine who is being rated and who is rating
+      const target = (targetRole === 'creator') ? creator : doer;
+      const isRaterCreator = String(rater._id) === String(creator._id);
+
+      // Prevent double rating from same side
+      if ((isRaterCreator && f.ratings?.fromCreator) || (!isRaterCreator && f.ratings?.fromDoer)) {
+        try {
+          await ctx.editMessageReplyMarkup({ inline_keyboard: [buildSelectedStarsRow(score)] });
+        } catch (_) {}
+        return ctx.answerCbQuery("Already recorded.");
+      }
+
+      // Update target stats (averageRating & ratingCount)
+      const oldAvg = target.stats?.averageRating || 0;
+      const oldCnt = target.stats?.ratingCount || 0;
+      const newCnt = oldCnt + 1;
+      const newAvg = ((oldAvg * oldCnt) + score) / newCnt;
+
+      await User.updateOne(
+        { _id: target._id },
+        { $set: { 'stats.averageRating': newAvg, 'stats.ratingCount': newCnt } }
+      );
+
+      // Update payer/spender totals exactly once, tied to each side finishing their rating
+      // When DOER rates → credit DOER totalEarned
+      if (!isRaterCreator && !f.paidOut?.doerEarnCounted && task.paymentFee != null) {
+        await User.updateOne(
+          { _id: doer._id },
+          { $inc: { 'stats.totalEarned': Number(task.paymentFee) } }
+        );
+        await Finalization.updateOne({ _id: f._id }, { $set: { 'paidOut.doerEarnCounted': true } });
+      }
+      // When CREATOR rates → add to CREATOR totalSpent
+      if (isRaterCreator && !f.paidOut?.creatorSpentCounted && task.paymentFee != null) {
+        await User.updateOne(
+          { _id: creator._id },
+          { $inc: { 'stats.totalSpent': Number(task.paymentFee) } }
+        );
+        await Finalization.updateOne({ _id: f._id }, { $set: { 'paidOut.creatorSpentCounted': true } });
+      }
+
+      // Store rating in Finalization (so each side can only rate once)
+      await Finalization.updateOne(
+        { _id: f._id },
+        isRaterCreator
+          ? { $set: { 'ratings.fromCreator': score } }
+          : { $set: { 'ratings.fromDoer': score } }
+      );
+
+      // Visually update the 5-star row → left side turns to ⭐ and row becomes inert
+      try {
+        const keyboard = [buildSelectedStarsRow(score)];
+        await ctx.editMessageReplyMarkup({ inline_keyboard: keyboard });
+      } catch (_) {}
+
+      // Thank-you + unlocking message
+      const lang = rater.language || "en";
+      const thanksText = (lang === "am")
+        ? (targetRole === 'creator'
+            ? "✅ ፈጣሪውን በተሳካ ሁኔታ አቀርበዋል። Taskifii በመጠቀም ደስ አለን!"
+            : "✅ ስራ አድራጊውን በተሳካ ሁኔታ አቀርበዋል። Taskifii በመጠቀም ደስ አለን!")
+        : (targetRole === 'creator'
+            ? "✅ You’ve successfully rated the task creator. We hope you enjoyed using Taskifii!"
+            : "✅ You’ve successfully rated the task doer. We hope you enjoyed using Taskifii!");
+      await ctx.reply(thanksText);
+
+      // Unlock THIS user so they can use the menu/apply/post again
+      await releaseLockForOneUser(task._id, rater._id);
+
+      ctx.answerCbQuery("Rating saved.");
+    } catch (err) {
+      console.error("RATE handler error:", err);
+      try { await ctx.answerCbQuery("Something went wrong."); } catch (_) {}
+    }
+  });
+}
+
+// Register rating actions immediately (call once during bot setup)
+
+
+// ------------------------------------
+//  PUBLIC HOOKS you can call from your existing code
+// ------------------------------------
+global.TaskifiiFinalization = {
+  // Call inside your Mission/Report button handlers (see “Where to plug” below)
+  noteOutcomeClick,             // ({ taskId, role: 'creator'|'doer', type: 'mission'|'report', ctx })
+  // Call WHEN the total countdown ends (time is up)
+  handleCountdownEnded          // (bot, taskId)
+};
 
 // Create/ensure locks for both participants of a task
 async function lockBothForTask(taskDoc, doerUserId, creatorUserId) {
@@ -1663,6 +2020,7 @@ mongoose
 // ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
+  registerRatingActions(bot);
   mongoose.set('strictQuery', false); // Add this line to suppress Mongoose warning
   const { session } = require('telegraf');
   
@@ -3113,6 +3471,8 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     } catch (e) {
       console.error("Failed to disable Doer Mission/Report buttons after countdown:", e);
     }
+    await TaskifiiFinalization.handleCountdownEnded(bot, updated._id);
+
   }, totalMinutes * 60 * 1000);
 
   return;
@@ -3141,6 +3501,8 @@ bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
         [Markup.button.callback(TEXT.reportBtn[lang],                     `_DISABLED_REPORT_${taskId}`)]
       ]
     });
+    await TaskifiiFinalization.noteOutcomeClick({ taskId: task._id, role: 'creator', type: 'mission', ctx });
+
   } catch (_) {}
   // NOTE: real mission finalize flow (payments etc.) is outside this request.
 });
@@ -3175,6 +3537,8 @@ bot.action(/^FINALIZE_REPORT_(.+)$/, async (ctx) => {
         [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,       `_DISABLED_REPORT_${taskId}`)]
       ]
     });
+    await TaskifiiFinalization.noteOutcomeClick({ taskId: task._id, role: 'creator', type: 'report', ctx });
+
   } catch (_) {}
 
   // Tell creator how to report issues (your requested contacts)
@@ -3219,6 +3583,8 @@ bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
         [Markup.button.callback(TEXT.reportBtn[lang],                     `_DISABLED_DOER_REPORT_${taskId}`)]
       ]
     });
+    await TaskifiiFinalization.noteOutcomeClick({ taskId, role: 'doer', type: 'mission', ctx });
+
   } catch (_) {}
 });
 
@@ -3249,6 +3615,8 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
         [Markup.button.callback(`✔ ${TEXT.reportBtn[lang]}`,       `_DISABLED_DOER_REPORT_${taskId}`)]
       ]
     });
+    await TaskifiiFinalization.noteOutcomeClick({ taskId: task._id, role: 'doer', type: 'report', ctx });
+
   } catch (_) {}
 
   // Tell doer how to report issues (note different phone number)
