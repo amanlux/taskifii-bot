@@ -115,6 +115,9 @@ BanlistSchema.index({ telegramId: 1 }, { unique: true, sparse: true });
 const Banlist = mongoose.models.Banlist
   || mongoose.model('Banlist', BanlistSchema);
 
+
+
+
 // Create/ensure locks for both participants of a task
 async function lockBothForTask(taskDoc, doerUserId, creatorUserId) {
   const ops = [
@@ -1462,69 +1465,6 @@ function reportWindowOpen(task) {
   const totalMinutes = computeTotalMinutes(task);
   const deadline = new Date(task.decisionsLockedAt.getTime() + totalMinutes * 60 * 1000);
   return Date.now() <= deadline.getTime();
-}
-// Mark the decision window as frozen and send a read-only snapshot to both sides.
-// Uses your existing DISABLED callbacks so buttons are inert but still shown.
-async function freezeDecision(botOrTelegram, taskId) {
-  const task = await Task.findById(taskId).lean();
-  if (!task) return;
-
-  // Only freeze if the window is actually over and we haven't frozen before
-  const totalOver = !reportWindowOpen(task);
-  if (!totalOver) return;
-  if (task.decisionsFrozenAt) return; // already done once
-
-  await Task.updateOne(
-    { _id: taskId, decisionsFrozenAt: { $exists: false } },
-    { $set: { decisionsFrozenAt: new Date() } }
-  );
-
-  // Resolve participants
-  const creator = task.creator ? await User.findById(task.creator) : null;
-  const doerUser = (task.applicants || []).find(a => a.status === "Accepted" && !a.canceledAt)?.user || null;
-  const doer = doerUser?._id ? doerUser : (doerUser ? await User.findById(doerUser) : null);
-
-  const creatorLang = creator?.language || "en";
-  const doerLang = doer?.language || "en";
-
-  // Was Mission clicked before timeout?
-  const creatorMissionClicked = !!task.creatorMissionAt;
-  const doerMissionClicked    = !!task.doerMissionAt;
-
-  // Build frozen keyboards (still visible, but inert)
-  const kbCreator = {
-    inline_keyboard: [
-      [Markup.button.callback(
-        `${creatorMissionClicked ? "✔ " : ""}${TEXT.missionAccomplishedBtn[creatorLang]}`,
-        `_DISABLED_MISSION_${task._id}`
-      )],
-      [Markup.button.callback(TEXT.reportBtn[creatorLang], `_DISABLED_REPORT_${task._id}`)]
-    ]
-  };
-  const kbDoer = {
-    inline_keyboard: [
-      [Markup.button.callback(
-        `${doerMissionClicked ? "✔ " : ""}${TEXT.missionAccomplishedBtn[doerLang]}`,
-        `_DISABLED_DOER_MISSION_${task._id}`
-      )],
-      [Markup.button.callback(TEXT.reportBtn[doerLang], `_DISABLED_DOER_REPORT_${task._id}`)]
-    ]
-  };
-
-  const frozenMsgCreator = creatorLang === "am"
-    ? "⏳ ጊዜው አልፎታል። እነዚህ ቁልፎች አሁን አይሰሩም ነገር ግን ይታያሉ።"
-    : "⏳ The time window is over. These controls are now inactive (still shown).";
-
-  const frozenMsgDoer = doerLang === "am"
-    ? "⏳ ጊዜው አልፎታል። እነዚህ ቁልፎች አሁን አይሰሩም ነገር ግን ይታያሉ።"
-    : "⏳ The time window is over. These controls are now inactive (still shown).";
-
-  if (creator) {
-    await botOrTelegram.sendMessage(creator.telegramId, frozenMsgCreator, { reply_markup: kbCreator });
-  }
-  if (doer) {
-    await botOrTelegram.sendMessage(doer.telegramId, frozenMsgDoer, { reply_markup: kbDoer });
-  }
 }
 
 function acceptedDoerUser(task) {
@@ -3114,8 +3054,6 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
       } catch (e) {
         console.error("Failed to disable Mission/Report buttons after countdown:", e);
       }
-      await freezeDecision(ctx.telegram, updated._id); // <— ADD THIS
-
     }, totalMinutes * 60 * 1000); // ms
   }
   
@@ -3179,14 +3117,13 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
     } catch (e) {
       console.error("Failed to disable Doer Mission/Report buttons after countdown:", e);
     }
-    await freezeDecision(ctx.telegram, updated._id); // <— ADD THIS
-
   }, totalMinutes * 60 * 1000);
 
   return;
 
 });
 // CREATOR: Mission (inert if escalated)
+
 bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
@@ -3196,31 +3133,32 @@ bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
   const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
   if (!task) return;
 
-  // If window is over or we already froze, be inert
-  if (!reportWindowOpen(task) || task.decisionsFrozenAt) {
-    return ctx.answerCbQuery(lang === "am" ? "ጊዜው አልፎታል።" : "The window has ended; controls are inactive.", { show_alert: true });
+  // NEW: if window is closed, be inert (no-op)
+  if (!reportWindowOpen(task)) {
+    return ctx.answerCbQuery(
+      lang === "am" ? "ጊዜው አልፎታል።" : "The window has ended; controls are inert.",
+      { show_alert: true }
+    );
   }
 
-  // If exchange was escalated (a Report already clicked), be inert
+  // Existing guard: if already escalated, be inert
   const alreadyEscalated = await Escalation.findOne({ task: task._id }).lean();
   if (alreadyEscalated) {
-    return ctx.answerCbQuery(lang === "am" ? "ይህ ውይይት ተገምግሟል።" : "This exchange was escalated; controls are disabled.", { show_alert: true });
+    return ctx.answerCbQuery(
+      lang === "am" ? "ይህ ውይይት ተገምግሟል።" : "This exchange was escalated; controls are disabled.",
+      { show_alert: true }
+    );
   }
 
-  // Persist: creator clicked Mission
-  await Task.updateOne({ _id: task._id }, { $set: { creatorMissionAt: new Date() } });
-
-  // Best-effort visual checkmark on this message
+  // Best-effort visual highlight (ok if edit fails)
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[lang]}`, `_DISABLED_MISSION_${taskId}`)],
-        [Markup.button.callback(TEXT.reportBtn[lang],                     `_DISABLED_REPORT_${taskId}`)]
+        [Markup.button.callback(TEXT.reportBtn[lang], `_DISABLED_REPORT_${taskId}`)]
       ]
     });
   } catch (_) {}
-
-  // (Real finalize/payment flow is separate)
 });
 
 
@@ -3245,7 +3183,6 @@ bot.action(/^FINALIZE_REPORT_(.+)$/, async (ctx) => {
 
   // Persist escalation (no Task schema change)
   await Escalation.create({ task: task._id, by: reporter._id, role: 'creator' });
-  await freezeDecision(ctx.telegram, task._id); // <— ADD THIS
 
   // Visually highlight the just-clicked Report button (best-effort, no stored IDs)
   try {
@@ -3277,7 +3214,8 @@ bot.action(/^FINALIZE_REPORT_(.+)$/, async (ctx) => {
   await sendEscalationSummaryToChannel(ctx.telegram, task, task.creator, doer, 'creator');
 });
 
-// DOER: Mission (inert if escalated)
+
+// DOER: Mission (inert if escalated OR window closed)
 bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const taskId = ctx.match[1];
@@ -3287,26 +3225,29 @@ bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
   const task = await Task.findById(taskId);
   if (!task) return;
 
-  // If window is over or we already froze, be inert
-  if (!reportWindowOpen(task) || task.decisionsFrozenAt) {
-    return ctx.answerCbQuery(lang === "am" ? "ጊዜው አልፎታል።" : "The window has ended; controls are inactive.", { show_alert: true });
+  // NEW: if window is closed, be inert (no-op)
+  if (!reportWindowOpen(task)) {
+    return ctx.answerCbQuery(
+      lang === "am" ? "ጊዜው አልፎታል።" : "The window has ended; controls are inert.",
+      { show_alert: true }
+    );
   }
 
-  // If exchange was escalated (a Report already clicked), be inert
+  // Existing guard: if already escalated, be inert
   const alreadyEscalated = await Escalation.findOne({ task: task._id }).lean();
   if (alreadyEscalated) {
-    return ctx.answerCbQuery(lang === "am" ? "ይህ ውይይት ተገምግሟል።" : "This exchange was escalated; controls are disabled.", { show_alert: true });
+    return ctx.answerCbQuery(
+      lang === "am" ? "ይህ ውይይት ተገምግሟል።" : "This exchange was escalated; controls are disabled.",
+      { show_alert: true }
+    );
   }
 
-  // Persist: doer clicked Mission
-  await Task.updateOne({ _id: task._id }, { $set: { doerMissionAt: new Date() } });
-
-  // Best-effort visual checkmark on this message
+  // Best-effort visual highlight (ok if edit fails)
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [Markup.button.callback(`✔ ${TEXT.missionAccomplishedBtn[lang]}`, `_DISABLED_DOER_MISSION_${taskId}`)],
-        [Markup.button.callback(TEXT.reportBtn[lang],                     `_DISABLED_DOER_REPORT_${taskId}`)]
+        [Markup.button.callback(TEXT.reportBtn[lang], `_DISABLED_DOER_REPORT_${taskId}`)]
       ]
     });
   } catch (_) {}
@@ -3331,7 +3272,6 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
   if (exists) return;
 
   await Escalation.create({ task: task._id, by: reporter._id, role: 'doer' });
-  await freezeDecision(ctx.telegram, task._id); // <— ADD THIS
 
   // Highlight "Report" for the doer (best-effort)
   try {
@@ -3360,20 +3300,6 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
 
   await sendEscalationSummaryToChannel(ctx.telegram, task, creator, doer, 'doer');
 });
-// Inert handlers for frozen Mission/Report buttons (both roles)
-bot.action(/^_DISABLED_MISSION_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery("These controls are inactive now.", { show_alert: true });
-});
-bot.action(/^_DISABLED_REPORT_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery("These controls are inactive now.", { show_alert: true });
-});
-bot.action(/^_DISABLED_DOER_MISSION_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery("These controls are inactive now.", { show_alert: true });
-});
-bot.action(/^_DISABLED_DOER_REPORT_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery("These controls are inactive now.", { show_alert: true });
-});
-
 bot.action(/^ADMIN_BAN_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
   const userId = ctx.match[1];
