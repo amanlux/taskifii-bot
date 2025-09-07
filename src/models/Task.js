@@ -55,6 +55,7 @@ const TaskSchema = new Schema(
     canceledAt: { type: Date, default: null },
     repostNotified: { type: Boolean, default: false },
     menuAccessNotified: { type: Boolean, default: false },
+    decisionsLockedAt: { type: Date, default: null },
     
   },
   { timestamps: true }
