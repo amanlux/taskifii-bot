@@ -118,6 +118,8 @@ const Banlist = mongoose.models.Banlist
 
 
 
+
+
 // Create/ensure locks for both participants of a task
 async function lockBothForTask(taskDoc, doerUserId, creatorUserId) {
   const ops = [
@@ -2600,11 +2602,13 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
 
   // If a doer has already confirmed (first-click-wins), stop the flow.
   if (decisionsLocked(task)) {
+    const tmpLang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      TEXT.taskAlreadyTaken[lang],
+      TEXT.taskAlreadyTaken[tmpLang],
       { show_alert: true }
     );
   }
+
 
   const user = await User.findById(userId);
   const creator = await User.findOne({ telegramId: ctx.from.id });
