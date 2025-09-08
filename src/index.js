@@ -2601,21 +2601,21 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   }
 
   // If a doer has already confirmed (first-click-wins), stop the flow.
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  const lang = creator.language || "en";
   if (decisionsLocked(task)) {
-    const tmpLang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      TEXT.taskAlreadyTaken[tmpLang],
+      TEXT.taskAlreadyTaken[lang],
       { show_alert: true }
     );
   }
 
-
   const user = await User.findById(userId);
-  const creator = await User.findOne({ telegramId: ctx.from.id });
+  
   if (!task || !user || !creator) {
     return ctx.reply("Error: Could not find task or user.");
   }
-  const lang = creator.language || "en";
+  
 
   // 🔒 If decisions are locked and this app is still Pending, be *inert* (silent no-op)
   if (decisionsLocked(task)) {
@@ -2630,7 +2630,8 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   const applyOk = await Task.updateOne(
     {
       _id: task._id,
-      decisionsLockedAt: { $exists: false },
+      $or: [{ decisionsLockedAt: { $exists: false } }, { decisionsLockedAt: null }],
+
       applicants: { $elemMatch: { user: user._id, status: "Pending" } }
     },
     { $set: { "applicants.$.status": "Accepted" } }
@@ -2732,7 +2733,8 @@ bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   const declineOk = await Task.updateOne(
     {
       _id: task._id,
-      decisionsLockedAt: { $exists: false },
+      $or: [{ decisionsLockedAt: { $exists: false } }, { decisionsLockedAt: null }],
+
       applicants: { $elemMatch: { user: user._id, status: "Pending" } }
     },
     { $set: { "applicants.$.status": "Declined" } }
