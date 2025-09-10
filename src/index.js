@@ -157,37 +157,57 @@ CreditLogSchema.index({ task:1, type:1 }, { unique: true });
 const CreditLog = mongoose.models.CreditLog || mongoose.model('CreditLog', CreditLogSchema);
 
 // --- Helper: top frequent fields for a doer based on rated tasks ---
+// --- Helper: top frequent fields for a doer based on finished/rated work ---
 async function getFrequentFieldsForDoer(userId) {
-  // Tasks where this user (as doer) rated the creator = finished work
+  // 1) Finished tasks inferred by doer->creator rating
   const ratedTaskIds = await Rating.find({
     from: userId,
     role: 'doerRatesCreator'
   }).distinct('task');
 
-  // (Optional backward-compat) also include tasks explicitly marked Completed
-  const completedTasks = await Task.find({
+  // 2) Finished tasks inferred by credits (you award these when the doer rates)
+  const creditedTaskIds = await CreditLog.find({
+    user: userId,
+    type: 'doerEarned'
+  }).distinct('task');
+
+  // 3) Legacy: applicants.status === "Completed"
+  const completedTaskIds = await Task.find({
     "applicants.user": userId,
     "applicants.status": "Completed"
-  }).select('_id').lean();
+  }).distinct('_id');
 
-  const completedTaskIds = completedTasks.map(t => t._id);
-  const uniqueIds = [...new Set(
-    [...ratedTaskIds.map(id => id.toString()), ...completedTaskIds.map(id => id.toString())]
-  )].map(id => new mongoose.Types.ObjectId(id));
+  // Unique ObjectIds
+  const taskIds = Array.from(new Set([
+    ...ratedTaskIds.map(String),
+    ...creditedTaskIds.map(String),
+    ...completedTaskIds.map(String),
+  ])).map(id => new mongoose.Types.ObjectId(id));
 
-  if (uniqueIds.length === 0) return [];
+  if (taskIds.length === 0) return [];
 
+  // Aggregate top fields (max 5)
   const agg = await Task.aggregate([
-    { $match: { _id: { $in: uniqueIds } } },
+    { $match: { _id: { $in: taskIds } } },
+    { $project: { fields: { $ifNull: ["$fields", []] } } },
     { $unwind: "$fields" },
     { $group: { _id: "$fields", count: { $sum: 1 } } },
-    { $sort: { count: -1 } },
-    { $limit: 5 } // at most 5
+    { $sort: { count: -1, _id: 1 } },
+    { $limit: 5 }
   ]);
 
-  // Return an array of field names, length 1..5
-  return agg.map(f => f._id);
+  if (agg.length > 0) return agg.map(f => f._id);
+
+  // Fallback: if the doer has finished tasks but the aggregate found none
+  // (e.g., some tasks missing 'fields'), return fields from the latest one.
+  const latest = await Task.findOne({
+    _id: { $in: taskIds },
+    fields: { $exists: true, $ne: [] }
+  }).sort({ postedAt: -1, _id: -1 }).select('fields').lean();
+
+  return Array.isArray(latest?.fields) ? latest.fields.slice(0, 5) : [];
 }
+
 
 
 
