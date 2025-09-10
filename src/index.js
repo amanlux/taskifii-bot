@@ -115,6 +115,138 @@ BanlistSchema.index({ telegramId: 1 }, { unique: true, sparse: true });
 const Banlist = mongoose.models.Banlist
   || mongoose.model('Banlist', BanlistSchema);
 
+// ---- Inactivity + Ratings (no schema changes to Task/User) ----
+const INACTIVITY_CHANNEL_ID = process.env.INACTIVITY_CHANNEL_ID || "-1002289847417";
+
+const TaskOutcomeSchema = new mongoose.Schema({
+  task:          { type: mongoose.Schema.Types.ObjectId, ref: 'Task', unique: true, required: true },
+  autoCompletedAt: Date,
+  doerRated:     { type: Boolean, default: false },
+  creatorRated:  { type: Boolean, default: false },
+  payoutRecorded:{ type: Boolean, default: false },
+  // optional action timestamps (future-proof):
+  doerMissionAt:    Date,
+  creatorMissionAt: Date,
+  doerReportAt:     Date,
+  creatorReportAt:  Date
+}, { versionKey: false });
+
+const TaskOutcome = mongoose.models.TaskOutcome
+  || mongoose.model("TaskOutcome", TaskOutcomeSchema);
+
+async function releaseLockForUserRole(taskId, telegramId, role) {
+  const u = await User.findOne({ telegramId });
+  if (!u) return;
+  await EngagementLock.updateOne(
+    { task: taskId, user: u._id, role, active: true },
+    { $set: { active: false, releasedAt: new Date() } }
+  );
+}
+
+function starsKeyboard(kind /* 'RATE_CREATOR'|'RATE_DOER' */, taskId, selected = 0, disabled = false) {
+  const row = [];
+  for (let i = 1; i <= 5; i++) {
+    const label = i <= selected ? '⭐' : '☆'; // requested: start white ☆; turn yellow ⭐ on click
+    const data  = disabled ? `_DISABLED_${kind}_${taskId}_${i}` : `${kind}_${taskId}_${i}`;
+    row.push(Markup.button.callback(label, data));
+  }
+  return Markup.inlineKeyboard([row]); // one horizontal line
+}
+
+async function applyRatingToUser(targetUserId, stars) {
+  const user = await User.findById(targetUserId);
+  if (!user) return;
+  const count = user.stats?.ratingCount || 0;
+  const avg   = user.stats?.averageRating || 0;
+  const newAvg = ((avg * count) + stars) / (count + 1);
+  user.stats.ratingCount   = count + 1;
+  user.stats.averageRating = Math.round(newAvg * 10) / 10;
+  await user.save();
+}
+
+async function sendInactivitySummaryToChannel(bot, task, creator, doer) {
+  const lines = [
+    "🚨 *AUTO-COMPLETION DUE TO INACTIVITY*",
+    "No one tapped “Mission accomplished” or “Report” before the countdown ended.",
+    "",
+    "👤 *TASK CREATOR*",
+    `• Full Name: ${creator.fullName || 'N/A'}`,
+    `• Phone: ${creator.phone || 'N/A'}`,
+    `• Telegram: @${creator.username || 'N/A'}`,
+    `• Email: ${creator.email || 'N/A'}`,
+    `• User ID: ${creator._id}`,
+    "",
+    "👥 *WINNER TASK DOER*",
+    `• Full Name: ${doer?.fullName || 'N/A'}`,
+    `• Phone: ${doer?.phone || 'N/A'}`,
+    `• Telegram: @${doer?.username || 'N/A'}`,
+    `• Email: ${doer?.email || 'N/A'}`,
+    `• User ID: ${doer?._id || 'N/A'}`,
+    "",
+    "📝 *TASK DETAILS*",
+    `• Description: ${task.description}`,
+    `• Payment Fee: ${task.paymentFee} birr`,
+    `• Time to Complete: ${task.timeToComplete} hour(s)`,
+    `• Skill Level: ${task.skillLevel}`,
+    `• Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : (task.fields || 'N/A')}`,
+    `• Exchange Strategy: ${task.exchangeStrategy}`,
+    `• Revision Time: ${task.revisionTime} hour(s)`,
+    `• Penalty per Hour: ${(task.penaltyPerHour ?? task.latePenalty) || 0} birr/hour`,
+    `• Posted At: ${task.postedAt?.toISOString?.() || ''}`,
+    `• decisionsLockedAt: ${task.decisionsLockedAt?.toISOString?.() || ''}`
+  ].join("\n");
+
+  try {
+    await bot.telegram.sendMessage(INACTIVITY_CHANNEL_ID, lines, { parse_mode: "Markdown" });
+  } catch (e) {
+    console.error("Failed to send inactivity summary:", e?.message || e);
+  }
+}
+
+async function sendRatingPromptToUser(bot, { rater, target, task, isDoerRater }) {
+  // isDoerRater=true → doer rates creator (RATE_CREATOR_*); false → creator rates doer (RATE_DOER_*)
+  const kind = isDoerRater ? "RATE_CREATOR" : "RATE_DOER";
+  const nameTarget = target.fullName || (target.username ? `@${target.username}` : "the other party");
+
+  const en = isDoerRater
+    ? `🎉 Congratulations on delivering the task!\n\nThank you for doing your part. Taskifii is happy to include *${rater.fullName || 'you'}* as a trustworthy, responsible, and valuable member.\n\nYou’ve reached the final step: please rate *${nameTarget}* from 1 to 5 stars. It’s **mandatory** to rate before you can use Taskifii again.\n\n• 1st star: Very poor/unsatisfactory\n• 2nd star: Poor/below expectations\n• 3rd star: Average/met expectations\n• 4th star: Good/exceeded expectations\n• 5th star: Excellent/outstanding`
+    : `🎉 Congratulations on successfully delegating the task!\n\nThank you for doing your part. Taskifii is happy to include *${rater.fullName || 'you'}* as a trustworthy and valuable member.\n\nYou’ve reached the final step: please rate *${nameTarget}* from 1 to 5 stars. It’s **mandatory** to rate before you can use Taskifii again.\n\n• 1st star: Very poor/unsatisfactory\n• 2nd star: Poor/below expectations\n• 3rd star: Average/met expectations\n• 4th star: Good/exceeded expectations\n• 5th star: Excellent/outstanding`;
+
+  const am = isDoerRater
+    ? `🎉 የተግዳሮቱን ስራ በተሳካ ሁኔታ አቅርበዋል!\n\nክፍሎን ስላደረጉ እናመሰግናለን። Taskifii እንደ ታማኝ እና ኃላፊ አባል መካተት ደስ ይላል።\n\nወደ መጨረሻ ደረስተዋል፤ እባክዎ *${nameTarget}* ከ1 እስከ 5 ኮከብ ይደርጓት። እንደገና ለ Taskifii መጠቀም ከመቻሉ በፊት መደርጓት አስፈላጊ ነው።\n\n• 1ኛ ኮከብ፡ በጣም ዝቅተኛ/አልተሟላ\n• 2ኛ ኮከብ፡ ዝቅተኛ/ከጠበቀ ያነሰ\n• 3ኛ ኮከብ፡ መካከለኛ/ጠበቀውን አሟላ\n• 4ኛ ኮከብ፡ ጥሩ/ጠበቀውን በላይ አሟላ\n• 5ኛ ኮከብ፡ እጅግ የተሻለ/የላቀ`
+    : `🎉 ተግዳሮት በተሳካ ሁኔታ አስረዳው!\n\nክፍሎን ስላደረጉ እናመሰግናለን። Taskifii እንደ ታማኝ እና ከባድ አባል መካተታችሁ ደስ ይላል።\n\nመጨረሻ ደረስተዋል፤ እባክዎ *${nameTarget}* ከ1 እስከ 5 ኮከብ ይደርጓት። እንደገና ለ Taskifii መጠቀም ከመቻሉ በፊት መደርጓት አስፈላጊ ነው።\n\n• 1ኛ ኮከብ፡ በጣም ዝቅተኛ/አልተሟላ\n• 2ኛ ኮከብ፡ ዝቅተኛ/ከጠበቀ ያነሰ\n• 3ኛ ኮከብ፡ መካከለኛ/ጠበቀውን አሟላ\n• 4ኛ ኮከብ፡ ጥሩ/ጠበቀውን በላይ አሟላ\n• 5ኛ ኮከብ፡ እጅግ የተሻለ/የላቀ`;
+
+  const text = (rater.language || "en") === "am" ? am : en;
+
+  await bot.telegram.sendMessage(
+    rater.telegramId,
+    text,
+    starsKeyboard(kind, task._id.toString(), 0, false)
+  );
+}
+
+async function sendRelatedFileToWinnerIfAny(bot, userDoc, task) {
+  if (!task.relatedFile) return;
+  const lang = userDoc.language || "en";
+  try {
+    await bot.telegram.sendMessage(
+      userDoc.telegramId,
+      lang === "am"
+        ? "📎 ይህን የተያያዘ ፋይል ፈጣሪው አገኘዎት።"
+        : "📎 The task creator attached this related file for you."
+    );
+
+    const fileId = task.relatedFile;
+    // Try document → photo → video → audio (file_id type is unknown on Task, so we probe safely)
+    const methods = ["sendDocument", "sendPhoto", "sendVideo", "sendAudio"];
+    for (const m of methods) {
+      try { await bot.telegram[m](userDoc.telegramId, fileId); return; }
+      catch (_) { /* try next */ }
+    }
+  } catch (e) {
+    console.warn("Could not forward related file:", e?.message || e);
+  }
+}
 
 
 
@@ -1462,6 +1594,52 @@ function computeTotalMinutes(task) {
   const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
   return timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
 }
+function decisionsDeadline(task) {
+  const totalMinutes = computeTotalMinutes(task); // your existing helper
+  if (!task.decisionsLockedAt) return null;
+  return new Date(task.decisionsLockedAt.getTime() + totalMinutes * 60 * 1000);
+}
+
+async function startAutoCompleteWatcher(bot) {
+  setInterval(async () => {
+    try {
+      const now = new Date();
+      const tasks = await Task.find({
+        status: "Open",
+        decisionsLockedAt: { $exists: true }
+      }).populate("creator").populate("applicants.user").lean();
+
+      for (const t of tasks) {
+        const winner = (t.applicants || []).find(a => a.status === "Accepted" && !a.canceledAt);
+        if (!winner) continue;
+
+        const deadline = decisionsDeadline(t);
+        if (!deadline || now < deadline) continue;
+
+        const hasEscalation = await Escalation.findOne({ task: t._id }).lean();
+        if (hasEscalation) continue; // reports are handled elsewhere
+
+        const outcome = await TaskOutcome.findOne({ task: t._id });
+        if (outcome?.autoCompletedAt) continue; // idempotent
+
+        // Mark auto-completed
+        const oc = outcome || new TaskOutcome({ task: t._id });
+        oc.autoCompletedAt = now;
+        await oc.save();
+
+        // Giant message to the moderation channel
+        await sendInactivitySummaryToChannel(bot, t, t.creator, winner.user);
+
+        // Send rating prompts to BOTH sides (mandatory to unlock)
+        await sendRatingPromptToUser(bot, { rater: winner.user, target: t.creator, task: t, isDoerRater: true });
+        await sendRatingPromptToUser(bot, { rater: t.creator, target: winner.user, task: t, isDoerRater: false });
+      }
+    } catch (err) {
+      console.error("AutoCompleteWatcher error:", err);
+    }
+  }, 60 * 1000);
+}
+
 function reportWindowOpen(task) {
   if (!task.decisionsLockedAt) return true; // be permissive if missing
   const totalMinutes = computeTotalMinutes(task);
@@ -3002,6 +3180,14 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   } catch (e) {
     console.error('failed to set engagement locks:', e);
   } 
+
+  // ---- send the related file to the winner immediately (if any)
+  try {
+    const creatorUser = await User.findById(updated.creator);
+    await sendRelatedFileToWinnerIfAny(bot, user, updated);
+  } catch (e) {
+    console.warn("related file forward failed:", e?.message || e);
+  }
   // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
   if ((updated.exchangeStrategy || "").trim() === "100%") {
     const creatorLang = (await User.findById(updated.creator))?.language || "en";
@@ -3259,6 +3445,112 @@ bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
   } catch (_) {}
 });
 
+// Doer rates Creator
+bot.action(/^RATE_CREATOR_([0-9a-fA-F]{24})_(\d)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const stars = Math.max(1, Math.min(5, parseInt(ctx.match[2], 10)));
+
+  const me = await User.findOne({ telegramId: ctx.from.id });
+  const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
+  if (!task || !me) return;
+
+  const winner = (task.applicants || []).find(a => a.status === "Accepted" && !a.canceledAt);
+  if (!winner || winner.user.toString() !== me._id.toString()) return; // only winner doer can rate creator
+
+  // Idempotency
+  const oc = (await TaskOutcome.findOne({ task: task._id })) || new TaskOutcome({ task: task._id });
+  if (oc.doerRated) return; // already rated
+
+  // Update target (creator) stats
+  await applyRatingToUser(task.creator._id, stars);
+
+  // First rating? Add payout (once)
+  if (!oc.payoutRecorded) {
+    try {
+      const doerDoc = await User.findById(winner.user);
+      const creatorDoc = await User.findById(task.creator._id);
+      doerDoc.stats.totalEarned += (task.paymentFee || 0);
+      creatorDoc.stats.totalSpent  += (task.paymentFee || 0);
+      await Promise.all([doerDoc.save(), creatorDoc.save()]);
+      oc.payoutRecorded = true;
+    } catch (e) { console.error("payout update failed", e); }
+  }
+
+  oc.doerRated = true;
+  await oc.save();
+
+  // Freeze buttons visually to stars selected
+  try {
+    await ctx.editMessageReplyMarkup(starsKeyboard("RATE_CREATOR", taskId, stars, true));
+  } catch (_) {}
+
+  // Success message (EN/AM)
+  const lang = me.language || "en";
+  await ctx.reply(
+    lang === "am"
+      ? "✅ ፈጣሪውን በተሳካ ሁኔታ ደርጓት። በ Taskifii መጠቀም ደስ ይለናል!"
+      : "✅ You’ve successfully rated the task creator. We hope you enjoyed using Taskifii!"
+  );
+
+  // Unlock DOER immediately after rating
+  await releaseLockForUserRole(task._id, ctx.from.id, "doer");
+});
+
+// Creator rates Doer
+bot.action(/^RATE_DOER_([0-9a-fA-F]{24})_(\d)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const stars = Math.max(1, Math.min(5, parseInt(ctx.match[2], 10)));
+
+  const me = await User.findOne({ telegramId: ctx.from.id });
+  const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
+  if (!task || !me) return;
+
+  const winner = (task.applicants || []).find(a => a.status === "Accepted" && !a.canceledAt);
+  if (!winner || task.creator.toString() !== me._id.toString()) return; // only creator can rate doer
+
+  // Idempotency
+  const oc = (await TaskOutcome.findOne({ task: task._id })) || new TaskOutcome({ task: task._id });
+  if (oc.creatorRated) return;
+
+  // Update target (doer) stats
+  await applyRatingToUser(winner.user._id || winner.user, stars);
+
+  // First rating? Add payout (once) — safe even if doer already did it
+  if (!oc.payoutRecorded) {
+    try {
+      const doerDoc = await User.findById(winner.user);
+      const creatorDoc = await User.findById(task.creator);
+      doerDoc.stats.totalEarned += (task.paymentFee || 0);
+      creatorDoc.stats.totalSpent  += (task.paymentFee || 0);
+      await Promise.all([doerDoc.save(), creatorDoc.save()]);
+      oc.payoutRecorded = true;
+    } catch (e) { console.error("payout update failed", e); }
+  }
+
+  oc.creatorRated = true;
+  await oc.save();
+
+  try {
+    await ctx.editMessageReplyMarkup(starsKeyboard("RATE_DOER", taskId, stars, true));
+  } catch (_) {}
+
+  const lang = me.language || "en";
+  await ctx.reply(
+    lang === "am"
+      ? "✅ አመልካቹን በተሳካ ሁኔታ ደርጓት። በ Taskifii መጠቀም ደስ ይለናል!"
+      : "✅ You’ve successfully rated the task doer. We hope you enjoyed using Taskifii!"
+  );
+
+  // Unlock CREATOR immediately after rating
+  await releaseLockForUserRole(task._id, ctx.from.id, "creator");
+});
+
+// Make disabled star buttons inert (no-op)
+bot.action(/_DISABLED_(RATE_(CREATOR|DOER))_.+/, async (ctx) => {
+  await ctx.answerCbQuery();
+});
 
 // DOER: Report
 bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
@@ -6466,6 +6758,7 @@ bot.catch((err, ctx) => {
       // Start periodic checks
       checkTaskExpiries(bot);
       sendReminders(bot);
+      startAutoCompleteWatcher(bot);
     }).catch(err => {
       console.error("Bot failed to start:", err);
     });
