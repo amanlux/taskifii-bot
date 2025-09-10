@@ -1736,7 +1736,7 @@ async function maybeTriggerAutoFinalize(taskId, reason, botOrTelegram) {
 
   // don’t interfere if a report happened
   const escalated = await Escalation.findOne({ task: task._id }).lean();
-  if (escalted) return;
+  if (escalated) return;
 
   const st = await FinalizationState.findOne({ task: task._id }).lean();
   if (!st) return; // will be re-checked at timeout
