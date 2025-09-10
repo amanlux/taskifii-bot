@@ -156,6 +156,38 @@ const CreditLogSchema = new mongoose.Schema({
 CreditLogSchema.index({ task:1, type:1 }, { unique: true });
 const CreditLog = mongoose.models.CreditLog || mongoose.model('CreditLog', CreditLogSchema);
 
+// --- Helper: top frequent fields for a doer based on rated tasks ---
+async function getFrequentFieldsForDoer(userId) {
+  // Tasks where this user (as doer) rated the creator = finished work
+  const ratedTaskIds = await Rating.find({
+    from: userId,
+    role: 'doerRatesCreator'
+  }).distinct('task');
+
+  // (Optional backward-compat) also include tasks explicitly marked Completed
+  const completedTasks = await Task.find({
+    "applicants.user": userId,
+    "applicants.status": "Completed"
+  }).select('_id').lean();
+
+  const completedTaskIds = completedTasks.map(t => t._id);
+  const uniqueIds = [...new Set(
+    [...ratedTaskIds.map(id => id.toString()), ...completedTaskIds.map(id => id.toString())]
+  )].map(id => new mongoose.Types.ObjectId(id));
+
+  if (uniqueIds.length === 0) return [];
+
+  const agg = await Task.aggregate([
+    { $match: { _id: { $in: uniqueIds } } },
+    { $unwind: "$fields" },
+    { $group: { _id: "$fields", count: { $sum: 1 } } },
+    { $sort: { count: -1 } },
+    { $limit: 5 } // at most 5
+  ]);
+
+  // Return an array of field names, length 1..5
+  return agg.map(f => f._id);
+}
 
 
 
