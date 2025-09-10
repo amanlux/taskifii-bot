@@ -3351,6 +3351,24 @@ bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
       ]
     });
   } catch (_) {}
+  // ▶ FAST-PATH: treat as completed now (if not escalated), send channel + ratings, and
+// mark outcome to prevent the watcher from firing again.
+  try {
+    const winner = (task.applicants || []).find(a => a.status === "Accepted" && !a.canceledAt);
+    if (!winner) return;
+
+    const oc = (await TaskOutcome.findOne({ task: task._id })) || new TaskOutcome({ task: task._id });
+    const now = new Date();
+    oc.creatorMissionAt = now;
+    if (!oc.autoCompletedAt) oc.autoCompletedAt = now; // skip duplicate auto-complete later
+    await oc.save();
+
+    await sendInactivitySummaryToChannel(bot, task, task.creator, winner.user);
+    await sendRatingPromptToUser(bot, { rater: winner.user, target: task.creator, task, isDoerRater: true });  // doer rates creator
+    await sendRatingPromptToUser(bot, { rater: task.creator, target: winner.user, task, isDoerRater: false });  // creator rates doer
+  } catch (e) {
+    console.error("creator mission fast-path failed:", e);
+  }
 });
 
 
@@ -3443,6 +3461,24 @@ bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
       ]
     });
   } catch (_) {}
+  // ▶ FAST-PATH: same as creator path, but note the rater/target roles
+  try {
+    const t = await Task.findById(taskId).populate("creator").populate("applicants.user");
+    const winner = (t.applicants || []).find(a => a.status === "Accepted" && !a.canceledAt);
+    if (!winner) return;
+
+    const oc = (await TaskOutcome.findOne({ task: t._id })) || new TaskOutcome({ task: t._id });
+    const now = new Date();
+    oc.doerMissionAt = now;
+    if (!oc.autoCompletedAt) oc.autoCompletedAt = now;
+    await oc.save();
+
+    await sendInactivitySummaryToChannel(bot, t, t.creator, winner.user);
+    await sendRatingPromptToUser(bot, { rater: winner.user, target: t.creator, task: t, isDoerRater: true });   // doer rates creator
+    await sendRatingPromptToUser(bot, { rater: t.creator, target: winner.user, task: t, isDoerRater: false });   // creator rates doer
+  } catch (e) {
+    console.error("doer mission fast-path failed:", e);
+  }
 });
 
 // Doer rates Creator
