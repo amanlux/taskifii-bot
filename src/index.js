@@ -687,6 +687,11 @@ const TEXT = {
     en: "✅ You’ve successfully rated the Task Doer. We hope you enjoyed using Taskifii.",
     am: "✅ የተግዳሮቱን አፈጻጸም በተሳካ ሁኔታ ያደረጉት። Taskifii መጠቀም እንደደሰትዎ እናምናለን።"
   },
+  relatedFileForYou: {
+  en: "📎 The task creator attached this file for you.",
+  am: "📎 የተግዳሮቱ ፈጣሪ ለእርስዎ ይህን ፋይል ላክቷል።"
+  },
+
 
 
 
@@ -1746,6 +1751,32 @@ async function maybeTriggerAutoFinalize(taskId, reason, botOrTelegram) {
     return finalizeAndRequestRatings('both-mission', taskId, botOrTelegram);
   }
   // For A/B/D we wait for timeout; the timeout hook will call finalizeAndRequestRatings
+}
+// Tries several Telegram send methods so we don't need to know the original file type.
+// We keep errors internal so nothing else in your flow is disrupted.
+async function sendTaskRelatedFile(telegram, chatId, fileId) {
+  const attempts = [
+    () => telegram.sendDocument(chatId, fileId),
+    () => telegram.sendPhoto(chatId, fileId),
+    () => telegram.sendVideo(chatId, fileId),
+    () => telegram.sendAudio(chatId, fileId),
+  ];
+
+  for (const trySend of attempts) {
+    try {
+      await trySend();
+      return true; // sent successfully
+    } catch (e) {
+      // Common 'wrong file identifier' / type mismatch — try next method
+      const desc = String(e?.description || e || "");
+      if (desc.includes("Bad Request") || desc.includes("wrong file identifier") || desc.includes("failed to get HTTP URL content")) {
+        continue;
+      }
+      console.error("sendTaskRelatedFile unexpected error:", e);
+    }
+  }
+  console.error("sendTaskRelatedFile: all attempts failed for fileId:", fileId);
+  return false;
 }
 
 async function autoFinalizeByTimeout(taskId, botOrTelegram) {
@@ -3296,6 +3327,18 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   } catch (e) {
     console.error('failed to set engagement locks:', e);
   } 
+  // ⬇️ PASTE YOUR SNIPPET RIGHT HERE ⬇️
+  // If the task creator provided a related file, send it to the winner now,
+  // then send a short message underneath it.
+  try {
+    if (updated?.relatedFile) {
+      await sendTaskRelatedFile(ctx.telegram, user.telegramId, updated.relatedFile);
+      await ctx.telegram.sendMessage(user.telegramId, TEXT.relatedFileForYou[lang]);
+    }
+  } catch (e) {
+    console.error("Failed to send related file to doer:", e);
+  }
+  
   // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
   if ((updated.exchangeStrategy || "").trim() === "100%") {
     const creatorLang = (await User.findById(updated.creator))?.language || "en";
