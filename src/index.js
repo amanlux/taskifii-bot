@@ -159,6 +159,8 @@ const CreditLog = mongoose.models.CreditLog || mongoose.model('CreditLog', Credi
 
 
 
+
+
 // Create/ensure locks for both participants of a task
 async function lockBothForTask(taskDoc, doerUserId, creatorUserId) {
   const ops = [
@@ -1684,6 +1686,7 @@ async function updateUserRating(toUserId, score) {
   u.stats.ratingCount   = count + 1;
   await u.save();
 }
+
 
 async function creditIfNeeded(type, task, userId) {
   const amount = task.paymentFee || 0;
@@ -4175,18 +4178,13 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           const creatorLang = creator.language || "en";
           const applicantName = user.fullName || `@${user.username}` || "Anonymous";
           
-          // Get applicant's stats (fields they've worked on most)
-          const frequentFields = await Task.aggregate([
-              { $match: { "applicants.user": user._id, "applicants.status": "Completed" } },
-              { $unwind: "$fields" },
-              { $group: { _id: "$fields", count: { $sum: 1 } } },
-              { $sort: { count: -1 } },
-              { $limit: 5 }
-          ]);
           
-          const topFields = frequentFields.length > 0 
-              ? frequentFields.map(f => f._id).join(", ")
-              : creatorLang === "am" ? "የተሰሩ ተግዳሮቶች የሉም" : "No completed tasks";
+          // Get applicant's frequent fields from rated/finished tasks
+          const topFieldsArr = await getFrequentFieldsForDoer(user._id);
+          const topFields = topFieldsArr.length > 0
+            ? topFieldsArr.join(", ")
+            : (creatorLang === "am" ? "የተሰሩ ተግዳሮቶች የሉም" : "No completed tasks");
+
           
           // Build the notification message
           const notificationText = creatorLang === "am"
