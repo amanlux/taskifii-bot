@@ -3328,19 +3328,32 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
       _id: task._id,
       status: "Open",
       expiry: { $gt: now },
+
+      // Lock must not be set yet
+      $or: [
+        { decisionsLockedAt: { $exists: false } },
+        { decisionsLockedAt: null }
+      ],
+
+      // THIS applicant must not have confirmed/canceled yet (missing OR null)
       applicants: {
         $elemMatch: {
           user: user._id,
           status: "Accepted",
-          confirmedAt: { $exists: false },
-          canceledAt: { $exists: false }
+          confirmedAt: null,
+          canceledAt: null
         }
       },
-      $nor: [{ applicants: { $elemMatch: { confirmedAt: { $exists: true } } } }]
+
+      // NOBODY ELSE has a non-null confirmation
+      $nor: [
+        { applicants: { $elemMatch: { confirmedAt: { $exists: true, $ne: null } } } }
+      ]
     },
     { $set: { "applicants.$.confirmedAt": now, decisionsLockedAt: now } },
     { new: true }
   );
+
 
   // If we couldn't update, someone else won (or it just expired).
   if (!updated) {
@@ -3522,6 +3535,10 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   return;
 
 });
+
+bot.action("_DISABLED_DO_TASK_CONFIRM", async (ctx) => { await ctx.answerCbQuery(); });
+bot.action("_DISABLED_DO_TASK_CANCEL",  async (ctx) => { await ctx.answerCbQuery(); });
+
 // CREATOR: Mission (inert if escalated)
 
 bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
