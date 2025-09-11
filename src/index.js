@@ -3355,23 +3355,72 @@ bot.action("DO_TASK_CONFIRM", async (ctx) => {
   );
 
 
-  // If we couldn't update, someone else won (or it just expired).
+  // If we couldn't update, it might be because YOU already confirmed in a prior handler.
   if (!updated) {
-    try {
-      await ctx.editMessageReplyMarkup({
-        inline_keyboard: [
-          [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK_CONFIRM")],
-          [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")]
-        ]
-      });
-    } catch (_) {}
+    // Reload fresh task state
+    const fresh = await Task.findById(task._id).lean();
 
-    return ctx.reply(
-      lang === "am"
-        ? "❌ ቀደም ሲል ሌላ አመልካች ጀምሮታል።"
-        : "❌ Someone else already started this task."
+    // My applicant row (if any)
+    const myApp = fresh?.applicants?.find(a =>
+      a.user && a.user.toString() === user._id.toString()
     );
+
+    // 1) If I already confirmed, treat as success (silent/no scare)
+    if (myApp?.confirmedAt) {
+      try {
+        await ctx.editMessageReplyMarkup({
+          inline_keyboard: [
+            [Markup.button.callback(`✔ ${TEXT.doTaskBtn[lang]}`, "_DISABLED_DO_TASK_CONFIRM")],
+            [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")]
+          ]
+        });
+      } catch (_) {}
+      // No message needed; I am the winner.
+      return;
+    }
+
+    // 2) If the task actually expired between checks, show an expiry note
+    const isExpired = fresh?.status === "Expired" || (fresh?.expiry && new Date(fresh.expiry) <= now);
+    if (isExpired) {
+      try {
+        await ctx.editMessageReplyMarkup({
+          inline_keyboard: [
+            [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK_CONFIRM")],
+            [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")]
+          ]
+        });
+      } catch (_) {}
+      return ctx.reply(lang === "am"
+        ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል።"
+        : "❌ This task has expired."
+      );
+    }
+
+    // 3) If someone else truly confirmed, show the original message
+    const someoneElseConfirmed = fresh?.applicants?.some(a =>
+      a.confirmedAt && a.user?.toString() !== user._id.toString()
+    );
+    if (someoneElseConfirmed) {
+      try {
+        await ctx.editMessageReplyMarkup({
+          inline_keyboard: [
+            [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK_CONFIRM")],
+            [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")]
+          ]
+        });
+      } catch (_) {}
+      return ctx.reply(
+        lang === "am"
+          ? "❌ ቀደም ሲል ሌላ አመልካች ጀምሮታል።"
+          : "❌ Someone else already started this task."
+      );
+    }
+
+    // 4) Otherwise, be inert to avoid duplicate/confusing messages.
+    await ctx.answerCbQuery();
+    return;
   }
+
 
   // Winner: highlight "Do the task" and make both buttons inert (still visible)
   try {
