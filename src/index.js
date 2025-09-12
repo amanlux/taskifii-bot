@@ -1365,6 +1365,52 @@ function renderBankDetails(user, lang = "en") {
   }
   return user.bankDetails.map((b, i) => `• ${b.bankName || "Bank"} — ${b.accountNumber || "N/A"}`).join("\n");
 }
+// 👉 Add below renderBankDetails(...) and above buildWinnerCreatorMessage(...)
+function buildExchangeAndSkillSection(task, lang = "en") {
+  const lines = [];
+
+  // Exchange strategy (with explanation)
+  if (task.exchangeStrategy) {
+    let desc = "";
+    if (task.exchangeStrategy === "100%") {
+      desc = TEXT.exchangeStrategyDesc100[lang];
+    } else if (task.exchangeStrategy === "30:40:30") {
+      desc = TEXT.exchangeStrategyDesc304030[lang];
+    } else {
+      // default to 50:50 description
+      desc = TEXT.exchangeStrategyDesc5050[lang];
+    }
+    lines.push(
+      lang === "am"
+        ? `🔀 *የልውውጥ ስልት:* ${desc}`
+        : `🔀 *Exchange Strategy:* ${desc}`
+    );
+  }
+
+  // Skill level (with emoji)
+  if (task.skillLevel) {
+    const emoji =
+      task.skillLevel === "Beginner" ? "🟢" :
+      task.skillLevel === "Intermediate" ? "🟡" : "🔴";
+
+    const levelText = lang === "am"
+      ? (task.skillLevel === "Beginner"
+          ? "ጀማሪ"
+          : task.skillLevel === "Intermediate"
+            ? "መካከለኛ"
+            : "ሙያተኛ")
+      : task.skillLevel;
+
+    lines.push(
+      lang === "am"
+        ? `🎯 *የስልጠና ደረጃ:* ${emoji} ${levelText}`
+        : `🎯 *Skill Level Required:* ${emoji} ${levelText}`
+    );
+  }
+
+  return lines.length ? lines.join("\n") : "";
+}
+
 function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revMinutes, penaltyHoursToZero }) {
   const doerName = doer.fullName || (doer.username ? `@${doer.username}` : "Task Doer");
   const timeToCompleteH = task.timeToComplete; // integer hours
@@ -3455,10 +3501,14 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
       penaltyHoursToZero
     });
 
-    // Send message with two stacked buttons
+    // ⬇️ add these 2 lines
+    const extra2 = buildExchangeAndSkillSection(updated, creatorLang);
+    const creatorMsg = [longText, extra2].filter(Boolean).join("\n\n");
+
+    // and send creatorMsg instead of longText
     const sent = await ctx.telegram.sendMessage(
       creator.telegramId,
-      longText,
+      creatorMsg,
       {
         parse_mode: "Markdown",
         reply_markup: {
@@ -3469,6 +3519,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
         }
       }
     );
+
 
     // Start countdown: when time is up, make both buttons inert (still shown)
     const chatId = creator.telegramId;
@@ -3526,8 +3577,12 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     penaltyHoursToZero
   });
 
-  // Send to the *doer* with two vertically stacked buttons
-  const doerSent = await ctx.reply(doerText, {
+  // ⬇️ add these 2 lines
+  const extra = buildExchangeAndSkillSection(updated, doerLang);
+  const doerMsg = [doerText, extra].filter(Boolean).join("\n\n");
+
+  // and send doerMsg instead of doerText
+  const doerSent = await ctx.reply(doerMsg, {
     parse_mode: "Markdown",
     reply_markup: {
       inline_keyboard: [
@@ -3536,6 +3591,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
       ]
     }
   });
+
 
   // Start countdown: when time is up, keep buttons visible but inert
   setTimeout(async () => {
