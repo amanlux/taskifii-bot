@@ -3432,7 +3432,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   }
   
   // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
-  if ((updated.exchangeStrategy || "").trim() === "100%") {
+  if (["100%","30:40:30","50:50"].includes((updated.exchangeStrategy || "").trim())) {
     const creatorLang = (await User.findById(updated.creator))?.language || "en";
 
     // Compute the timing pieces
