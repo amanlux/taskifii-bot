@@ -3096,6 +3096,14 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   ) + " GMT+3";
 
   const acceptMessage = TEXT.applicationAccepted[doerLang].replace("[expiry time]", expiryTime);
+  // Don't notify an applicant who's already engaged (as doer or creator)
+  if (await isEngagementLocked(user.telegramId)) {
+    const msg = lang === "am"
+      ? "ይህ አመልካች አሁን ከሌላ ተግዳሮት ጋር ተጣመረ ነው ወይም ተግዳሮት እየለጠፈ ነው። የማረጋገጫ መልዕክት አይቀርብለውም። እባክዎ ሌላ አመልካች ይምረጡ።"
+      : "This applicant is already committed to another task or is posting a task, so they won’t receive your confirmation. Please choose another applicant.";
+    await ctx.reply(msg);
+    return;
+  }
 
   await ctx.telegram.sendMessage(
     user.telegramId,
@@ -3346,6 +3354,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   const now  = new Date();
   const taskId = ctx.match && ctx.match[1]; // may be undefined for legacy buttons
 
+  
   // If we have a taskId, use it. Otherwise fall back to your existing "find one" logic.
   let task = taskId
     ? await Task.findOne({
@@ -3361,6 +3370,25 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
         status: "Open",
         expiry: { $gt: now },
       });
+  // Already engaged? Make this message's buttons inert and stop.
+  if (await isEngagementLocked(ctx.from.id)) {
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK_CONFIRM")],
+          [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")],
+        ],
+      });
+    } catch (_) {}
+
+    await ctx.answerCbQuery(
+      lang === 'am'
+        ? "እርስዎ አሁን በአንድ ተግዳሮት ላይ ተሳትፈዋል። ይህ አዝራር አሁን ግባ የለውም።"
+        : "You’re locked to another task right now; this button is disabled.",
+      { show_alert: true }
+    );
+    return;
+  }
 
   if (!task) {
     // Make buttons inert but don’t scare the user; keep your current UX
@@ -3395,7 +3423,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     { $set: { "applicants.$.confirmedAt": now, decisionsLockedAt: now } },
     { new: true }
   );
-
+  
   if (!updated) {
     // Your exact follow-ups (already in your file): show expired / someone-else / inert
     const fresh = await Task.findById(task._id).lean();
@@ -3974,6 +4002,25 @@ bot.action(/^DO_TASK_CANCEL(?:_(.+))?$/, async (ctx) => {
       });
 
   if (!task) return;
+  // Already engaged? Make this message's buttons inert and stop.
+  if (await isEngagementLocked(ctx.from.id)) {
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(TEXT.doTaskBtn[lang], "_DISABLED_DO_TASK_CONFIRM")],
+          [Markup.button.callback(TEXT.cancelBtn[lang], "_DISABLED_DO_TASK_CANCEL")],
+        ],
+      });
+    } catch (_) {}
+
+    await ctx.answerCbQuery(
+      lang === 'am'
+        ? "እርስዎ አሁን በአንድ ተግዳሮት ላይ ተሳትፈዋል። ይህ አዝራር አሁን ግባ የለውም።"
+        : "You’re locked to another task right now; this button is disabled.",
+      { show_alert: true }
+    );
+    return;
+  }
 
   // --- keep your current visuals/UX, just scoped better ---
 
@@ -5852,6 +5899,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   }
 
 
+
   // Get the draft and user
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (!draft) {
@@ -5923,6 +5971,16 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
 
     task.channelMessageId = sent.message_id;
     await task.save();
+    // Lock the creator on this task so they can't act as a doer concurrently
+    try {
+      await EngagementLock.updateOne(
+        { user: user._id, task: task._id },
+        { $setOnInsert: { role: 'creator', active: true, createdAt: new Date() }, $unset: { releasedAt: "" } },
+        { upsert: true }
+      );
+    } catch (e) {
+      console.error("Failed to set creator engagement lock:", e);
+    }
     
     user.adminProfileMsgId = sent.message_id;
     await user.save();
