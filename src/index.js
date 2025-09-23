@@ -128,15 +128,10 @@ const FinalizationSchema = new mongoose.Schema({
   creatorReportedAt: Date,
   doerReportedAt: Date,
   concludedAt: Date,            // when we sent “giant message + rating prompts”
-  ratingPromptsSentAt: Date,    // legacy – keep if you want; we’ll still set it
+  ratingPromptsSentAt: Date,
   creatorRatedAt: Date,
-  doerRatedAt: Date,
-
-  // NEW: track per-party prompt deliveries
-  creatorPromptSentAt: Date,
-  doerPromptSentAt: Date
+  doerRatedAt: Date
 }, { versionKey: false });
-
 const FinalizationState = mongoose.models.FinalizationState
   || mongoose.model('FinalizationState', FinalizationSchema);
 
@@ -1635,46 +1630,6 @@ async function hasUserApplied(taskId, userId) {
     return false;
   }
 }
-
-async function ensureRatingPrompts(taskId, telegram) {
-  const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
-  if (!task) return;
-
-  // don’t do anything if escalated
-  const escalated = await Escalation.findOne({ task: task._id }).lean();
-  if (escalated) return;
-
-
-  const doer = acceptedDoerUser(task);
-  if (!doer) return;
-
-  const state = await FinalizationState.findOneAndUpdate(
-    { task: task._id },
-    { $setOnInsert: { task: task._id } },
-    { new: true, upsert: true }
-  );
-
-  // Try whichever prompt is missing
-  let changed = false;
-
-  if (!state.doerPromptSentAt) {
-    const ok = await sendRatingPromptToUser(telegram, doer, task.creator, 'doerRatesCreator', task);
-    if (ok) { state.doerPromptSentAt = new Date(); changed = true; }
-  }
-
-  if (!state.creatorPromptSentAt) {
-    const ok = await sendRatingPromptToUser(telegram, task.creator, doer, 'creatorRatesDoer', task);
-    if (ok) { state.creatorPromptSentAt = new Date(); changed = true; }
-  }
-
-  // Optional: if at least one sent now, keep your legacy field in sync
-  if (changed && !state.ratingPromptsSentAt) {
-    state.ratingPromptsSentAt = new Date();
-  }
-
-  if (changed) await state.save();
-}
-
 async function checkPendingReminders(bot) {
   try {
     const now = new Date();
@@ -1817,20 +1772,13 @@ async function sendRatingPromptToUser(telegram, rater, ratee, role, task) {
     : TEXT.ratingPromptToCreator[lang](ratee?.fullName);
 
   const keyboard = { inline_keyboard: buildStarsRow(task._id.toString(), role) };
-
   try {
-    await telegram.sendMessage(
-      rater.telegramId,
-      text + "\n\n" + TEXT.ratingStarsRowHint[lang],
-      { parse_mode: "Markdown", reply_markup: keyboard }
-    );
-    return true;                    // ✅ success
-  } catch (e) {
-    console.error("sendRatingPromptToUser failed:", e);
-    return false;                   // ❌ failure
-  }
+    await telegram.sendMessage(rater.telegramId, text + "\n\n" + TEXT.ratingStarsRowHint[lang], {
+      parse_mode: "Markdown",
+      reply_markup: keyboard
+    });
+  } catch (e) { console.error("sendRatingPromptToUser failed:", e); }
 }
-
 
 async function updateUserRating(toUserId, score) {
   const u = await User.findById(toUserId);
@@ -1868,7 +1816,7 @@ async function finalizeAndRequestRatings(reason, taskId, botOrTelegram) {
   if (!doer) return; // no winner
   const creator = task.creator;
 
-  // Don't run if escalated (report flow already covers that)
+  // Don’t run if escalated
   const escalated = await Escalation.findOne({ task: task._id }).lean();
   if (escalated) return;
 
@@ -1878,36 +1826,26 @@ async function finalizeAndRequestRatings(reason, taskId, botOrTelegram) {
     { new: true, upsert: true }
   );
 
-  if (state.concludedAt) return; // already did this once
+  // Only the first call should set concludedAt
+  if (!state.concludedAt) {
+    state.concludedAt = new Date();
+    await state.save();
 
-  // mark concluded so multiple timeouts/handlers don't duplicate
-  state.concludedAt = new Date();
-  
-  await state.save();
+    // 1) Channel summary
+    await sendGiantSummaryToChannel(botOrTelegram, task, creator, doer);
+  }
 
-  // 1) Giant message to channel (unchanged)
-  await sendGiantSummaryToChannel(botOrTelegram, task, creator, doer);
-
-  // 2) Attempt both prompts with per-party tracking
-  const okDoer    = await sendRatingPromptToUser(botOrTelegram, doer,    creator, 'doerRatesCreator', task);
-  const okCreator = await sendRatingPromptToUser(botOrTelegram, creator, doer,    'creatorRatesDoer', task);
-
-  // Mark success flags
-  let changed = false;
-  if (okDoer && !state.doerPromptSentAt)    { state.doerPromptSentAt = new Date(); changed = true; }
-  if (okCreator && !state.creatorPromptSentAt) { state.creatorPromptSentAt = new Date(); changed = true; }
-
-  // Keep legacy timestamp (optional)
-  if ((okDoer || okCreator) && !state.ratingPromptsSentAt) {
+  // 2) Always send rating prompts to BOTH users if not already sent
+  if (!state.ratingPromptsSentAt) {
     state.ratingPromptsSentAt = new Date();
+    await state.save();
   }
-  await state.save();
 
-  // If any failed, do a soft retry shortly (non-blocking, won’t duplicate)
-  if (!okDoer || !okCreator) {
-    setTimeout(() => ensureRatingPrompts(task._id, botOrTelegram).catch(console.error), 5000);
-  }
+  // Ensure both prompts are delivered every time
+  await sendRatingPromptToUser(botOrTelegram, doer, creator, 'doerRatesCreator', task);
+  await sendRatingPromptToUser(botOrTelegram, creator, doer, 'creatorRatesDoer', task);
 }
+
 
 // check if we should finalize now (C = both tapped Mission early) or at timeout (A/B/D)
 async function maybeTriggerAutoFinalize(taskId, reason, botOrTelegram) {
@@ -1967,16 +1905,10 @@ async function autoFinalizeByTimeout(taskId, botOrTelegram) {
     const state = await FinalizationState.findOne({ task: task._id });
     if (state?.concludedAt) return;
 
-    // Run finalize, then ensure any missing rating prompts
-    await finalizeAndRequestRatings('timeout', taskId, botOrTelegram);
-    await ensureRatingPrompts(taskId, botOrTelegram);
+    return finalizeAndRequestRatings('timeout', taskId, botOrTelegram);
   } catch (e) {
     console.error("autoFinalizeByTimeout error", e);
-    // Even on error, try to ensure prompts best-effort
-    await ensureRatingPrompts(taskId, botOrTelegram);
   }
-
-
 }
 
 async function banUserEverywhere(ctx, userDoc) {
@@ -3775,8 +3707,6 @@ bot.action(/^FINALIZE_MISSION_(.+)$/, async (ctx) => {
         { upsert: true }
       );
       await maybeTriggerAutoFinalize(task._id, 'creator-mission', ctx.telegram);
-      await ensureRatingPrompts(task._id, ctx.telegram);
-
     }
   } catch (e) { console.error("creator mission record failed:", e); }
 });
@@ -3892,8 +3822,6 @@ bot.action(/^DOER_MISSION_(.+)$/, async (ctx) => {
         { upsert: true }
       );
       await maybeTriggerAutoFinalize(task._id, 'doer-mission', ctx.telegram);
-      await ensureRatingPrompts(task._id, ctx.telegram);
-
     }
   } catch (e) { console.error("doer mission record failed:", e); }
 });
@@ -4003,12 +3931,6 @@ bot.action(/^RATE_([a-f0-9]{24})_(doerRatesCreator|creatorRatesDoer)_(\d)$/, asy
     { $set: isDoerRater ? { doerRatedAt: new Date() } : { creatorRatedAt: new Date() } },
     { upsert: true }
   );
-  // If the *other* party never received their prompt due to a transient error,
-  // try one more time now.
-  await ensureRatingPrompts(task._id, ctx.telegram);
-
-  
-
 
   const lang = rater.language || "en";
   if (isDoerRater) {
