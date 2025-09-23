@@ -1547,24 +1547,36 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
   ].filter(Boolean).join("\n");
 }
 
-// Add this helper function near your other utility functions
+// Treat a task as "active" ONLY if the user is truly engagement-locked on it
+// and it hasn't been finalized or invalidated (canceled/expired) yet.
 async function hasActiveTask(telegramId) {
   try {
-    const user = await User.findOne({ telegramId });
+    const user = await User.findOne({ telegramId }).lean();
     if (!user) return false;
-    
-    const activeTask = await Task.findOne({ 
-      creator: user._id,
-      status: "Open",
-      expiry: { $gt: new Date() }
-    });
-    
-    return !!activeTask;
+
+    // 1) Real source of truth: any active engagement lock?
+    const lock = await EngagementLock.findOne({ user: user._id, active: true }).lean();
+    if (!lock) return false;
+
+    // 2) Sanity-check the task behind that lock
+    const t = await Task.findById(lock.task).lean();
+    if (!t) return false;
+
+    // If the task is already canceled or expired, don't block
+    if (t.status === "Canceled" || t.status === "Expired") return false;
+
+    // 3) If finalization already concluded (mission + ratings flow), don't block
+    const st = await FinalizationState.findOne({ task: t._id }).lean();
+    if (st?.concludedAt) return false;
+
+    // Otherwise, yes: still actively engaged
+    return true;
   } catch (err) {
-    console.error("Error checking active tasks:", err);
+    console.error("hasActiveTask (engagement-aware) error:", err);
     return false;
   }
 }
+
 
 async function disableExpiredTaskApplicationButtons(bot) {
   try {
