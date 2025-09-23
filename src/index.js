@@ -1158,6 +1158,15 @@ async function checkTaskExpiries(bot) {
           }
         }
       }
+      // ✅ If nobody confirmed before expiry, unlock creator (and any stale doer locks)
+      const noOneConfirmed = acceptedApps.length === 0 || !acceptedApps.some(a => a.confirmedAt);
+      if (noOneConfirmed) {
+        try {
+          await releaseLocksForTask(task._id);
+        } catch (e) {
+          console.error("Failed to release locks on expiry:", e);
+        }
+      }
 
       // Reload the task to ensure we have the latest version with saved status
       const freshTask = await Task.findById(task._id);
@@ -4090,6 +4099,16 @@ async function disableExpiredTaskButtons(bot) {
   } catch (err) {
     console.error("Error in disableExpiredTaskButtons:", err);
   }
+  // ✅ If nobody confirmed before expiry, unlock creator (and any stale doer locks)
+  const noOneConfirmed = acceptedApps.length === 0 || !acceptedApps.some(a => a.confirmedAt);
+  if (noOneConfirmed) {
+    try {
+      await releaseLocksForTask(task._id);
+    } catch (e) {
+      console.error("Failed to release locks on expiry:", e);
+    }
+  }
+
 }
 
 // Update the disableExpiredTaskApplicationButtons function
@@ -6125,6 +6144,13 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
   } catch (err) {
     console.error("Error updating Cancel Task button:", err);
   }
+  // ✅ Ensure both parties are unlocked if any lock existed
+  try {
+    await releaseLocksForTask(task._id);
+  } catch (e) {
+    console.error("Failed to release locks on cancel:", e);
+  }
+
 });
 
 function buildProfileText(user, showCongrats = false) {
