@@ -17,9 +17,6 @@ const { Telegraf, Markup, session } = require("telegraf");
 const mongoose = require("mongoose");
 const Task = require("./models/Task");
 const User = require("./models/User");
-// --- Keep-Alive/Healthcheck (safe add-on) ---
-const express = require('express');
-const os = require('os');
 
 // Ensure environment variables are set
 if (!process.env.BOT_TOKEN) {
@@ -2100,64 +2097,6 @@ mongoose
     checkPendingReminders(bot);
     // Run every hour to catch any missed reminders
     setInterval(() => checkPendingReminders(bot), 3600000);
-    // ========== HEALTHCHECK + KEEP-ALIVE (Render + UptimeRobot) ==========
-
-    // Tiny Express app only for health checks (won't affect bot polling/webhook logic)
-    const app = express();
-
-    app.get('/', (_, res) => res.type('text/plain').send('OK'));
-    app.get('/health', async (_, res) => {
-      // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
-      const mongoState = mongoose.connection?.readyState ?? -1;
-
-      // try a very fast no-op call to Telegram as a liveness hint (don’t await)
-      try { bot.telegram.getMe().catch(() => {}); } catch (_) {}
-
-      res.status(200).json({
-        ok: true,
-        uptimeSec: Math.floor(process.uptime()),
-        pid: process.pid,
-        host: os.hostname(),
-        mongoState,              // expect 1 when healthy
-        memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
-        ts: new Date().toISOString()
-      });
-    });
-
-    // Render provides PORT; fall back for local dev
-    const PORT = process.env.PORT ? Number(process.env.PORT) : 10000;
-    const server = app.listen(PORT, () => {
-      console.log(`[health] listening on :${PORT}`);
-    });
-
-    // Keep the dyno awake (Render free instances sleep without traffic).
-    // If you set SELF_URL in your env (e.g. https://taskifii-bot.onrender.com),
-    // we’ll ping /health every 4m (HEAD to be lightweight).
-    const SELF_URL = process.env.SELF_URL;
-    if (SELF_URL) {
-      const KEEPALIVE_MS = 4 * 60 * 1000; // < 5m so it stays warm
-      setInterval(() => {
-        const url = `${SELF_URL.replace(/\/$/, '')}/health`;
-        // global fetch exists on Node 18+; HEAD is low-cost
-        fetch(url, { method: 'HEAD' }).catch(() => {});
-      }, KEEPALIVE_MS);
-    }
-
-    // Graceful shutdown so Render restarts cleanly
-    function shutdown(sig) {
-      console.log(`[health] ${sig} received; closing HTTP server…`);
-      server?.close(() => {
-        console.log('[health] HTTP server closed.');
-        try { bot.stop(sig); } catch (_) {}
-        // Let Mongoose close on its own; force-exit as a last resort
-        setTimeout(() => process.exit(0), 500).unref();
-      });
-    }
-    process.once('SIGINT',  () => shutdown('SIGINT'));
-    process.once('SIGTERM', () => shutdown('SIGTERM'));
-
-    // ==============================================================
-
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
