@@ -406,8 +406,8 @@ const TEXT = {
     am: "ዝለል"
   },
   fieldsIntro: {
-    en: "Select 1–10 fields:",
-    am: "1–10 መስኮች ይምረጡ:"
+    en: "Select 1–7 fields:",
+    am: "1–7 መስኮች ይምረጡ:"
   },
   fieldsSelected: {
     en: "Selected:",
@@ -5181,18 +5181,58 @@ bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
     const lang = user?.language || "en";
     return ctx.reply(lang === "am" ? "ረቂቁ ጊዜው አልፎታል" : "Draft expired.");
   }
-  
+
+  const MAX_FIELDS = 7;
   const field = ALL_FIELDS[idx];
-  if (!draft.fields.includes(field)) {
+
+  // Add the field only if not already selected and we’re still under the cap
+  if (!draft.fields.includes(field) && draft.fields.length < MAX_FIELDS) {
     draft.fields.push(field);
     await draft.save();
   }
 
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
-  
+
   try { await ctx.deleteMessage(); } catch(_) {}
-  
+
+  // If we’ve reached the cap, auto-behave like “Done” was clicked
+  if (draft.fields.length >= MAX_FIELDS) {
+    // Mirror TASK_FIELDS_DONE UI (disabled Add More, checked Done)
+    await ctx.reply(
+      `${TEXT.fieldsSelected[lang]} ${draft.fields.join(", ")}`,
+      Markup.inlineKeyboard([
+        [Markup.button.callback(TEXT.fieldsAddMore[lang], "_DISABLED_ADD_MORE")],
+        [Markup.button.callback(`✔ ${TEXT.fieldsDone[lang]}`, "_DISABLED_DONE")]
+      ])
+    );
+
+    // Follow the same flow as TASK_FIELDS_DONE:
+    if (ctx.session.taskFlow?.isEdit) {
+      await ctx.reply(lang === "am" ? "✅ መስኮች ተዘምነዋል" : "✅ Fields updated.");
+      const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+      const locked = await isEngagementLocked(ctx.from.id);
+      await ctx.reply(
+        buildPreviewText(updatedDraft, user),
+        Markup.inlineKeyboard([
+          [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+          [ locked
+            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+          ]
+        ], { parse_mode: "Markdown" })
+      );
+      ctx.session.taskFlow = null;
+      return;
+    } else {
+      // Create flow: advance to skill level
+      ctx.session.taskFlow = ctx.session.taskFlow || {};
+      ctx.session.taskFlow.step = "skillLevel";
+      return askSkillLevel(ctx, lang);
+    }
+  }
+
+  // Otherwise, show the normal “Selected / Add More / Done” prompt
   return ctx.reply(
     `${TEXT.fieldsSelected[lang]} ${draft.fields.join(", ")}`,
     Markup.inlineKeyboard([
@@ -5201,6 +5241,7 @@ bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
     ])
   );
 });
+
 
 bot.action(/TASK_FIELDS_PAGE_(\d+)/, async (ctx) => {
   await ctx.answerCbQuery();
