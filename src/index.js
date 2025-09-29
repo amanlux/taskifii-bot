@@ -1235,6 +1235,66 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 
+// --- Minimal gate for non-registered users coming from "Apply" deep links ---
+function buildRegistrationRequiredMessage() {
+  // Single bilingual message + a button that kicks off the normal onboarding
+  const en = [
+    "👋 To access Taskifii (apply to tasks, see details, etc.), you need to register first.",
+    "If you’d like to register now, tap */start* below."
+  ].join("\n");
+
+  const am = [
+    "👋 ወደ Taskifii ለመዳረስ (ተግዳሮቶችን ለመመለከት እና ለመመልከት ወዘተ) መመዝገብ መጀመር አለብዎት።",
+    "አሁን መመዝገብ ከፈለጉ ከታች ያለውን */start* ይጫኑ።"
+  ].join("\n");
+
+  return `${en}\n\n${am}`;
+}
+
+async function sendRegistrationRequired(ctx) {
+  const msg = buildRegistrationRequiredMessage();
+  // An inline button labeled "/start" that triggers a callback we handle to begin onboarding
+  const kb = {
+    inline_keyboard: [[
+      { text: "/start", callback_data: "BEGIN_ONBOARDING" }
+    ]]
+  };
+  await ctx.reply(msg, { parse_mode: "Markdown", reply_markup: kb });
+}
+
+// Middleware: intercept only when user came via apply_* AND is not fully registered
+async function applyGatekeeper(ctx, next) {
+  try {
+    const tgId = ctx.from?.id;
+    if (!tgId) return next();
+
+    // Read existing user record (schema already in your code)
+    const user = await User.findOne({ telegramId: tgId }).lean();
+
+    // Detect deep-link payload "apply_<taskId>" from /start or t.me link
+    const text = ctx.message?.text || "";
+    const payloadFromText = text.startsWith("/start") ? text.split(" ")[1] || "" : "";
+    const payload = ctx.startPayload || payloadFromText || "";
+
+    const cameFromApply = typeof payload === "string" && payload.toLowerCase().startsWith("apply_");
+
+    // Consider "registered" only if you've moved them past onboarding into the normal menu.
+    // (Adjust the check below if your terminal step uses a different marker.)
+    const isRegistered =
+      !!user && user.onboardingStep && user.onboardingStep.toLowerCase() === "menu";
+
+    if (cameFromApply && !isRegistered) {
+      await sendRegistrationRequired(ctx);
+      return; // do NOT fall through to the rest of the flow
+    }
+
+    // Otherwise do nothing — let your existing handlers run
+    return next();
+  } catch (e) {
+    // Fail open: if anything goes wrong, don’t block your existing flow
+    return next();
+  }
+}
 
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
@@ -2287,6 +2347,9 @@ bot.use(async (ctx, next) => {
   }
 });
  
+// After you create `bot` and before existing start/onboarding handlers:
+bot.use(applyGatekeeper);
+
 
 
   // ─────────── /start Handler ───────────
@@ -7112,6 +7175,13 @@ bot.action("FIND_TASK", async (ctx) => {
         : "Please visit our channel directly to find tasks"
     );
   }
+});
+bot.action("BEGIN_ONBOARDING", async (ctx) => {
+  // Simulate the user sending "/start" (lets your current handler do its normal thing)
+  // If you already have a dedicated function to start onboarding, call it here instead.
+  await ctx.answerCbQuery();
+  await ctx.deleteMessage().catch(()=>{});
+  await ctx.telegram.sendMessage(ctx.chat.id, "/start");
 });
 
 
