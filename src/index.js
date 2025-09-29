@@ -1253,14 +1253,9 @@ function buildRegistrationRequiredMessage() {
 
 async function sendRegistrationRequired(ctx) {
   const msg = buildRegistrationRequiredMessage();
-  // An inline button labeled "/start" that triggers a callback we handle to begin onboarding
-  const kb = {
-    inline_keyboard: [[
-      { text: "/start", callback_data: "BEGIN_ONBOARDING" }
-    ]]
-  };
-  await ctx.reply(msg, { parse_mode: "Markdown", reply_markup: kb });
+  await ctx.reply(msg, { parse_mode: "Markdown" }); // no reply_markup
 }
+
 
 // Middleware: intercept only when user came via apply_* AND is not fully registered
 async function applyGatekeeper(ctx, next) {
@@ -7176,13 +7171,7 @@ bot.action("FIND_TASK", async (ctx) => {
     );
   }
 });
-bot.action("BEGIN_ONBOARDING", async (ctx) => {
-  // Simulate the user sending "/start" (lets your current handler do its normal thing)
-  // If you already have a dedicated function to start onboarding, call it here instead.
-  await ctx.answerCbQuery();
-  await ctx.deleteMessage().catch(()=>{});
-  await ctx.telegram.sendMessage(ctx.chat.id, "/start");
-});
+
 
 
 // Error handling middleware
