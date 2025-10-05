@@ -73,6 +73,8 @@ userSchema.index({ phone:    1 }, { unique: true, sparse: true });
 
 
 const TaskDraft = require("./models/TaskDraft");
+const PaymentIntent = require("./models/paymentintent"); // NEW
+
 // ------------------------------------
 //  Engagement Lock Model & Utilities
 // ------------------------------------
@@ -6050,6 +6052,59 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   } catch (err) {
     console.error("Error editing message markup:", err);
   }
+  // ─── NEW: Escrow funding via Telegram/Chapa before posting ───
+  const amountBirr = Number(draft.paymentFee || 0);
+
+  // Sanity: must be a positive ETB amount
+  if (!Number.isFinite(amountBirr) || amountBirr <= 0) {
+    return ctx.reply(user.language === "am"
+      ? "❌ የክፍያ መጠን የማይታመን ነው። እባክዎ የክፍያ መጠኑን ያረጋግጡ እና እንደገና ይሞክሩ።"
+      : "❌ Invalid fee amount. Please adjust the task fee and try again.");
+  }
+
+  // If already funded for this draft, continue to post as usual
+  const alreadyPaid = await PaymentIntent.findOne({
+    user: user._id,
+    draft: draft._id,
+    status: "paid"
+  }).lean();
+
+  if (!alreadyPaid) {
+    // No successful payment yet → create a PaymentIntent and send invoice
+    const payload = `escrow:${draft._id.toString()}:${Date.now()}`;
+
+    await PaymentIntent.create({
+      user: user._id,
+      draft: draft._id,
+      amount: amountBirr,             // in birr (human units)
+      currency: process.env.CHAPA_CURRENCY || "ETB",
+      status: "pending",
+      provider: "telegram_chapa",
+      payload
+    });
+
+    // Telegram requires minor units → ETB has 2 decimals → *100
+    const minor = Math.round(amountBirr * 100);
+
+    await ctx.replyWithInvoice({
+      title: user.language === "am" ? "ኢስክሮ ፈንድ ያስገቡ" : "Fund Task Escrow",
+      description: user.language === "am"
+        ? "ተግዳሮቱ እንዲታተም እባክዎ የተወሰነውን የክፍያ መጠን ይክፈሉ።"
+        : "Please pay the exact task fee to post this task.",
+      provider_token: process.env.CHAPA_PROVIDER_TOKEN,   // Chapa provider token
+      currency: process.env.CHAPA_CURRENCY || "ETB",
+      prices: [{ label: user.language === "am" ? "የተግባሩ ክፍያ" : "Task fee", amount: minor }],
+      payload,                                            // we use this to correlate later
+      start_parameter: `fund_${draft._id}`                // optional
+    });
+
+    await ctx.reply(user.language === "am"
+      ? "💳 ክፍያውን ያጠናቀቁ፣ ክፍያ ካሳካ በኋላ ተግዳሮቱ ራሱ በራሱ ይታተማል።"
+      : "💳 Complete the payment — once it succeeds, your task will be posted automatically.");
+
+    return; // IMPORTANT: stop here. We'll post after successful payment.
+  }
+  // If we reach here we have an existing 'paid' intent → fall through to existing post code.
 
   // Create the task with postedAt timestamp
   const now = new Date();
@@ -6167,6 +6222,138 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
       `CANCEL_TASK_${task._id}`
     )]
   ]));
+});
+// Required by Telegram payments: approve the checkout
+bot.on('pre_checkout_query', async (ctx) => {
+  await ctx.answerPreCheckoutQuery(true); // accept
+});
+bot.on('successful_payment', async (ctx) => {
+  try {
+    const sp = ctx.message.successful_payment; // has currency, total_amount, provider_payment_charge_id, invoice_payload
+    const payload = sp?.invoice_payload || "";
+
+    // We only handle escrow payloads here
+    if (!payload.startsWith("escrow:")) return;
+
+    const [, draftId] = payload.split(":");
+    const me = await User.findOne({ telegramId: ctx.from.id });
+    if (!me) return;
+
+    // Mark intent as paid (idempotent)
+    const intent = await PaymentIntent.findOneAndUpdate(
+      { user: me._id, draft: draftId, payload },
+      {
+        $set: {
+          status: "paid",
+          paidAt: new Date(),
+          currency: sp.currency,
+          minorTotal: sp.total_amount,
+          provider_payment_charge_id: sp.provider_payment_charge_id
+        }
+      },
+      { new: true }
+    );
+
+    // Load draft fresh
+    const draft = await TaskDraft.findById(draftId);
+    if (!draft) {
+      return ctx.reply(me.language === "am"
+        ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ እንደገና ይሞክሩ።"
+        : "❌ Draft expired. Please try again.");
+    }
+
+    // === Your existing "create task + post to channel" logic (unaltered) ===
+    const now = new Date();
+    const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
+
+    const task = await Task.create({
+      creator: me._id,
+      description: draft.description,
+      relatedFile: draft.relatedFile?.fileId || null,
+      fields: draft.fields,
+      skillLevel: draft.skillLevel,
+      paymentFee: draft.paymentFee,
+      timeToComplete: draft.timeToComplete,
+      revisionTime: draft.revisionTime,
+      latePenalty: draft.penaltyPerHour,
+      expiry: expiryDate,
+      exchangeStrategy: draft.exchangeStrategy,
+      status: "Open",
+      applicants: [],
+      stages: [],
+      postedAt: now,
+      reminderSent: false
+    });
+
+    const channelId = process.env.CHANNEL_ID || "-1002254896955";
+    const preview = buildChannelPostText(draft, me); // your helper
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url(
+        me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+        `https://t.me/${ctx.botInfo.username}?start=apply_${task._id}`
+      )]
+    ]);
+
+    const sent = await ctx.telegram.sendMessage(channelId, preview, {
+      parse_mode: "Markdown",
+      reply_markup: keyboard.reply_markup
+    });
+
+    task.channelMessageId = sent.message_id;
+    await task.save();
+
+    // Lock the creator on this task so they can't act as a doer concurrently
+    try {
+      await EngagementLock.updateOne(
+        { user: me._id, task: task._id },
+        { $setOnInsert: { role: 'creator', active: true, createdAt: new Date() }, $unset: { releasedAt: "" } },
+        { upsert: true }
+      );
+    } catch (e) {
+      console.error("Failed to set creator engagement lock:", e);
+    }
+
+    // 85% reminder scheduling (same as your code)
+    const totalTimeMs = task.expiry - task.postedAt;
+    const reminderTime = new Date(task.postedAt.getTime() + (totalTimeMs * 0.85));
+    if (reminderTime > now) {
+      setTimeout(async () => {
+        try {
+          const updatedTask = await Task.findById(task._id).populate("applicants.user");
+          if (!updatedTask || updatedTask.status !== "Open" || updatedTask.reminderSent) return;
+
+          const hasAcceptedApplicant = updatedTask.applicants.some(app => app.status === "Accepted");
+          if (hasAcceptedApplicant) return;
+
+          const creator = await User.findById(updatedTask.creator);
+          if (!creator) return;
+          const lang = creator.language || "en";
+          const hoursLeft = Math.floor((updatedTask.expiry.getTime() - new Date().getTime()) / (1000 * 60 * 60));
+          const minutesLeft = Math.floor(((updatedTask.expiry.getTime() - new Date().getTime()) % (1000 * 60 * 60)) / (1000 * 60));
+          const msg = TEXT.creatorReminder85Percent[lang]
+            ?.replace("[hours]", hoursLeft.toString())
+            ?.replace("[minutes]", minutesLeft.toString()) || "⏰ Reminder";
+
+          await ctx.telegram.sendMessage(creator.telegramId, msg);
+          updatedTask.reminderSent = true;
+          await updatedTask.save();
+        } catch (err) {
+          console.error("Error sending 85% reminder:", err);
+        }
+      }, Math.max(0, reminderTime.getTime() - now.getTime()));
+    }
+
+    // Friendly confirmation to payer
+    await ctx.reply(me.language === "am"
+      ? "✅ ክፍያው ተሳክቷል። ተግዳሮቱ ተለጥፏል።"
+      : "✅ Payment received. Your task has been posted.");
+
+  } catch (err) {
+    console.error("successful_payment handler error:", err);
+    try {
+      await ctx.reply("⚠️ Payment succeeded, but we hit an error while posting. We’ll check it immediately.");
+    } catch (_) {}
+  }
 });
 
 // Add Cancel Task handler
