@@ -32,13 +32,6 @@ if (!process.env.MONGODB_URI) {
   console.error("Error: MONGODB_URI is not set.");
   process.exit(1);
 }
-if (!process.env.CHAPA_PROVIDER_TOKEN) {
-  console.warn("⚠️ CHAPA_PROVIDER_TOKEN is not set — invoices will fail.");
-}
-bot.catch((err, ctx) => {
-  console.error("Telegraf error", err);
-});
-process.on("unhandledRejection", (e) => console.error("Unhandled rejection", e));
 
 
 
@@ -2177,6 +2170,14 @@ mongoose
 // ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
+  if (!process.env.CHAPA_PROVIDER_TOKEN) {
+    console.warn("⚠️ CHAPA_PROVIDER_TOKEN is not set — invoices will fail.");
+  }
+  bot.catch((err, ctx) => {
+    console.error("Telegraf error", err);
+  });
+  process.on("unhandledRejection", (e) => console.error("Unhandled rejection", e));
+
   mongoose.set('strictQuery', false); // Add this line to suppress Mongoose warning
   const { session } = require('telegraf');
   
