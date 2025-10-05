@@ -1242,10 +1242,47 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+// Normalizes ET mobile numbers to +2519xxxxxxxx / +2517xxxxxxxx; returns null if unknown.
+function normalizeEtPhone(raw) {
+  if (!raw) return null;
+  const str = String(raw).trim();
+
+  // Already E.164
+  if (/^\+251[79]\d{8}$/.test(str)) return str;
+
+  // Strip non-digits
+  const digits = str.replace(/\D/g, "");
+
+  // 09xxxxxxxx or 9xxxxxxxx or 07xxxxxxxx or 7xxxxxxxx
+  if (/^0?[79]\d{8}$/.test(digits)) return `+251${digits.slice(-9)}`;
+
+  // 2519xxxxxxxx or 2517xxxxxxxx
+  if (/^251[79]\d{8}$/.test(digits)) return `+${digits}`;
+
+  // Unknown format → don’t send
+  return null;
+}
+
+// ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
 async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   const secret = process.env.CHAPA_SECRET_KEY;
   if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
+
+  // Allow a safe test override from .env while you test locally
+  const rawPhone = process.env.CHAPA_TEST_PHONE || user.phone;
+  const normalizedPhone = normalizeEtPhone(rawPhone);
+
+  // Build payload — only include phone_number if valid
+  const payload = {
+    amount: String(amountBirr),
+    currency,
+    email: user.email || "test@example.com",
+    first_name: user.fullName ? user.fullName.split(" ")[0] : "Taskifii",
+    last_name: user.fullName ? user.fullName.split(" ").slice(1).join(" ") || "User" : "User",
+    tx_ref: txRef,
+  };
+  if (normalizedPhone) payload.phone_number = normalizedPhone;
 
   const resp = await fetch("https://api.chapa.co/v1/transaction/initialize", {
     method: "POST",
@@ -1253,16 +1290,7 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
       "Authorization": `Bearer ${secret}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      amount: String(amountBirr),
-      currency,
-      email: user.email || "test@example.com",
-      first_name: user.fullName ? user.fullName.split(" ")[0] : "Taskifii",
-      last_name: user.fullName ? user.fullName.split(" ").slice(1).join(" ") || "User" : "User",
-      phone_number: user.phone || "0912345678",
-      tx_ref: txRef,
-      // (Optional) return_url/callback_url not needed—we verify from the bot
-    }),
+    body: JSON.stringify(payload),
   });
 
   const data = await resp.json().catch(() => null);
@@ -1272,6 +1300,7 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   }
   return { checkout_url: checkout };
 }
+
 
 // ── Refund helper (small, defensive) ─────────────────────────────────────────
 // ── FIXED: use the correct Chapa refund endpoint ──────────────────────────────
