@@ -73,7 +73,7 @@ userSchema.index({ phone:    1 }, { unique: true, sparse: true });
 
 
 const TaskDraft = require("./models/TaskDraft");
-const PaymentIntent = require("./models/paymentintent"); // NEW
+const PaymentIntent = require("./models/PaymentIntent");  // NEW
 
 // ------------------------------------
 //  Engagement Lock Model & Utilities
