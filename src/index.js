@@ -1241,6 +1241,36 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+// ── Refund helper (small, defensive) ─────────────────────────────────────────
+async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
+  const secret = process.env.CHAPA_SECRET_KEY;
+  if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
+
+  // Chapa usually needs the original transaction/charge id.
+  const chargeId = intent.provider_payment_charge_id;
+  if (!chargeId) throw new Error("No provider_payment_charge_id on PaymentIntent");
+
+  // Best-effort refund call. If Chapa changes their JSON, we still handle non-2xx.
+  const res = await fetch("https://api.chapa.co/v1/transaction/refund", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${secret}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      transaction: chargeId,      // primary identifier (Chapa maps it)
+      amount: intent.amount,      // full amount in birr
+      reason
+    })
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || (data.status && data.status !== "success")) {
+    throw new Error(`Refund API declined: ${res.status} ${JSON.stringify(data)}`);
+  }
+  return data;
+}
+
 
 // --- Minimal gate for non-registered users coming from "Apply" deep links ---
 function buildRegistrationRequiredMessage() {
@@ -6388,6 +6418,12 @@ bot.on('successful_payment', async (ctx) => {
         }
       }, Math.max(0, reminderTime.getTime() - now.getTime()));
     }
+    // Link the paid PaymentIntent to this task (idempotent)
+    await PaymentIntent.findOneAndUpdate(
+      { user: me._id, payload },
+      { $set: { task: task._id } },
+      { new: true }
+    );
 
     // Delete the draft now that the task is live
     try {
@@ -6465,6 +6501,49 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
   // Update task status to Canceled
   task.status = "Canceled";
   await task.save();
+  // ── NEW: refund escrow to creator on allowed cancel ──────────────────────────
+  try {
+    // Find the escrow we linked to this task
+    const intent = await PaymentIntent.findOne({
+      task: task._id,
+      status: "paid"
+    });
+
+    if (intent && intent.refundStatus !== "succeeded") {
+      // Mark as requested (so double taps don't double-refund)
+      await PaymentIntent.updateOne(
+        { _id: intent._id, refundStatus: { $ne: "succeeded" } },
+        { $set: { refundStatus: "requested" } }
+      );
+
+      try {
+        await refundEscrowWithChapa(intent, "Creator canceled before engagement");
+        await PaymentIntent.updateOne(
+          { _id: intent._id },
+          { $set: { refundStatus: "succeeded", refundedAt: new Date() } }
+        );
+
+        const okMsg = (lang === "am")
+          ? "💸 የኢስክሮ ገንዘብዎ ወደ መጀመሪያ የክፍያ መንገድዎ ተመልሷል።"
+          : "💸 Your escrow funds have been refunded to your original payment method.";
+        await ctx.reply(okMsg);
+      } catch (apiErr) {
+        console.error("Chapa refund failed:", apiErr);
+        await PaymentIntent.updateOne(
+          { _id: intent._id },
+          { $set: { refundStatus: "failed" } }
+        );
+        const sorry = (lang === "am")
+          ? "⚠️ ራስ-ሰር መመለስ አልተሳካም። እባክዎ ድጋፍ ጋር ይገናኙ ወይም በግል እንመልሳለን።"
+          : "⚠️ We couldn’t auto-refund via the provider. We’ll resolve it promptly via support.";
+        await ctx.reply(sorry);
+      }
+    }
+  } catch (e) {
+    console.error("Refund flow error:", e);
+    // Intentionally silent for the user—task has been canceled already.
+  }
+
 
   // Disable all application buttons for pending applications
   for (const app of task.applicants.filter(a => a.status === "Pending")) {
