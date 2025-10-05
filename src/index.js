@@ -12,6 +12,11 @@
  */
 
 require('dotenv').config();
+// --- Telegram currency minimums (rounded up a bit to be safe) ---
+const TG_MIN_BY_CURRENCY = {
+  ETB: 135,  // Telegram shows ~132.53 ETB min; we enforce 135 to avoid edge fails
+};
+
 
 const { Telegraf, Markup, session } = require("telegraf");
 const mongoose = require("mongoose");
@@ -27,6 +32,13 @@ if (!process.env.MONGODB_URI) {
   console.error("Error: MONGODB_URI is not set.");
   process.exit(1);
 }
+if (!process.env.CHAPA_PROVIDER_TOKEN) {
+  console.warn("⚠️ CHAPA_PROVIDER_TOKEN is not set — invoices will fail.");
+}
+bot.catch((err, ctx) => {
+  console.error("Telegraf error", err);
+});
+process.on("unhandledRejection", (e) => console.error("Unhandled rejection", e));
 
 
 
@@ -6054,15 +6066,24 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   }
   // ─── NEW: Escrow funding via Telegram/Chapa before posting ───
   const amountBirr = Number(draft.paymentFee || 0);
+  const currency = (process.env.CHAPA_CURRENCY || "ETB").toUpperCase();
 
-  // Sanity: must be a positive ETB amount
+  // 1) Validate amount
   if (!Number.isFinite(amountBirr) || amountBirr <= 0) {
     return ctx.reply(user.language === "am"
       ? "❌ የክፍያ መጠን የማይታመን ነው። እባክዎ የክፍያ መጠኑን ያረጋግጡ እና እንደገና ይሞክሩ።"
       : "❌ Invalid fee amount. Please adjust the task fee and try again.");
   }
 
-  // If already funded for this draft, continue to post as usual
+  // 2) Enforce Telegram’s minimum for this currency (prevents silent invoice failures)
+  const tgMin = TG_MIN_BY_CURRENCY[currency] || 1;
+  if (amountBirr < tgMin) {
+    return ctx.reply(user.language === "am"
+      ? `❌ የTelegram ዝቅተኛ ክፍያ ለ ${currency} ${tgMin} ብር ነው። እባክዎ መጠኑን ያስተካክሉ እና ይሞክሩ።`
+      : `❌ Telegram requires at least ${tgMin} ${currency}. Please increase the fee and try again.`);
+  }
+
+  // 3) If already funded, continue to posting as before
   const alreadyPaid = await PaymentIntent.findOne({
     user: user._id,
     draft: draft._id,
@@ -6070,40 +6091,64 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   }).lean();
 
   if (!alreadyPaid) {
-    // No successful payment yet → create a PaymentIntent and send invoice
     const payload = `escrow:${draft._id.toString()}:${Date.now()}`;
 
     await PaymentIntent.create({
       user: user._id,
       draft: draft._id,
-      amount: amountBirr,             // in birr (human units)
-      currency: process.env.CHAPA_CURRENCY || "ETB",
+      amount: amountBirr,
+      currency,
       status: "pending",
       provider: "telegram_chapa",
       payload
     });
 
-    // Telegram requires minor units → ETB has 2 decimals → *100
     const minor = Math.round(amountBirr * 100);
 
-    await ctx.replyWithInvoice({
-      title: user.language === "am" ? "ኢስክሮ ፈንድ ያስገቡ" : "Fund Task Escrow",
-      description: user.language === "am"
-        ? "ተግዳሮቱ እንዲታተም እባክዎ የተወሰነውን የክፍያ መጠን ይክፈሉ።"
-        : "Please pay the exact task fee to post this task.",
-      provider_token: process.env.CHAPA_PROVIDER_TOKEN,   // Chapa provider token
-      currency: process.env.CHAPA_CURRENCY || "ETB",
-      prices: [{ label: user.language === "am" ? "የተግባሩ ክፍያ" : "Task fee", amount: minor }],
-      payload,                                            // we use this to correlate later
-      start_parameter: `fund_${draft._id}`                // optional
-    });
+    // 4) Try to send invoice; if Telegram rejects it, show user-friendly error and undo the “highlight”
+    try {
+      await ctx.replyWithInvoice({
+        title: user.language === "am" ? "ኢስክሮ ፈንድ ያስገቡ" : "Fund Task Escrow",
+        description: user.language === "am"
+          ? "ተግዳሮቱ እንዲታተም እባክዎ የተወሰነውን የክፍያ መጠን ይክፈሉ።"
+          : "Please pay the exact task fee to post this task.",
+        provider_token: process.env.CHAPA_PROVIDER_TOKEN,
+        currency,
+        prices: [{ label: user.language === "am" ? "የተግባሩ ክፍያ" : "Task fee", amount: minor }],
+        payload,
+        start_parameter: `fund_${draft._id}`
+      });
 
-    await ctx.reply(user.language === "am"
-      ? "💳 ክፍያውን ያጠናቀቁ፣ ክፍያ ካሳካ በኋላ ተግዳሮቱ ራሱ በራሱ ይታተማል።"
-      : "💳 Complete the payment — once it succeeds, your task will be posted automatically.");
+      await ctx.reply(user.language === "am"
+        ? "💳 ክፍያውን ያጠናቀቁ፣ ክፍያ ካሳካ በኋላ ተግዳሮቱ ራሱ በራሱ ይታተማል።"
+        : "💳 Complete the payment — once it succeeds, your task will be posted automatically.");
+    } catch (err) {
+      console.error("replyWithInvoice failed:", err?.response?.description || err?.message || err);
 
-    return; // IMPORTANT: stop here. We'll post after successful payment.
+      // Clean up the pending intent (optional but tidy)
+      try { await PaymentIntent.deleteOne({ payload }); } catch (_) {}
+
+      // Re-enable the Post button so they can try again
+      try {
+        await ctx.editMessageReplyMarkup({
+          inline_keyboard: [
+            [Markup.button.callback(user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+            [Markup.button.callback(user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+          ]
+        });
+      } catch (_) {}
+
+      // Show a readable alert to the tapper
+      const msg = user.language === "am"
+        ? "⚠️ ክፍያ መጀመር አልተቻለም። እባክዎ የክፍያ መጠንን ይፍታሉ (>= Telegram ዝቅተኛ) ወይም አካውንት ቅንብሮችን ያረጋግጡ።"
+        : "⚠️ Couldn’t start the payment. Please ensure the fee meets Telegram’s minimum and that payments are configured for this bot.";
+      await ctx.answerCbQuery(msg, { show_alert: true });
+    }
+
+    return; // stop here; successful_payment handler will post the task
   }
+  // ... fall through to your existing “create task” code if already funded
+
   // If we reach here we have an existing 'paid' intent → fall through to existing post code.
 
   // Create the task with postedAt timestamp
