@@ -6389,10 +6389,30 @@ bot.on('successful_payment', async (ctx) => {
       }, Math.max(0, reminderTime.getTime() - now.getTime()));
     }
 
-    // Friendly confirmation to payer
-    await ctx.reply(me.language === "am"
-      ? "✅ ክፍያው ተሳክቷል። ተግዳሮቱ ተለጥፏል።"
-      : "✅ Payment received. Your task has been posted.");
+    // Delete the draft now that the task is live
+    try {
+      await TaskDraft.findByIdAndDelete(draft._id);
+    } catch (e) {
+      console.error("Failed to delete draft after payment:", e);
+    }
+
+    // Send the same confirmation UI you use in the non-escrow flow
+    const confirmationText = me.language === "am"
+      ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
+      : `✅ Task posted successfully!\n\nOther users can now apply.`;
+
+    await ctx.reply(
+      confirmationText,
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback(
+            me.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task",
+            `CANCEL_TASK_${task._id}`
+          )
+        ]
+      ])
+    );
+
 
   } catch (err) {
     console.error("successful_payment handler error:", err);
