@@ -8,6 +8,8 @@ const PaymentIntentSchema = new Schema({
   task:   { type: Schema.Types.ObjectId, ref: "Task", index: true },        // NEW: link to posted task
   amount: { type: Number, required: true }, // birr (human units)
   currency: { type: String, default: "ETB" },
+  chapaTxRef: { type: String }, // will hold Chapa tx_ref when we have it
+
   status: { type: String, enum: ["pending", "paid", "failed"], default: "pending", index: true },
   provider: { type: String, default: "telegram_chapa" },
   payload: { type: String, unique: true, required: true }, // invoice payload

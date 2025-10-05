@@ -16,6 +16,7 @@ require('dotenv').config();
 const TG_MIN_BY_CURRENCY = {
   ETB: 135,  // Telegram shows ~132.53 ETB min; we enforce 135 to avoid edge fails
 };
+const USE_CHAPA_HOSTED_FOR_ESCROW = process.env.USE_CHAPA_HOSTED_FOR_ESCROW === "true";
 
 
 const { Telegraf, Markup, session } = require("telegraf");
@@ -1241,35 +1242,71 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+// ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
+async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
+  const secret = process.env.CHAPA_SECRET_KEY;
+  if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
+
+  const resp = await fetch("https://api.chapa.co/v1/transaction/initialize", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${secret}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      amount: String(amountBirr),
+      currency,
+      email: user.email || "test@example.com",
+      first_name: user.fullName ? user.fullName.split(" ")[0] : "Taskifii",
+      last_name: user.fullName ? user.fullName.split(" ").slice(1).join(" ") || "User" : "User",
+      phone_number: user.phone || "0912345678",
+      tx_ref: txRef,
+      // (Optional) return_url/callback_url not needed—we verify from the bot
+    }),
+  });
+
+  const data = await resp.json().catch(() => null);
+  const checkout = data?.data?.checkout_url;
+  if (!resp.ok || !checkout) {
+    throw new Error(`Chapa init failed: ${resp.status} ${JSON.stringify(data)}`);
+  }
+  return { checkout_url: checkout };
+}
+
 // ── Refund helper (small, defensive) ─────────────────────────────────────────
+// ── FIXED: use the correct Chapa refund endpoint ──────────────────────────────
 async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
   const secret = process.env.CHAPA_SECRET_KEY;
   if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
 
-  // Chapa usually needs the original transaction/charge id.
-  const chargeId = intent.provider_payment_charge_id;
-  if (!chargeId) throw new Error("No provider_payment_charge_id on PaymentIntent");
+  // Prefer a Chapa tx_ref if we have one (we'll start saving it soon).
+  // Fallback to provider_payment_charge_id to try best-effort (may not work).
+  const txRef =
+    intent.chapaTxRef || intent.tx_ref || intent.provider_payment_charge_id;
 
-  // Best-effort refund call. If Chapa changes their JSON, we still handle non-2xx.
-  const res = await fetch("https://api.chapa.co/v1/transaction/refund", {
+  if (!txRef) throw new Error("No tx_ref/provider id available for refund");
+
+  const form = new URLSearchParams();
+  // amount is optional in Chapa docs, but we pass it explicitly
+  if (intent.amount) form.append("amount", String(intent.amount));
+  form.append("reason", reason);
+
+  const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(txRef)}`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${secret}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/x-www-form-urlencoded"
     },
-    body: JSON.stringify({
-      transaction: chargeId,      // primary identifier (Chapa maps it)
-      amount: intent.amount,      // full amount in birr
-      reason
-    })
+    body: form.toString()
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || (data.status && data.status !== "success")) {
+  if (!res.ok || (data?.status && data.status !== "success")) {
     throw new Error(`Refund API declined: ${res.status} ${JSON.stringify(data)}`);
   }
   return data;
 }
+
 
 
 // --- Minimal gate for non-registered users coming from "Apply" deep links ---
@@ -6095,89 +6132,158 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   } catch (err) {
     console.error("Error editing message markup:", err);
   }
-  // ─── NEW: Escrow funding via Telegram/Chapa before posting ───
-  const amountBirr = Number(draft.paymentFee || 0);
-  const currency = (process.env.CHAPA_CURRENCY || "ETB").toUpperCase();
+  // ───────────── ESCROW FUNDING BEFORE POSTING (FULL BLOCK) ─────────────
+  try {
+    // Load fresh copies we already have in scope
+    const amountBirr = Number(draft.paymentFee || 0);
+    const currency = (process.env.CHAPA_CURRENCY || "ETB").toUpperCase();
 
-  // 1) Validate amount
-  if (!Number.isFinite(amountBirr) || amountBirr <= 0) {
-    return ctx.reply(user.language === "am"
-      ? "❌ የክፍያ መጠን የማይታመን ነው። እባክዎ የክፍያ መጠኑን ያረጋግጡ እና እንደገና ይሞክሩ።"
-      : "❌ Invalid fee amount. Please adjust the task fee and try again.");
-  }
+    // Validate amount (you already enforce >=50 birr upstream; keep this sanity guard)
+    if (!Number.isFinite(amountBirr) || amountBirr <= 0) {
+      await ctx.answerCbQuery(
+        user.language === "am"
+          ? "❌ የክፍያ መጠን ትክክል አይደለም።"
+          : "❌ Invalid fee amount.",
+        { show_alert: true }
+      );
+      return;
+    }
 
-  // 2) Enforce Telegram’s minimum for this currency (prevents silent invoice failures)
-  const tgMin = TG_MIN_BY_CURRENCY[currency] || 1;
-  if (amountBirr < tgMin) {
-    return ctx.reply(user.language === "am"
-      ? `❌ የTelegram ዝቅተኛ ክፍያ ለ ${currency} ${tgMin} ብር ነው። እባክዎ መጠኑን ያስተካክሉ እና ይሞክሩ።`
-      : `❌ Telegram requires at least ${tgMin} ${currency}. Please increase the fee and try again.`);
-  }
-
-  // 3) If already funded, continue to posting as before
-  const alreadyPaid = await PaymentIntent.findOne({
-    user: user._id,
-    draft: draft._id,
-    status: "paid"
-  }).lean();
-
-  if (!alreadyPaid) {
-    const payload = `escrow:${draft._id.toString()}:${Date.now()}`;
-
-    await PaymentIntent.create({
+    // If they already funded this draft, fall through to your normal posting code below.
+    const alreadyPaid = await PaymentIntent.findOne({
       user: user._id,
       draft: draft._id,
-      amount: amountBirr,
-      currency,
-      status: "pending",
-      provider: "telegram_chapa",
-      payload
-    });
+      status: "paid"
+    }).lean();
 
-    const minor = Math.round(amountBirr * 100);
+    if (!alreadyPaid) {
+      // Decide the collection path: hosted checkout (Chapa link) OR Telegram invoice
+      // Turn on hosted by setting USE_CHAPA_HOSTED_FOR_ESCROW=true in .env
+      if (typeof USE_CHAPA_HOSTED_FOR_ESCROW !== "undefined" && USE_CHAPA_HOSTED_FOR_ESCROW) {
+        // === Path A: Chapa Hosted Checkout (best for local rails like Telebirr, banks) ===
+        const txRef = `escrow_${draft._id}_${Date.now()}`;
 
-    // 4) Try to send invoice; if Telegram rejects it, show user-friendly error and undo the “highlight”
-    try {
+        // Create a pending PaymentIntent upfront (we refund by tx_ref later if needed)
+        await PaymentIntent.create({
+          user: user._id,
+          draft: draft._id,
+          amount: amountBirr,
+          currency,
+          status: "pending",
+          provider: "chapa_hosted",
+          payload: txRef,    // reuse payload as a unique link key
+          chapaTxRef: txRef
+        });
+
+        // Initialize the hosted checkout (helper defined earlier in this file)
+        const { checkout_url } = await chapaInitializeEscrow({
+          amountBirr,
+          currency,
+          txRef,
+          user
+        });
+
+        // Show the pay link + a “I’ve paid” verify button
+        await ctx.reply(
+          user.language === "am"
+            ? "💳 ክፍያ ለማጠናቀቅ ይህን ክፍትዎ፣ ከዚያ ‘ክፍያ አጠናቀርሁ’ ይጫኑ።"
+            : "💳 Open this to pay, then tap “I’ve paid”.",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "🔗 Open payment (Chapa)", url: checkout_url }],
+                [{ text: "✅ I’ve paid", callback_data: `HOSTED_VERIFY:${txRef}:${draft._id}` }]
+              ]
+            }
+          }
+        );
+
+        // Stop here; after payment they’ll press “I’ve paid”, which triggers verification & posting.
+        return;
+      }
+
+      // === Path B: Telegram Invoice (Chapa provider token) — fallback ===
+      // Telegram enforces a per-currency minimum; we apply a safe floor to avoid errors.
+      const floorBirr = TG_MIN_BY_CURRENCY[currency] ?? 135; // see constant at top of file
+      if (amountBirr < floorBirr) {
+        // Re-enable the two preview buttons so they can edit or try again
+        try {
+          await ctx.editMessageReplyMarkup({
+            inline_keyboard: [
+              [Markup.button.callback(user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+              [Markup.button.callback(user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+            ]
+          });
+        } catch (_) {}
+
+        await ctx.answerCbQuery(
+          user.language === "am"
+            ? `⚠️ Telegram ዝቅተኛው ${floorBirr} ብር ነው። እባክዎ ክፍያውን ያስተካክሉ።`
+            : `⚠️ Telegram requires at least ${floorBirr} birr for this currency.`,
+          { show_alert: true }
+        );
+        return;
+      }
+
+      // Create the intent & send the invoice
+      const payload = `escrow:${draft._id.toString()}:${Date.now()}`;
+
+      await PaymentIntent.create({
+        user: user._id,
+        draft: draft._id,
+        amount: amountBirr,                    // human units
+        currency,
+        status: "pending",
+        provider: "telegram_chapa",
+        payload
+      });
+
+      const minor = Math.round(amountBirr * 100); // ETB has 2 decimals
       await ctx.replyWithInvoice({
         title: user.language === "am" ? "ኢስክሮ ፈንድ ያስገቡ" : "Fund Task Escrow",
         description: user.language === "am"
           ? "ተግዳሮቱ እንዲታተም እባክዎ የተወሰነውን የክፍያ መጠን ይክፈሉ።"
           : "Please pay the exact task fee to post this task.",
-        provider_token: process.env.CHAPA_PROVIDER_TOKEN,
+        provider_token: process.env.CHAPA_PROVIDER_TOKEN, // from BotFather via Chapa
         currency,
         prices: [{ label: user.language === "am" ? "የተግባሩ ክፍያ" : "Task fee", amount: minor }],
         payload,
         start_parameter: `fund_${draft._id}`
       });
 
-      await ctx.reply(user.language === "am"
-        ? "💳 ክፍያውን ያጠናቀቁ፣ ክፍያ ካሳካ በኋላ ተግዳሮቱ ራሱ በራሱ ይታተማል።"
-        : "💳 Complete the payment — once it succeeds, your task will be posted automatically.");
-    } catch (err) {
-      console.error("replyWithInvoice failed:", err?.response?.description || err?.message || err);
+      await ctx.reply(
+        user.language === "am"
+          ? "💳 ክፍያውን ያጠናቀቁ፤ ክፍያ ከሳካ በኋላ ተግዳሮቱ ራሱ ይታተማል።"
+          : "💳 Complete the payment — once it succeeds, your task will be posted automatically."
+      );
 
-      // Clean up the pending intent (optional but tidy)
-      try { await PaymentIntent.deleteOne({ payload }); } catch (_) {}
-
-      // Re-enable the Post button so they can try again
-      try {
-        await ctx.editMessageReplyMarkup({
-          inline_keyboard: [
-            [Markup.button.callback(user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-            [Markup.button.callback(user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
-          ]
-        });
-      } catch (_) {}
-
-      // Show a readable alert to the tapper
-      const msg = user.language === "am"
-        ? "⚠️ ክፍያ መጀመር አልተቻለም። እባክዎ የክፍያ መጠንን ይፍታሉ (>= Telegram ዝቅተኛ) ወይም አካውንት ቅንብሮችን ያረጋግጡ።"
-        : "⚠️ Couldn’t start the payment. Please ensure the fee meets Telegram’s minimum and that payments are configured for this bot.";
-      await ctx.answerCbQuery(msg, { show_alert: true });
+      // Stop here; your 'successful_payment' handler will create & post the task.
+      return;
     }
+  } catch (e) {
+    console.error("Escrow gate error:", e);
+    // Put the two buttons back so the user isn't stuck
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [
+          [Markup.button.callback(user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+          [Markup.button.callback(user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+        ]
+      });
+    } catch (_) {}
 
-    return; // stop here; successful_payment handler will post the task
+    await ctx.answerCbQuery(
+      user.language === "am"
+        ? "⚠️ ክፍያ መጀመር አልተቻለም። እባክዎ ዳግም ይሞክሩ።"
+        : "⚠️ Couldn’t start the payment. Please try again.",
+      { show_alert: true }
+    );
+    return;
   }
+  // ───────────── END ESCROW FUNDING BEFORE POSTING ─────────────
+
+  // If we reach here, there is an existing 'paid' intent → fall through to your existing “Create the task with postedAt timestamp” code below.
+
   // ... fall through to your existing “create task” code if already funded
 
   // If we reach here we have an existing 'paid' intent → fall through to existing post code.
@@ -6299,6 +6405,158 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     )]
   ]));
 });
+// Verify hosted checkout by tx_ref, then post task (same UX as non-escrow path)
+bot.action(/^HOSTED_VERIFY:([^:]+):([a-f0-9]{24})$/, async (ctx) => {
+  const txRef = ctx.match[1];
+  const draftId = ctx.match[2];
+
+  try {
+    const me = await User.findOne({ telegramId: ctx.from.id });
+    if (!me) return ctx.answerCbQuery("User not found", { show_alert: true });
+
+    // Verify with Chapa
+    const r = await fetch(`https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(txRef)}`, {
+      headers: { "Authorization": `Bearer ${process.env.CHAPA_SECRET_KEY}` }
+    });
+    const j = await r.json().catch(() => null);
+    const status = String(j?.data?.status || j?.status || "").toLowerCase();
+
+    if (status !== "success") {
+      return ctx.answerCbQuery(
+        me.language === "am" ? "እስካሁን በመጠበቅ ላይ ወይም አልተሳካም። ጥቂት ደቂቃዎች በኋላ ይሞክሩ።"
+                             : "Still pending/failed. Try again in a few seconds.",
+        { show_alert: true }
+      );
+    }
+
+    // Mark paid + keep the tx_ref
+    await PaymentIntent.findOneAndUpdate(
+      { user: me._id, draft: draftId, payload: txRef },
+      {
+        $set: {
+          status: "paid",
+          paidAt: new Date(),
+          provider: "chapa_hosted",
+          chapaTxRef: txRef
+        }
+      },
+      { upsert: false }
+    );
+
+    // Create & post task (identical to your success path)
+    const draft = await TaskDraft.findById(draftId);
+    if (!draft) return ctx.reply(me.language === "am" ? "❌ ረቂቁ ጊዜው አልፎታል።" : "❌ Draft expired.");
+
+    const now = new Date();
+    const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
+
+    const task = await Task.create({
+      creator: me._id,
+      description: draft.description,
+      relatedFile: draft.relatedFile?.fileId || null,
+      fields: draft.fields,
+      skillLevel: draft.skillLevel,
+      paymentFee: draft.paymentFee,
+      timeToComplete: draft.timeToComplete,
+      revisionTime: draft.revisionTime,
+      latePenalty: draft.penaltyPerHour,
+      expiry: expiryDate,
+      exchangeStrategy: draft.exchangeStrategy,
+      status: "Open",
+      applicants: [],
+      stages: [],
+      postedAt: now,
+      reminderSent: false
+    });
+
+    // Post to channel
+    const channelId = process.env.CHANNEL_ID || "-1002254896955";
+    const preview = buildChannelPostText(draft, me);
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url(
+        me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+        `https://t.me/${(await ctx.telegram.getMe()).username}?start=apply_${task._id}`
+      )]
+    ]);
+    const sent = await ctx.telegram.sendMessage(channelId, preview, {
+      parse_mode: "Markdown",
+      reply_markup: keyboard.reply_markup
+    });
+    task.channelMessageId = sent.message_id;
+    await task.save();
+
+    // Link the intent to this task (so refunds work)
+    await PaymentIntent.findOneAndUpdate(
+      { user: me._id, draft: draftId, payload: txRef },
+      { $set: { task: task._id } },
+      { new: true }
+    );
+
+    // Delete the draft
+    try { await TaskDraft.findByIdAndDelete(draft._id); } catch (_) {}
+
+    // Engagement lock + 85% reminder (your file already has these utilities)
+    try {
+      await EngagementLock.updateOne(
+        { user: me._id, task: task._id },
+        { $setOnInsert: { role: "creator", active: true, createdAt: new Date() }, $unset: { releasedAt: "" } },
+        { upsert: true }
+      );
+    } catch (e) {
+      console.error("Failed to set creator engagement lock:", e);
+    }
+
+    const totalTimeMs = task.expiry - task.postedAt;
+    const reminderTime = new Date(task.postedAt.getTime() + (totalTimeMs * 0.85));
+    const now2 = new Date();
+    if (reminderTime > now2) {
+      setTimeout(async () => {
+        try {
+          const updatedTask = await Task.findById(task._id).populate("applicants.user");
+          if (!updatedTask || updatedTask.status !== "Open" || updatedTask.reminderSent) return;
+          const hasAccepted = updatedTask.applicants.some(app => app.status === "Accepted");
+          if (hasAccepted) return;
+
+          const creator = await User.findById(updatedTask.creator);
+          if (!creator) return;
+          const lang = creator.language || "en";
+          const hoursLeft = Math.floor((updatedTask.expiry.getTime() - Date.now()) / (1000 * 60 * 60));
+          const minutesLeft = Math.floor(((updatedTask.expiry.getTime() - Date.now()) % (1000 * 60 * 60)) / (1000 * 60));
+          const msg = TEXT.creatorReminder85Percent?.[lang]
+            ?.replace("[hours]", String(hoursLeft))
+            ?.replace("[minutes]", String(minutesLeft)) || "⏰ Reminder";
+
+          await ctx.telegram.sendMessage(creator.telegramId, msg);
+          updatedTask.reminderSent = true;
+          await updatedTask.save();
+        } catch (err) {
+          console.error("Error sending 85% reminder:", err);
+        }
+      }, Math.max(0, reminderTime.getTime() - now2.getTime()));
+    }
+
+    // Your original success UI (with Cancel Task)
+    const confirmationText = me.language === "am"
+      ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
+      : `✅ Task posted successfully!\n\nOther users can now apply.`;
+
+    await ctx.reply(
+      confirmationText,
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback(
+            me.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task",
+            `CANCEL_TASK_${task._id}`
+          )
+        ]
+      ])
+    );
+  } catch (e) {
+    console.error("HOSTED_VERIFY error:", e);
+    await ctx.answerCbQuery("Error verifying payment. Please try again.", { show_alert: true });
+  }
+});
+
 // Required by Telegram payments: approve the checkout
 bot.on('pre_checkout_query', async (ctx) => {
   await ctx.answerPreCheckoutQuery(true); // accept
