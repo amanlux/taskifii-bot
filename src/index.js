@@ -1274,15 +1274,23 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   const normalizedPhone = normalizeEtPhone(rawPhone);
 
   // Build payload — only include phone_number if valid
+  // Choose a safe, valid email
+  const rawEmail = process.env.CHAPA_TEST_EMAIL || user.email;
+  const email = isValidEmail(rawEmail)
+    ? rawEmail
+    : `tg${user.telegramId || "user"}@taskifii.bot`;
+
+  // Build payload — phone already handled earlier (only included if valid)
   const payload = {
     amount: String(amountBirr),
     currency,
-    email: user.email || "test@example.com",
+    email,                                      // ← use the validated/fallback email
     first_name: user.fullName ? user.fullName.split(" ")[0] : "Taskifii",
     last_name: user.fullName ? user.fullName.split(" ").slice(1).join(" ") || "User" : "User",
     tx_ref: txRef,
   };
   if (normalizedPhone) payload.phone_number = normalizedPhone;
+
 
   const resp = await fetch("https://api.chapa.co/v1/transaction/initialize", {
     method: "POST",
@@ -1299,6 +1307,12 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
     throw new Error(`Chapa init failed: ${resp.status} ${JSON.stringify(data)}`);
   }
   return { checkout_url: checkout };
+}
+function isValidEmail(raw) {
+  if (!raw) return false;
+  const s = String(raw).trim();
+  // basic RFC5322-ish check: something@something.tld
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
 }
 
 
