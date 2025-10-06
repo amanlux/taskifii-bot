@@ -1408,6 +1408,16 @@ async function applyGatekeeper(ctx, next) {
     return next();
   }
 }
+async function verifyChapaTxRef(txRef) {
+  const secret = process.env.CHAPA_SECRET_KEY;
+  const resp = await fetch(`https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(txRef)}`, {
+    method: "GET",
+    headers: { "Authorization": `Bearer ${secret}` }
+  });
+  const data = await resp.json().catch(() => null);
+  // Success looks like { status: "success", data: { status: "success", ... } }
+  return resp.ok && (data?.data?.status === "success" || data?.status === "success");
+}
 
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
@@ -6236,7 +6246,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
             reply_markup: {
               inline_keyboard: [
                 [{ text: "🔗 Open payment (Chapa)", url: checkout_url }],
-                [{ text: "✅ I’ve paid", callback_data: `HOSTED_VERIFY:${txRef}:${draft._id}` }]
+                [{ text: "✅ I’ve paid", callback_data: `HV:${intent._id.toString()}` }]
+
               ]
             }
           }
@@ -7847,6 +7858,51 @@ bot.action("FIND_TASK", async (ctx) => {
   }
 });
 
+// Short verify: button sends "HV:<intentId>"
+bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery("Checking payment…");
+
+    const intentId = ctx.match[1];
+    const intent = await PaymentIntent.findById(intentId);
+    if (!intent) {
+      return ctx.reply("❌ Payment session not found. Please try again.");
+    }
+
+    // Verify with Chapa (hosted checkout)
+    const ok = await verifyChapaTxRef(intent.chapaTxRef);
+    if (!ok) {
+      return ctx.reply("🚧 We haven't received a success from Chapa yet. Please complete the payment page and try again.");
+    }
+
+    // Mark paid if not already
+    if (intent.status !== "paid") {
+      intent.status = "paid";
+      intent.paidAt = new Date();
+      await intent.save();
+    }
+
+    // Load draft and continue with your existing "post task" success flow
+    const me = await User.findOne({ telegramId: ctx.from.id });
+    const draft = await TaskDraft.findById(intent.draft);
+    if (!me || !draft) {
+      return ctx.reply("❌ Draft expired or user not found. Please try again.");
+    }
+
+    // === your existing “Create the task & post to channel” block goes here ===
+    // (The same block you already run on successful payment; do NOT change its internals.)
+    // If you already have this logic in a helper, call it here instead.
+
+    // Example call if you extracted it:
+    // await postTaskFromPaidDraft({ ctx, me, draft });
+
+  } catch (err) {
+    console.error("HOSTED_VERIFY(HV) error:", err);
+    try {
+      await ctx.answerCbQuery("Payment check failed.", { show_alert: true });
+    } catch (_) {}
+  }
+});
 
 
 // Error handling middleware
