@@ -6218,7 +6218,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
         const txRef = `escrow_${draft._id}_${Date.now()}`;
 
         // Create a pending PaymentIntent upfront (we refund by tx_ref later if needed)
-        await PaymentIntent.create({
+        const intent = await PaymentIntent.create({
           user: user._id,
           draft: draft._id,
           amount: amountBirr,
@@ -6231,10 +6231,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
 
         // Initialize the hosted checkout (helper defined earlier in this file)
         const { checkout_url } = await chapaInitializeEscrow({
-          amountBirr,
-          currency,
-          txRef,
-          user
+          amountBirr, currency, txRef, user
         });
 
         // Show the pay link + a “I’ve paid” verify button
@@ -6246,15 +6243,14 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
             reply_markup: {
               inline_keyboard: [
                 [{ text: "🔗 Open payment (Chapa)", url: checkout_url }],
+                // keep callback_data short (Telegram limit 64 bytes)
                 [{ text: "✅ I’ve paid", callback_data: `HV:${intent._id.toString()}` }]
-
               ]
             }
           }
         );
+        return; // stop here; user will tap “I’ve paid”
 
-        // Stop here; after payment they’ll press “I’ve paid”, which triggers verification & posting.
-        return;
       }
 
       // === Path B: Telegram Invoice (Chapa provider token) — fallback ===
