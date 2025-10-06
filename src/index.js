@@ -6290,17 +6290,30 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
       });
 
       const minor = Math.round(amountBirr * 100); // ETB has 2 decimals
+      const normalizedPhoneForInvoice = normalizeEtPhone(
+        process.env.CHAPA_TEST_PHONE || user.phone
+      );
+
       await ctx.replyWithInvoice({
         title: user.language === "am" ? "ኢስክሮ ፈንድ ያስገቡ" : "Fund Task Escrow",
         description: user.language === "am"
           ? "ተግዳሮቱ እንዲታተም እባክዎ የተወሰነውን የክፍያ መጠን ይክፈሉ።"
           : "Please pay the exact task fee to post this task.",
-        provider_token: process.env.CHAPA_PROVIDER_TOKEN, // from BotFather via Chapa
+        provider_token: process.env.CHAPA_PROVIDER_TOKEN,
         currency,
         prices: [{ label: user.language === "am" ? "የተግባሩ ክፍያ" : "Task fee", amount: minor }],
         payload,
-        start_parameter: `fund_${draft._id}`
+        start_parameter: `fund_${draft._id}`,
+
+        // 👇 NEW: tell Telegram to collect/show phone on the invoice sheet
+        need_phone_number: true,
+
+        // 👇 NEW: pass the phone along to the provider (Chapa sees this)
+        provider_data: JSON.stringify({
+          phone_number: normalizedPhoneForInvoice || undefined
+        })
       });
+
 
       await ctx.reply(
         user.language === "am"
@@ -6623,6 +6636,20 @@ bot.on('successful_payment', async (ctx) => {
     const [, draftId] = payload.split(":");
     const me = await User.findOne({ telegramId: ctx.from.id });
     if (!me) return;
+
+    // Optional: capture phone number returned by Telegram and persist to the user
+    const phoneFromOrder = sp?.order_info?.phone_number;
+    if (phoneFromOrder) {
+      const normalized = normalizeEtPhone(phoneFromOrder);
+      if (normalized && !me.phone) {
+        try {
+          me.phone = normalized;
+          await me.save();
+        } catch (e) {
+          console.error("Could not save phone from order_info:", e);
+        }
+      }
+    }
 
     // Mark intent as paid (idempotent)
     const intent = await PaymentIntent.findOneAndUpdate(
