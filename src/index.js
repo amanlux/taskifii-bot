@@ -1319,20 +1319,24 @@ function isValidEmail(raw) {
 
 // ── Refund helper (small, defensive) ─────────────────────────────────────────
 // ── FIXED: use the correct Chapa refund endpoint ──────────────────────────────
+// Chapa refund — only for hosted-checkout payments we initialized with tx_ref
 async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
   const secret = process.env.CHAPA_SECRET_KEY;
   if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
 
-  // Prefer a Chapa tx_ref if we have one (we'll start saving it soon).
-  // Fallback to provider_payment_charge_id to try best-effort (may not work).
-  const txRef =
-    intent.chapaTxRef || intent.tx_ref || intent.provider_payment_charge_id;
+  // Only auto-refund if this was the Chapa-hosted path and we stored tx_ref
+  if (intent?.provider !== "chapa_hosted" || !intent?.chapaTxRef) {
+    // Signal to caller that this intent isn't eligible for Chapa auto-refund
+    const msg = "Not a Chapa-hosted transaction (no chapaTxRef/provider mismatch).";
+    const err = new Error(msg);
+    err.code = "NOT_CHAPA_HOSTED";
+    throw err;
+  }
 
-  if (!txRef) throw new Error("No tx_ref/provider id available for refund");
+  const txRef = intent.chapaTxRef; // the exact tx_ref we used on initialize
 
   const form = new URLSearchParams();
-  // amount is optional in Chapa docs, but we pass it explicitly
-  if (intent.amount) form.append("amount", String(intent.amount));
+  if (intent.amount) form.append("amount", String(intent.amount)); // optional
   form.append("reason", reason);
 
   const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(txRef)}`, {
@@ -1350,6 +1354,7 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
   }
   return data;
 }
+
 
 
 
@@ -6619,12 +6624,17 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
         chapaTxRef: txRef,
         status: "paid",
         paidAt: new Date(),
+        provider: "chapa_hosted",
+        amount: draft?.paymentFee,             // optional, for nicer refund logs
+        currency: process.env.CHAPA_CURRENCY || "ETB"
       });
     } else if (intent.status !== "paid") {
       intent.status = "paid";
       intent.paidAt = new Date();
+      // keep provider/txRef that were already on the pending intent
       await intent.save();
     }
+
 
     // ✅ Use same helper to post task now
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
