@@ -1279,7 +1279,9 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   const normalizedPhone = normalizeEtPhone(rawPhone); // this helper already exists in your file
 
   // Validate / fallback email so Chapa always gets a proper one
-  const email = emailForChapa(user);     // <— use the helper
+  const email = emailForChapa({ email: user.email, telegramId: user.telegramId });
+// (and in emailForChapa, delete the testEnv branch if you never want env to apply)
+     // <— use the helper
 
   const payload = {
     amount: String(amountBirr),
