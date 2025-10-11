@@ -1319,8 +1319,8 @@ function isValidEmail(raw) {
 
 // ── Refund helper (small, defensive) ─────────────────────────────────────────
 // ── FIXED: use the correct Chapa refund endpoint ──────────────────────────────
-// Chapa refund — only for hosted-checkout payments we initialized with tx_ref
-// Chapa refund — only for hosted-checkout payments we initialized with tx_ref
+
+// Chapa refund — verify first, then refund using Chapa's canonical reference if present
 async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
   const secret = process.env.CHAPA_SECRET_KEY;
   if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
@@ -1334,7 +1334,7 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
 
   const originalTxRef = String(intent.chapaTxRef).trim();
 
-  // 1) Verify the tx_ref first — use Chapa's canonical tx_ref
+  // 1) Verify: this returns Chapa’s canonical identifiers
   const verifyResp = await fetch(
     `https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(originalTxRef)}`,
     { headers: { Authorization: `Bearer ${secret}` } }
@@ -1348,16 +1348,17 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
     throw e;
   }
 
-  // Prefer Chapa's own echo of the tx_ref if present
-  const canonicalTxRef =
-    (verifyData && verifyData.data && (verifyData.data.tx_ref || verifyData.data.reference)) || originalTxRef;
+  // 2) Prefer Chapa’s own reference for refund if available; else fallback to tx_ref
+  // In many integrations, refunds succeed more reliably when using `reference`.
+  const chapaReference =
+    (verifyData && verifyData.data && (verifyData.data.reference || verifyData.data.tx_ref)) || originalTxRef;
 
-  // 2) Refund — amount is optional; omit it to full-refund unless you specifically want partial refunds.
+  // 3) Build form – amount optional (omit to full-refund)
   const form = new URLSearchParams();
-  if (intent.amount) form.append("amount", String(intent.amount)); // keep if you want exact-amount refunds
+  if (intent.amount) form.append("amount", String(intent.amount));
   form.append("reason", reason);
 
-  const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(canonicalTxRef)}`, {
+  const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(chapaReference)}`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${secret}`,
@@ -1367,15 +1368,14 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
   });
 
   const data = await res.json().catch(() => ({}));
-
   if (!res.ok || (data?.status && String(data.status).toLowerCase() !== "success")) {
-    // Add rich context so your logs are actionable
     throw new Error(
-      `Refund API declined: ${res.status} ${JSON.stringify(data)} [provider=${intent?.provider} tx_ref=${canonicalTxRef}]`
+      `Refund API declined: ${res.status} ${JSON.stringify(data)} [provider=${intent?.provider} tx_ref=${chapaReference}]`
     );
   }
   return data;
 }
+
 
 
 
