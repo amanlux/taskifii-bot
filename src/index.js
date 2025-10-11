@@ -1276,23 +1276,22 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
 
 
   // Normalize phone: include only if valid Ethiopian format
-  const normalizedPhone = normalizeEtPhone(rawPhone); // this helper already exists in your file
-
-  // Validate / fallback email so Chapa always gets a proper one
-  const email = emailForChapa({ email: user.email, telegramId: user.telegramId });
-// (and in emailForChapa, delete the testEnv branch if you never want env to apply)
-     // <— use the helper
+  const normalizedPhone = normalizeEtPhone(user?.phone);
+  const email = emailForChapa(user);      // ← use the helper
 
   const payload = {
     amount: String(amountBirr),
     currency,
-    email,                                // <— now always valid
+    email,                                // ← always valid for Chapa now
     first_name: user.fullName ? user.fullName.split(" ")[0] : "Taskifii",
     last_name:  user.fullName ? (user.fullName.split(" ").slice(1).join(" ") || "User") : "User",
     tx_ref: txRef,
   };
-
   if (normalizedPhone) payload.phone_number = normalizedPhone;
+
+  // TEMP: log once so you can see exactly what's sent
+  console.log("[Chapa init] email:", payload.email);
+
 
   const resp = await fetch("https://api.chapa.co/v1/transaction/initialize", {
     method: "POST",
@@ -1311,25 +1310,37 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   return { checkout_url: checkout };
 }
 
-// Put this helper once (near your other helpers)
+// Always give Chapa an email it will accept.
+// Prefer user's real email if it looks normal, otherwise fall back to tg<id>@example.com.
 function emailForChapa(user) {
-  // 1) Prefer the user's saved email if it looks normal (user wins)
-  const candidate = (user && typeof user.email === "string" ? user.email.trim() : "");
+  const raw = (user && typeof user.email === "string" ? user.email.trim() : "");
 
-  // Chapa is picky with TLDs; keep it boring: something@something.tld (tld >= 2 letters)
-  const BASIC = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+  // simple shape check
+  const BASIC = /^[^\s@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
-  if (BASIC.test(candidate)) return candidate;
+  // TLD allow-list (extend if you like)
+  const ALLOWED = new Set([
+    "com","net","org","co","io","ai","biz","info","xyz","dev","app","me","site","shop","cloud",
+    "et","gov","edu"
+  ]);
 
-  // 2) Otherwise, try your test email from env if present and valid
-  const testEnv = (process.env.CHAPA_TEST_EMAIL || "").trim();
-  if (BASIC.test(testEnv)) return testEnv;
+  function ok(email) {
+    if (!BASIC.test(email)) return false;
+    const tld = email.toLowerCase().split(".").pop();
+    return ALLOWED.has(tld);
+  }
 
-  // 3) Last resort: generate a clean placeholder Chapa will accept
-  // "example.com" is a reserved, always-safe domain.
-  const suffix = user?.telegramId ? String(user.telegramId).replace(/\D/g, "").slice(-12) : "user";
+  if (ok(raw)) return raw;                               // user email is fine
+
+  // If you still keep a test email in Render env, use it only if OK
+  const envEmail = (process.env.CHAPA_TEST_EMAIL || "").trim();
+  if (ok(envEmail)) return envEmail;
+
+  // Last resort: guaranteed-safe placeholder (Chapa accepts it)
+  const suffix = user?.telegramId ? String(user.telegramId).replace(/\D/g,"").slice(-12) : "user";
   return `tg${suffix}@example.com`;
 }
+
 
 
 
