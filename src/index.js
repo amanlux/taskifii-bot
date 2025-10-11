@@ -1279,18 +1279,17 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   const normalizedPhone = normalizeEtPhone(rawPhone); // this helper already exists in your file
 
   // Validate / fallback email so Chapa always gets a proper one
-  const email = isValidEmail(rawEmail0)
-    ? rawEmail0
-    : `tg${user.telegramId || "user"}@taskifii.bot`; // valid format, unique per user
+  const email = emailForChapa(user);     // <— use the helper
 
   const payload = {
     amount: String(amountBirr),
     currency,
-    email,
+    email,                                // <— now always valid
     first_name: user.fullName ? user.fullName.split(" ")[0] : "Taskifii",
     last_name:  user.fullName ? (user.fullName.split(" ").slice(1).join(" ") || "User") : "User",
     tx_ref: txRef,
   };
+
   if (normalizedPhone) payload.phone_number = normalizedPhone;
 
   const resp = await fetch("https://api.chapa.co/v1/transaction/initialize", {
@@ -1310,12 +1309,26 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   return { checkout_url: checkout };
 }
 
-function isValidEmail(raw) {
-  if (!raw) return false;
-  const s = String(raw).trim();
-  // basic RFC5322-ish check: something@something.tld
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s);
+// Put this helper once (near your other helpers)
+function emailForChapa(user) {
+  // 1) Prefer the user's saved email if it looks normal (user wins)
+  const candidate = (user && typeof user.email === "string" ? user.email.trim() : "");
+
+  // Chapa is picky with TLDs; keep it boring: something@something.tld (tld >= 2 letters)
+  const BASIC = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
+  if (BASIC.test(candidate)) return candidate;
+
+  // 2) Otherwise, try your test email from env if present and valid
+  const testEnv = (process.env.CHAPA_TEST_EMAIL || "").trim();
+  if (BASIC.test(testEnv)) return testEnv;
+
+  // 3) Last resort: generate a clean placeholder Chapa will accept
+  // "example.com" is a reserved, always-safe domain.
+  const suffix = user?.telegramId ? String(user.telegramId).replace(/\D/g, "").slice(-12) : "user";
+  return `tg${suffix}@example.com`;
 }
+
 
 
 // ── Refund helper (small, defensive) ─────────────────────────────────────────
