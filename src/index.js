@@ -1271,8 +1271,9 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
   if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
 
   // Allow safe test overrides while you test
-  const rawPhone  = process.env.CHAPA_TEST_PHONE  || user.phone;
-  const rawEmail0 = process.env.CHAPA_TEST_EMAIL || user.email;
+  const rawPhone  = user.phone || process.env.CHAPA_TEST_PHONE;
+  const rawEmail0 = user.email || process.env.CHAPA_TEST_EMAIL;
+
 
   // Normalize phone: include only if valid Ethiopian format
   const normalizedPhone = normalizeEtPhone(rawPhone); // this helper already exists in your file
