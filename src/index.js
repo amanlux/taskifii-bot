@@ -1320,40 +1320,63 @@ function isValidEmail(raw) {
 // ── Refund helper (small, defensive) ─────────────────────────────────────────
 // ── FIXED: use the correct Chapa refund endpoint ──────────────────────────────
 // Chapa refund — only for hosted-checkout payments we initialized with tx_ref
+// Chapa refund — only for hosted-checkout payments we initialized with tx_ref
 async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
   const secret = process.env.CHAPA_SECRET_KEY;
   if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
 
   // Only auto-refund if this was the Chapa-hosted path and we stored tx_ref
   if (intent?.provider !== "chapa_hosted" || !intent?.chapaTxRef) {
-    // Signal to caller that this intent isn't eligible for Chapa auto-refund
-    const msg = "Not a Chapa-hosted transaction (no chapaTxRef/provider mismatch).";
-    const err = new Error(msg);
+    const err = new Error("Not a Chapa-hosted transaction (no chapaTxRef/provider mismatch).");
     err.code = "NOT_CHAPA_HOSTED";
     throw err;
   }
 
-  const txRef = intent.chapaTxRef; // the exact tx_ref we used on initialize
+  const originalTxRef = String(intent.chapaTxRef).trim();
 
+  // 1) Verify the tx_ref first — use Chapa's canonical tx_ref
+  const verifyResp = await fetch(
+    `https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(originalTxRef)}`,
+    { headers: { Authorization: `Bearer ${secret}` } }
+  );
+  const verifyData = await verifyResp.json().catch(() => null);
+  const txStatus = String(verifyData?.data?.status || "").toLowerCase();
+  if (!verifyResp.ok || txStatus !== "success") {
+    const e = new Error(`Cannot refund: verify failed or not paid. status=${verifyResp.status} txStatus=${txStatus}`);
+    e.code = "VERIFY_FAILED";
+    e.details = { verifyData };
+    throw e;
+  }
+
+  // Prefer Chapa's own echo of the tx_ref if present
+  const canonicalTxRef =
+    (verifyData && verifyData.data && (verifyData.data.tx_ref || verifyData.data.reference)) || originalTxRef;
+
+  // 2) Refund — amount is optional; omit it to full-refund unless you specifically want partial refunds.
   const form = new URLSearchParams();
-  if (intent.amount) form.append("amount", String(intent.amount)); // optional
+  if (intent.amount) form.append("amount", String(intent.amount)); // keep if you want exact-amount refunds
   form.append("reason", reason);
 
-  const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(txRef)}`, {
+  const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(canonicalTxRef)}`, {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${secret}`,
-      "Content-Type": "application/x-www-form-urlencoded"
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: form.toString()
+    body: form.toString(),
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || (data?.status && data.status !== "success")) {
-    throw new Error(`Refund API declined: ${res.status} ${JSON.stringify(data)}`);
+
+  if (!res.ok || (data?.status && String(data.status).toLowerCase() !== "success")) {
+    // Add rich context so your logs are actionable
+    throw new Error(
+      `Refund API declined: ${res.status} ${JSON.stringify(data)} [provider=${intent?.provider} tx_ref=${canonicalTxRef}]`
+    );
   }
   return data;
 }
+
 
 
 
@@ -6780,6 +6803,12 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
       );
 
       try {
+        console.log("Attempting Chapa refund", {
+          provider: intent?.provider,
+          chapaTxRef: intent?.chapaTxRef,
+          amount: intent?.amount,
+        });
+
         await refundEscrowWithChapa(intent, "Creator canceled before engagement");
         await PaymentIntent.updateOne(
           { _id: intent._id },
