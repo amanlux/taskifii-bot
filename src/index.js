@@ -1418,6 +1418,98 @@ async function verifyChapaTxRef(txRef) {
   // Success looks like { status: "success", data: { status: "success", ... } }
   return resp.ok && (data?.data?.status === "success" || data?.status === "success");
 }
+// Reuse this in both Telegram-invoice and Hosted-Checkout flows
+async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
+  // Create the task with postedAt timestamp
+  const now = new Date();
+  const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
+
+  const task = await Task.create({
+    creator: me._id,
+    description: draft.description,
+    relatedFile: draft.relatedFile?.fileId || null,
+    fields: draft.fields,
+    skillLevel: draft.skillLevel,
+    paymentFee: draft.paymentFee,
+    timeToComplete: draft.timeToComplete,
+    revisionTime: draft.revisionTime,
+    latePenalty: draft.penaltyPerHour,
+    expiry: expiryDate,
+    exchangeStrategy: draft.exchangeStrategy,
+    status: "Open",
+    applicants: [],
+    stages: [],
+    postedAt: now,
+    reminderSent: false
+  });
+
+  // Post to channel
+  const channelId = process.env.CHANNEL_ID || "-1002254896955";
+  const preview = buildChannelPostText(draft, me);
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.url(
+      me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+      `https://t.me/${ctx.botInfo.username}?start=apply_${task._id}`
+    )]
+  ]);
+
+  const sent = await ctx.telegram.sendMessage(channelId, preview, {
+    parse_mode: "Markdown",
+    reply_markup: keyboard.reply_markup
+  });
+
+  task.channelMessageId = sent.message_id;
+  await task.save();
+
+  // Lock the creator on this task so they can't act as a doer concurrently
+  try {
+    await EngagementLock.updateOne(
+      { user: me._id, task: task._id },
+      { $setOnInsert: { role: 'creator', active: true, createdAt: new Date() }, $unset: { releasedAt: "" } },
+      { upsert: true }
+    );
+  } catch (e) {
+    console.error("Failed to set creator engagement lock:", e);
+  }
+
+  // Link the paid PaymentIntent to this task (idempotent)
+  try {
+    if (intent?._id) {
+      await PaymentIntent.findByIdAndUpdate(intent._id, { $set: { task: task._id } });
+    } else if (intent?.payload) {
+      await PaymentIntent.findOneAndUpdate(
+        { user: me._id, payload: intent.payload },
+        { $set: { task: task._id } },
+        { new: true }
+      );
+    }
+  } catch (e) {
+    console.error("Failed to link PaymentIntent to task:", e);
+  }
+
+  // Delete the draft now that the task is live
+  try {
+    await TaskDraft.findByIdAndDelete(draft._id);
+  } catch (e) {
+    console.error("Failed to delete draft after payment:", e);
+  }
+
+  // Send the same confirmation UI you already use
+  const confirmationText = me.language === "am"
+    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
+    : `✅ Task posted successfully!\n\nOther users can now apply.`;
+
+  await ctx.reply(
+    confirmationText,
+    Markup.inlineKeyboard([
+      [Markup.button.callback(
+        me.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task",
+        `CANCEL_TASK_${task._id}`
+      )]
+    ])
+  );
+}
 
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
@@ -6625,6 +6717,7 @@ bot.action(/^HOSTED_VERIFY:([^:]+):([a-f0-9]{24})$/, async (ctx) => {
 bot.on('pre_checkout_query', async (ctx) => {
   await ctx.answerPreCheckoutQuery(true); // accept
 });
+
 bot.on('successful_payment', async (ctx) => {
   try {
     const sp = ctx.message.successful_payment; // has currency, total_amount, provider_payment_charge_id, invoice_payload
@@ -6651,7 +6744,7 @@ bot.on('successful_payment', async (ctx) => {
       }
     }
 
-    // Mark intent as paid (idempotent)
+    // Mark PaymentIntent as paid (idempotent)
     const intent = await PaymentIntent.findOneAndUpdate(
       { user: me._id, draft: draftId, payload },
       {
@@ -6666,133 +6759,29 @@ bot.on('successful_payment', async (ctx) => {
       { new: true }
     );
 
-    // Load draft fresh
+    // Load draft
     const draft = await TaskDraft.findById(draftId);
     if (!draft) {
-      return ctx.reply(me.language === "am"
-        ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ እንደገና ይሞክሩ።"
-        : "❌ Draft expired. Please try again.");
-    }
-
-    // === Your existing "create task + post to channel" logic (unaltered) ===
-    const now = new Date();
-    const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
-
-    const task = await Task.create({
-      creator: me._id,
-      description: draft.description,
-      relatedFile: draft.relatedFile?.fileId || null,
-      fields: draft.fields,
-      skillLevel: draft.skillLevel,
-      paymentFee: draft.paymentFee,
-      timeToComplete: draft.timeToComplete,
-      revisionTime: draft.revisionTime,
-      latePenalty: draft.penaltyPerHour,
-      expiry: expiryDate,
-      exchangeStrategy: draft.exchangeStrategy,
-      status: "Open",
-      applicants: [],
-      stages: [],
-      postedAt: now,
-      reminderSent: false
-    });
-
-    const channelId = process.env.CHANNEL_ID || "-1002254896955";
-    const preview = buildChannelPostText(draft, me); // your helper
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.url(
-        me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
-        `https://t.me/${ctx.botInfo.username}?start=apply_${task._id}`
-      )]
-    ]);
-
-    const sent = await ctx.telegram.sendMessage(channelId, preview, {
-      parse_mode: "Markdown",
-      reply_markup: keyboard.reply_markup
-    });
-
-    task.channelMessageId = sent.message_id;
-    await task.save();
-
-    // Lock the creator on this task so they can't act as a doer concurrently
-    try {
-      await EngagementLock.updateOne(
-        { user: me._id, task: task._id },
-        { $setOnInsert: { role: 'creator', active: true, createdAt: new Date() }, $unset: { releasedAt: "" } },
-        { upsert: true }
+      return ctx.reply(
+        me.language === "am"
+          ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ እንደገና ይሞክሩ።"
+          : "❌ Draft expired. Please try again."
       );
-    } catch (e) {
-      console.error("Failed to set creator engagement lock:", e);
     }
 
-    // 85% reminder scheduling (same as your code)
-    const totalTimeMs = task.expiry - task.postedAt;
-    const reminderTime = new Date(task.postedAt.getTime() + (totalTimeMs * 0.85));
-    if (reminderTime > now) {
-      setTimeout(async () => {
-        try {
-          const updatedTask = await Task.findById(task._id).populate("applicants.user");
-          if (!updatedTask || updatedTask.status !== "Open" || updatedTask.reminderSent) return;
-
-          const hasAcceptedApplicant = updatedTask.applicants.some(app => app.status === "Accepted");
-          if (hasAcceptedApplicant) return;
-
-          const creator = await User.findById(updatedTask.creator);
-          if (!creator) return;
-          const lang = creator.language || "en";
-          const hoursLeft = Math.floor((updatedTask.expiry.getTime() - new Date().getTime()) / (1000 * 60 * 60));
-          const minutesLeft = Math.floor(((updatedTask.expiry.getTime() - new Date().getTime()) % (1000 * 60 * 60)) / (1000 * 60));
-          const msg = TEXT.creatorReminder85Percent[lang]
-            ?.replace("[hours]", hoursLeft.toString())
-            ?.replace("[minutes]", minutesLeft.toString()) || "⏰ Reminder";
-
-          await ctx.telegram.sendMessage(creator.telegramId, msg);
-          updatedTask.reminderSent = true;
-          await updatedTask.save();
-        } catch (err) {
-          console.error("Error sending 85% reminder:", err);
-        }
-      }, Math.max(0, reminderTime.getTime() - now.getTime()));
-    }
-    // Link the paid PaymentIntent to this task (idempotent)
-    await PaymentIntent.findOneAndUpdate(
-      { user: me._id, payload },
-      { $set: { task: task._id } },
-      { new: true }
-    );
-
-    // Delete the draft now that the task is live
-    try {
-      await TaskDraft.findByIdAndDelete(draft._id);
-    } catch (e) {
-      console.error("Failed to delete draft after payment:", e);
-    }
-
-    // Send the same confirmation UI you use in the non-escrow flow
-    const confirmationText = me.language === "am"
-      ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
-      : `✅ Task posted successfully!\n\nOther users can now apply.`;
-
-    await ctx.reply(
-      confirmationText,
-      Markup.inlineKeyboard([
-        [
-          Markup.button.callback(
-            me.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task",
-            `CANCEL_TASK_${task._id}`
-          )
-        ]
-      ])
-    );
-
+    // ✅ Use the same unified task-posting helper
+    await postTaskFromPaidDraft({ ctx, me, draft, intent });
 
   } catch (err) {
     console.error("successful_payment handler error:", err);
     try {
-      await ctx.reply("⚠️ Payment succeeded, but we hit an error while posting. We’ll check it immediately.");
+      await ctx.reply(
+        "⚠️ Payment succeeded, but we hit an error while posting. We’ll check it immediately."
+      );
     } catch (_) {}
   }
 });
+
 
 // Add Cancel Task handler
 bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
@@ -7885,12 +7874,9 @@ bot.action("FIND_TASK", async (ctx) => {
 bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
   try {
     await ctx.answerCbQuery("Checking payment…");
-
     const intentId = ctx.match[1];
     const intent = await PaymentIntent.findById(intentId);
-    if (!intent) {
-      return ctx.reply("❌ Payment session not found. Please try again.");
-    }
+    if (!intent) { return ctx.reply("❌ Payment session not found. Please try again."); }
 
     // Verify with Chapa (hosted checkout)
     const ok = await verifyChapaTxRef(intent.chapaTxRef);
@@ -7905,27 +7891,22 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
       await intent.save();
     }
 
-    // Load draft and continue with your existing "post task" success flow
+    // Load draft + user
     const me = await User.findOne({ telegramId: ctx.from.id });
     const draft = await TaskDraft.findById(intent.draft);
     if (!me || !draft) {
       return ctx.reply("❌ Draft expired or user not found. Please try again.");
     }
 
-    // === your existing “Create the task & post to channel” block goes here ===
-    // (The same block you already run on successful payment; do NOT change its internals.)
-    // If you already have this logic in a helper, call it here instead.
-
-    // Example call if you extracted it:
-    // await postTaskFromPaidDraft({ ctx, me, draft });
+    // ✅ NEW: continue exactly like your successful_payment path
+    await postTaskFromPaidDraft({ ctx, me, draft, intent });
 
   } catch (err) {
     console.error("HOSTED_VERIFY(HV) error:", err);
-    try {
-      await ctx.answerCbQuery("Payment check failed.", { show_alert: true });
-    } catch (_) {}
+    try { await ctx.answerCbQuery("Payment check failed.", { show_alert: true }); } catch (_) {}
   }
 });
+
 
 
 // Error handling middleware
