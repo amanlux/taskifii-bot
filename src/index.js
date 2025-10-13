@@ -1588,12 +1588,17 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
     console.error("Failed to delete draft after payment:", e);
   }
 
-  // Send the same confirmation UI you already use
+  // find the "Send the same confirmation UI you already use" block and REPLACE it:
+  const tg2 = (ctx && ctx.telegram) ? ctx.telegram
+            : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
+  if (!tg2) throw new Error("Telegram handle unavailable (confirmation)");
+
   const confirmationText = me.language === "am"
     ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
     : `✅ Task posted successfully!\n\nOther users can now apply.`;
 
-  await ctx.reply(
+  await tg2.sendMessage(
+    me.telegramId,
     confirmationText,
     Markup.inlineKeyboard([
       [Markup.button.callback(
@@ -1602,51 +1607,56 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
       )]
     ])
   );
+
 }
 // ---- BEGIN: unified post-payment follow-ups ----
+// ---- REPLACE your afterTaskPosted with this safe version ----
 async function afterTaskPosted({ ctx, task, me, draft }) {
+  const tg = (ctx && ctx.telegram) ? ctx.telegram
+           : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
+  if (!tg) { console.error("afterTaskPosted: telegram handle unavailable"); return; }
+
+  // (A) DM: lightweight “task is live” + cancel button (uses your existing CANCEL_TASK handler)
   try {
-    // 1) DM the creator with the manage panel (same keyboard they got before)
-    //    Reuse your existing builder for the creator control panel text/buttons.
-    //    In your codebase this is the same block you used to send after "I've paid".
-    //    Find it by searching: buildCreatorControlPanel or "Applicants / Cancel"
-    const lang = me?.language || "en";
-    const panelText = buildCreatorPanelText(task, lang);      // <— you have an equivalent builder already
-    const panelKb   = buildCreatorPanelKeyboard(task, lang);  // <— and the keyboard builder as well
-    await ctx.telegram.sendMessage(me.telegramId, panelText, {
-      parse_mode: "Markdown",
-      reply_markup: panelKb.reply_markup
-    });
-
-    // 2) Update or create the admin tracking message for this user
-    //    You already have updateAdminProfilePost in your repo (see your earlier logs).
-    await updateAdminProfilePost(ctx, me);
-
-    // 3) Start application & report/finalization timers exactly like before
-    //    You already have these utilities; we just call them.
-    //    Search your file for functions you call when posting a task manually:
-    //    maybe names like: scheduleApplicationWindow / maybeStartReportWindow / scheduleAutoClose
-    try { await scheduleApplicationWindow(task._id, ctx.telegram); } catch (e) { console.error("scheduleApplicationWindow:", e); }
-    try { await maybeStartReportWindow(task._id, ctx.telegram); } catch (e) { console.error("maybeStartReportWindow:", e); }
-    try { await scheduleAutoClose(task._id, ctx.telegram); } catch (e) { console.error("scheduleAutoClose:", e); }
-
-    // 4) Clean up: delete the preview/draft messages if they exist
-    //    Your draft model usually stores previewMessageId and previewChatId.
-    if (draft?.previewChatId && draft?.previewMessageId) {
-      try { await ctx.telegram.deleteMessage(draft.previewChatId, draft.previewMessageId); } catch (_) {}
-    }
-
-    // 5) Mark draft as posted & clear any bot session breadcrumbs
-    if (draft) {
-      draft.status = "posted";
-      await draft.save();
-    }
-    if (ctx.session && ctx.session.taskFlow) ctx.session.taskFlow = null;
-
+    const txt = me?.language === "am"
+      ? "✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል! ከዚህ ቻት ውስጥ ተግዳሮቱን መቆጣጠር ትችላለህ።"
+      : "✅ Your task is live! You can manage it from this chat.";
+    const kb  = Markup.inlineKeyboard([
+      [Markup.button.callback(me?.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", `CANCEL_TASK_${task._id}`)]
+    ]);
+    await tg.sendMessage(me.telegramId, txt, { reply_markup: kb.reply_markup });
   } catch (e) {
-    console.error("afterTaskPosted failed:", e);
+    console.error("afterTaskPosted DM error:", e);
+  }
+
+  // (B) Best-effort admin/profile refresh (kept in try{} so missing fns won’t crash)
+  try { if (typeof updateAdminProfilePost === "function") {
+    await updateAdminProfilePost({ telegram: tg }, me);
+  }} catch (e) { console.error("afterTaskPosted updateAdminProfilePost:", e); }
+
+  // (C) Kick off your timers (names already exist in your file; guard each call)
+  try { if (typeof scheduleApplicationWindow === "function")
+    await scheduleApplicationWindow(task._id, tg);
+  } catch (e) { console.error("scheduleApplicationWindow:", e); }
+
+  try { if (typeof maybeStartReportWindow === "function")
+    await maybeStartReportWindow(task._id, tg);
+  } catch (e) { console.error("maybeStartReportWindow:", e); }
+
+  try { if (typeof scheduleAutoClose === "function")
+    await scheduleAutoClose(task._id, tg);
+  } catch (e) { console.error("scheduleAutoClose:", e); }
+
+  // (D) Clean up any preview message saved on the draft (if present)
+  try {
+    if (draft?.previewChatId && draft?.previewMessageId) {
+      await tg.deleteMessage(draft.previewChatId, draft.previewMessageId);
+    }
+  } catch (e) {
+    console.warn("afterTaskPosted: preview cleanup failed:", e);
   }
 }
+
 // ---- END: unified post-payment follow-ups ----
 
 
