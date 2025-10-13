@@ -1536,20 +1536,18 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
-      me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
-      `https://t.me/${(ctx && ctx.botInfo && ctx.botInfo.username) || BOT_USERNAME}?start=apply_${task._id}`
-
+      user.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+      applyDeepLink(ctx, BOT_USERNAME, task._id)
     )]
   ]);
 
   const tg = (ctx && ctx.telegram) ? ctx.telegram : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
   if (!tg) throw new Error("Telegram handle unavailable");
   const sent = await tg.sendMessage(channelId, preview, {
-
-
     parse_mode: "Markdown",
     reply_markup: keyboard.reply_markup
   });
+
 
   task.channelMessageId = sent.message_id;
   await task.save();
@@ -1773,6 +1771,14 @@ async function sendAcceptedApplicationToChannel(bot, task, applicant, creator) {
   } catch (err) {
     console.error("Failed to send accepted application to channel:", err);
   }
+}
+// put this near your other helpers/utilities
+function botUsernameFrom(ctx, fallback) {
+  return ((ctx && ctx.botInfo && ctx.botInfo.username) || fallback || "").replace(/^@/, "");
+}
+function applyDeepLink(ctx, fallbackUsername, taskId) {
+  const uname = botUsernameFrom(ctx, fallbackUsername);
+  return `tg://resolve?domain=${uname}&start=apply_${taskId}`;
 }
 
 function decisionsLocked(task) {
@@ -3436,7 +3442,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
         ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
         : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
       
-      const deepLink = `https://t.me/${ctx.botInfo.username}?start=apply_${taskId}`;
+      const deepLink = applyDeepLink(ctx, BOT_USERNAME, taskId);
       
       return ctx.reply(message, Markup.inlineKeyboard([
         [Markup.button.url(
@@ -6738,20 +6744,21 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
-      user.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ", 
-      `https://t.me/${(ctx && ctx.botInfo && ctx.botInfo.username) || BOT_USERNAME}?start=apply_${task._id}`
-
+      me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+      applyDeepLink(ctx, BOT_USERNAME, task._id)
     )]
   ]);
+
 
   try {
     const tg = (ctx && ctx.telegram) ? ctx.telegram : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
     if (!tg) throw new Error("Telegram handle unavailable");
     const sent = await tg.sendMessage(channelId, preview, {
-      parse_mode: "Markdown",
-      reply_markup: keyboard.reply_markup
-    });
 
+
+      parse_mode: "Markdown",
+      ...keyboard
+    });
 
     task.channelMessageId = sent.message_id;
     await task.save();
