@@ -1473,7 +1473,7 @@ async function applyGatekeeper(ctx, next) {
     // Consider "registered" only if you've moved them past onboarding into the normal menu.
     // (Adjust the check below if your terminal step uses a different marker.)
     const isRegistered =
-      !!user && user.onboardingStep && user.onboardingStep.toLowerCase() === "menu";
+      !!user && user.onboardingStep && user.onboardingStep.     toLowerCase() === "completed";
 
     if (cameFromApply && !isRegistered) {
       await sendRegistrationRequired(ctx);
