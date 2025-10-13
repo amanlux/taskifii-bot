@@ -1779,9 +1779,11 @@ function botUsernameFrom(ctx, fallback) {
 }
 function applyDeepLink(ctx, fallbackUsername, taskId) {
   const uname = botUsernameFrom(ctx, fallbackUsername);
-  // canonical deep-link that works reliably from channel posts
-  return `https://t.me/${uname}?start=apply_${taskId}`;
+  const payload = `apply_${taskId}`;
+  // Use tg:// to open the Telegram app directly
+  return `tg://resolve?domain=${uname}&start=${payload}`;
 }
+
 
 
 
