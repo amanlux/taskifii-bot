@@ -2547,9 +2547,7 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
       return res.status(404).send("draft_or_user_missing");
     }
 
-    await postTaskFromPaidDraft({ ctx: fakeCtxForIpn, me, draft, intent });
-    // no need to duplicate afterTaskPosted; postTaskFromPaidDraft calls it.
-    // ctx not required here
+    await postTaskFromPaidDraft({ ctx: null, me, draft, intent }); // ctx not required here
     return res.send("ok");
   } catch (e) {
     console.error("IPN handler error:", e);
