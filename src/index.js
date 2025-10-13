@@ -4900,29 +4900,36 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       return;
     }
 
-    // Handle phone editing
+    // Handle phone editing (use the same rules as onboarding)
     if (ctx.session.editing.field === "phone") {
-      const phoneRegex = /^\+?\d{5,14}$/;
-      if (!phoneRegex.test(text)) {
-        return ctx.reply(user.language === "am" ? TEXT.phoneErrorFormat.am : TEXT.phoneErrorFormat.en);
-      }
-      const existingPhone = await User.findOne({ phone: text });
-      if (existingPhone) {
-        return ctx.reply(user.language === "am" ? TEXT.phoneErrorTaken.am : TEXT.phoneErrorTaken.en);
-      }
-      user.phone = text;
-      
-      await user.save();
-      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
-      
-      try {
-        await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId);
-      } catch (err) {
-        console.error("Failed to update admin profile post:", err);
+      const normalized = normalizeEtPhone(text);
+      if (!normalized) {
+        return ctx.reply(
+          user.language === "am"
+            ? "📱 የስልክ ቁጥር ያልተቀበለ ነው። እባክዎ ይህን አቅጣጫ ይጠቀሙ: +2519xxxxxxxx ወይም +2517xxxxxxxx"
+            : "📱 That phone number isn’t valid. Please send it like this: +2519xxxxxxxx or +2517xxxxxxxx"
+        );
       }
 
+      // Block duplicates using the normalized form
+      const exists = await User.findOne({ phone: normalized });
+      if (exists && String(exists._id) !== String(user._id)) {
+        return ctx.reply(
+          user.language === "am"
+            ? "📱 ይህ ስልክ ቁጥር ቀድሞ ተይዟል። እባክዎ ሌላ ቁጥር ይላኩ።"
+            : "📱 This phone number is already used. Please send another one."
+        );
+      }
+
+      user.phone = normalized;
+
+      await user.save();
+      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
+
+      try { await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId); } 
+      catch (err) { console.error("Failed to update admin profile post:", err); }
+
       await ctx.reply(TEXT.profileUpdated[user.language]);
-      
       const menu = Markup.inlineKeyboard([
         [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
         [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
@@ -4934,29 +4941,38 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       return;
     }
 
-    // Handle email editing
+
+    // Handle email editing (use the same rules as onboarding)
     if (ctx.session.editing.field === "email") {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(text)) {
-        return ctx.reply(user.language === "am" ? TEXT.emailErrorFormat.am : TEXT.emailErrorFormat.en);
-      }
-      const existingEmail = await User.findOne({ email: text });
-      if (existingEmail) {
-        return ctx.reply(user.language === "am" ? TEXT.emailErrorTaken.am : TEXT.emailErrorTaken.en);
-      }
-      user.email = text;
-      
-      await user.save();
-      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
-      
-      try {
-        await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId);
-      } catch (err) {
-        console.error("Failed to update admin profile post:", err);
+      const candidate = (text || "").trim();
+
+      if (!isValidEmail(candidate)) {
+        return ctx.reply(
+          user.language === "am"
+            ? "✉️ ኢሜይል አድራሻ የተሳሳተ ነው። እባክዎ user@example.com በመሳሰሉ ቅርጸ-ቃላት ያስገቡ።"
+            : "✉️ That email doesn’t look valid. Please send something like user@example.com"
+        );
       }
 
+      // Block duplicates (but allow keeping your own)
+      const exists = await User.findOne({ email: candidate });
+      if (exists && String(exists._id) !== String(user._id)) {
+        return ctx.reply(
+          user.language === "am"
+            ? "✉️ ይህ ኢሜይል ቀድሞ ተጠቅመዋል። እባክዎ ሌላ ኢሜይል ይላኩ።"
+            : "✉️ This email is already in use. Please send another one."
+        );
+      }
+
+      user.email = candidate;
+
+      await user.save();
+      const updatedUser = await User.findOne({ telegramId: ctx.from.id });
+
+      try { await updateAdminProfilePost(ctx, updatedUser, updatedUser.adminMessageId); } 
+      catch (err) { console.error("Failed to update admin profile post:", err); }
+
       await ctx.reply(TEXT.profileUpdated[user.language]);
-      
       const menu = Markup.inlineKeyboard([
         [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
         [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
@@ -4967,6 +4983,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       delete ctx.session.editing;
       return;
     }
+
 
     // Handle username editing
     if (ctx.session.editing.field === "username") {
