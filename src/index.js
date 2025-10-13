@@ -1305,7 +1305,11 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
     first_name: user.fullName ? user.fullName.split(" ")[0] : "Taskifii",
     last_name:  user.fullName ? (user.fullName.split(" ").slice(1).join(" ") || "User") : "User",
     tx_ref: txRef,
+    callback_url: `${process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://taskifii-bot.onrender.com"}/chapa/ipn`,
+    return_url: `${process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://taskifii-bot.onrender.com"}/paid`
+
   };
+  
   if (normalizedPhone) payload.phone_number = normalizedPhone;
 
   // TEMP: log once so you can see exactly what's sent
@@ -1320,6 +1324,7 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
     },
     body: JSON.stringify(payload),
   });
+  
 
   const data = await resp.json().catch(() => null);
   const checkout = data?.data?.checkout_url;
@@ -2432,6 +2437,57 @@ app.get('/health', (_req, res) => {
 });
 // Health check endpoint
 app.get("/", (_req, res) => res.send("OK"));
+
+// put near your other Express routes / app.use(...) lines
+app.post("/chapa/ipn", express.json(), async (req, res) => {
+  try {
+    // Chapa typically includes at least tx_ref (and sometimes reference/status) in the POST.
+    const txRef = String(
+      req.body?.tx_ref || req.body?.txRef || req.query?.tx_ref || ""
+    ).trim();
+
+    if (!txRef) {
+      console.error("IPN missing tx_ref", req.body);
+      return res.status(400).send("missing tx_ref");
+    }
+
+    // Double-check with Chapa (authoritative)
+    const ok = await verifyChapaTxRef(txRef);
+    if (!ok) {
+      console.warn("IPN verify failed for tx_ref:", txRef, req.body);
+      return res.status(400).send("verify_failed");
+    }
+
+    // Find or create the intent and mark paid (you already do this in your button flow)
+    let intent = await PaymentIntent.findOne({ chapaTxRef: txRef });
+    if (!intent) {
+      // If ever missing, you can reconstruct from your drafts or store txRef->draft when you init.
+      console.error("No PaymentIntent for tx_ref:", txRef);
+      return res.status(404).send("intent_not_found");
+    }
+
+    if (intent.status !== "paid") {
+      intent.status = "paid";
+      intent.paidAt = new Date();
+      await intent.save();
+    }
+
+    // Continue exactly as you do after a successful hosted verify click:
+    const draft = await TaskDraft.findById(intent.draft);
+    const me    = await User.findById(intent.user);
+    if (!draft || !me) {
+      console.error("IPN draft/user missing", { draft: !!draft, me: !!me, txRef });
+      return res.status(404).send("draft_or_user_missing");
+    }
+
+    await postTaskFromPaidDraft({ ctx: null, me, draft, intent }); // ctx not required here
+    return res.send("ok");
+  } catch (e) {
+    console.error("IPN handler error:", e);
+    return res.status(500).send("error");
+  }
+});
+
 
 // Listen on Render’s port (or default 3000 locally)
 const PORT = process.env.PORT || 3000;
@@ -6460,7 +6516,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
               inline_keyboard: [
                 [{ text: "🔗 Open payment (Chapa)", url: checkout_url }],
                 // keep callback_data short (Telegram limit 64 bytes)
-                [{ text: "✅ I’ve paid", callback_data: `HV:${intent._id.toString()}` }]
+                
               ]
             }
           }
