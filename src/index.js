@@ -6748,11 +6748,10 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     const tg = (ctx && ctx.telegram) ? ctx.telegram : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
     if (!tg) throw new Error("Telegram handle unavailable");
     const sent = await tg.sendMessage(channelId, preview, {
-
-
       parse_mode: "Markdown",
-      ...keyboard
+      reply_markup: keyboard.reply_markup
     });
+
 
     task.channelMessageId = sent.message_id;
     await task.save();
