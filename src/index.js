@@ -1719,6 +1719,15 @@ function decisionsLocked(task) {
   // lock is true if we set decisionsLockedAt OR any applicant already confirmed
   return Boolean(task.decisionsLockedAt) || task.applicants?.some(a => !!a.confirmedAt);
 }
+// Fallback bot username for non-ctx flows (like webhooks)
+let BOT_USERNAME = process.env.BOT_USERNAME || "";
+(async () => {
+  try {
+    const me = await bot.telegram.getMe();
+    BOT_USERNAME = me.username || BOT_USERNAME;
+  } catch (_) {}
+})();
+
 // Format minutes to "X hours Y minutes" with basic EN/AM localization
 function formatHM(totalMinutes, lang = "en") {
   const h = Math.floor(totalMinutes / 60);
