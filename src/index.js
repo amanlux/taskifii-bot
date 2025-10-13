@@ -1553,6 +1553,7 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
 
   task.channelMessageId = sent.message_id;
   await task.save();
+  await afterTaskPosted({ ctx, task, me, draft });
 
   // Lock the creator on this task so they can't act as a doer concurrently
   try {
@@ -1602,6 +1603,52 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
     ])
   );
 }
+// ---- BEGIN: unified post-payment follow-ups ----
+async function afterTaskPosted({ ctx, task, me, draft }) {
+  try {
+    // 1) DM the creator with the manage panel (same keyboard they got before)
+    //    Reuse your existing builder for the creator control panel text/buttons.
+    //    In your codebase this is the same block you used to send after "I've paid".
+    //    Find it by searching: buildCreatorControlPanel or "Applicants / Cancel"
+    const lang = me?.language || "en";
+    const panelText = buildCreatorPanelText(task, lang);      // <— you have an equivalent builder already
+    const panelKb   = buildCreatorPanelKeyboard(task, lang);  // <— and the keyboard builder as well
+    await ctx.telegram.sendMessage(me.telegramId, panelText, {
+      parse_mode: "Markdown",
+      reply_markup: panelKb.reply_markup
+    });
+
+    // 2) Update or create the admin tracking message for this user
+    //    You already have updateAdminProfilePost in your repo (see your earlier logs).
+    await updateAdminProfilePost(ctx, me);
+
+    // 3) Start application & report/finalization timers exactly like before
+    //    You already have these utilities; we just call them.
+    //    Search your file for functions you call when posting a task manually:
+    //    maybe names like: scheduleApplicationWindow / maybeStartReportWindow / scheduleAutoClose
+    try { await scheduleApplicationWindow(task._id, ctx.telegram); } catch (e) { console.error("scheduleApplicationWindow:", e); }
+    try { await maybeStartReportWindow(task._id, ctx.telegram); } catch (e) { console.error("maybeStartReportWindow:", e); }
+    try { await scheduleAutoClose(task._id, ctx.telegram); } catch (e) { console.error("scheduleAutoClose:", e); }
+
+    // 4) Clean up: delete the preview/draft messages if they exist
+    //    Your draft model usually stores previewMessageId and previewChatId.
+    if (draft?.previewChatId && draft?.previewMessageId) {
+      try { await ctx.telegram.deleteMessage(draft.previewChatId, draft.previewMessageId); } catch (_) {}
+    }
+
+    // 5) Mark draft as posted & clear any bot session breadcrumbs
+    if (draft) {
+      draft.status = "posted";
+      await draft.save();
+    }
+    if (ctx.session && ctx.session.taskFlow) ctx.session.taskFlow = null;
+
+  } catch (e) {
+    console.error("afterTaskPosted failed:", e);
+  }
+}
+// ---- END: unified post-payment follow-ups ----
+
 
 async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
   try {
@@ -2500,7 +2547,9 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
       return res.status(404).send("draft_or_user_missing");
     }
 
-    await postTaskFromPaidDraft({ ctx: null, me, draft, intent }); // ctx not required here
+    await postTaskFromPaidDraft({ ctx: fakeCtxForIpn, me, draft, intent });
+    // no need to duplicate afterTaskPosted; postTaskFromPaidDraft calls it.
+    // ctx not required here
     return res.send("ok");
   } catch (e) {
     console.error("IPN handler error:", e);
