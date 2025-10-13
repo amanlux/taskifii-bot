@@ -1262,6 +1262,25 @@ function normalizeEtPhone(raw) {
   // Unknown format → don’t send
   return null;
 }
+// Email validator for onboarding (Chapa-safe)
+function isValidEmail(email) {
+  if (typeof email !== "string") return false;
+  email = email.trim();
+
+  // shape check
+  const BASIC = /^[^\s@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+  if (!BASIC.test(email)) return false;
+
+  // conservative TLD allow-list (adjust if you need more)
+  const ALLOWED_TLDS = new Set([
+    "com","net","org","co","io","ai","biz","info","xyz","dev","app","me",
+    "site","shop","cloud","et","gov","edu"
+  ]);
+
+  const tld = email.toLowerCase().split(".").pop();
+  return ALLOWED_TLDS.has(tld);
+}
+
 
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
