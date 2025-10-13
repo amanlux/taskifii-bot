@@ -5053,33 +5053,57 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     return ctx.reply(user.language === "am" ? TEXT.askPhone.am : TEXT.askPhone.en);
   }
 
+  
   // ─── PHONE STEP ────────────────────────────
   if (user.onboardingStep === "phone") {
-    const phoneRegex = /^\+?\d{5,14}$/;
-    if (!phoneRegex.test(text)) {
-      return ctx.reply(user.language === "am" ? TEXT.phoneErrorFormat.am : TEXT.phoneErrorFormat.en);
+    // Normalize to +2517/9xxxxxxxx; null if invalid/unknown
+    const normalized = normalizeEtPhone(text);
+    if (!normalized) {
+      return ctx.reply(
+        user.language === "am"
+          ? "📱 የስልክ ቁጥር ያልተቀበለ ነው። እባክዎ ይህን አቅጣጫ ይጠቀሙ: +2519xxxxxxxx ወይም +2517xxxxxxxx"
+          : "📱 That phone number isn’t valid. Please send it like this: +2519xxxxxxxx or +2517xxxxxxxx"
+      );
     }
-    const existingPhone = await User.findOne({ phone: text });
+
+    // Block duplicates (store the normalized value)
+    const existingPhone = await User.findOne({ phone: normalized });
     if (existingPhone) {
-      return ctx.reply(user.language === "am" ? TEXT.phoneErrorTaken.am : TEXT.phoneErrorTaken.en);
+      return ctx.reply(
+        user.language === "am"
+          ? "📱 ይህ ስልክ ቁጥር ቀድሞ ተይዟል። እባክዎ ሌላ ቁጥር ይላኩ።"
+          : "📱 This phone number is already used. Please send another one."
+      );
     }
-    user.phone = text;
+
+    user.phone = normalized;                 // ← save normalized E.164 form
     user.onboardingStep = "email";
     await user.save();
     return ctx.reply(user.language === "am" ? TEXT.askEmail.am : TEXT.askEmail.en);
   }
 
+
+  
   // ─── EMAIL STEP ────────────────────────────
   if (user.onboardingStep === "email") {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(text)) {
-      return ctx.reply(user.language === "am" ? TEXT.emailErrorFormat.am : TEXT.emailErrorFormat.en);
+    if (!isValidEmail(text)) {
+      return ctx.reply(
+        user.language === "am"
+          ? "✉️ ኢሜይሉ የተሳሳተ ነው። እባክዎ username@example.com በመሳሰሉት ቅርጸ-ቁምፊ ያስገቡ።"
+          : "✉️ That email address looks invalid. Please send something like username@example.com."
+      );
     }
-    const existingEmail = await User.findOne({ email: text });
+
+    const existingEmail = await User.findOne({ email: text.trim() });
     if (existingEmail) {
-      return ctx.reply(user.language === "am" ? TEXT.emailErrorTaken.am : TEXT.emailErrorTaken.en);
+      return ctx.reply(
+        user.language === "am"
+          ? "✉️ ይህ ኢሜይል ቀድሞ ተጠቅመዋል። ሌላ ኢሜይል ይላኩ።"
+          : "✉️ That email is already in use. Please send another one."
+      );
     }
-    user.email = text;
+
+    user.email = text.trim();
     user.onboardingStep = "usernameConfirm";
     await user.save();
 
@@ -5087,14 +5111,15 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     const promptText = user.language === "am"
       ? TEXT.askUsername.am.replace("%USERNAME%", currentHandle || "<none>")
       : TEXT.askUsername.en.replace("%USERNAME%", currentHandle || "<none>");
+
     return ctx.reply(
       promptText,
-      Markup.inlineKeyboard([[Markup.button.callback(
-        user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
-        "USERNAME_KEEP"
-      )]])
+      Markup.inlineKeyboard([
+        [Markup.button.callback(user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it", "USERNAME_KEEP")]
+      ])
     );
   }
+
 
   // ─── USERNAME STEP (typed override) ─────────────────────────
   if (user.onboardingStep === "usernameConfirm") {
