@@ -1536,10 +1536,11 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
-      user.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+      me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
       applyDeepLink(ctx, BOT_USERNAME, task._id)
     )]
   ]);
+
 
   const tg = (ctx && ctx.telegram) ? ctx.telegram : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
   if (!tg) throw new Error("Telegram handle unavailable");
@@ -6740,7 +6741,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
 
   // Post to channel
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
-  const preview = buildChannelPostText(draft, user);
+  const preview = buildChannelPostText(draft, me);
   
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
@@ -6754,11 +6755,10 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     const tg = (ctx && ctx.telegram) ? ctx.telegram : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
     if (!tg) throw new Error("Telegram handle unavailable");
     const sent = await tg.sendMessage(channelId, preview, {
-
-
       parse_mode: "Markdown",
-      ...keyboard
+      reply_markup: keyboard.reply_markup
     });
+
 
     task.channelMessageId = sent.message_id;
     await task.save();
