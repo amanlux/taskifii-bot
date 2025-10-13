@@ -2437,9 +2437,15 @@ app.get('/health', (_req, res) => {
 });
 // Health check endpoint
 app.get("/", (_req, res) => res.send("OK"));
+// Parse both JSON and classic HTML forms (Chapa uses form posts for IPN)
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
 
 // put near your other Express routes / app.use(...) lines
-app.post("/chapa/ipn", express.json(), async (req, res) => {
+// Accept BOTH form posts and JSON on the same route
+app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()], async (req, res) => {
+
   try {
     // Chapa typically includes at least tx_ref (and sometimes reference/status) in the POST.
     const txRef = String(
