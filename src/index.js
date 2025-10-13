@@ -1542,8 +1542,10 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
     )]
   ]);
 
-  const tg = (ctx && ctx.telegram) ? ctx.telegram : bot.telegram;
+  const tg = (ctx && ctx.telegram) ? ctx.telegram : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
+  if (!tg) throw new Error("Telegram handle unavailable");
   const sent = await tg.sendMessage(channelId, preview, {
+
 
     parse_mode: "Markdown",
     reply_markup: keyboard.reply_markup
@@ -2539,6 +2541,13 @@ mongoose
 // ------------------------------------
 function startBot() {
   const bot = new Telegraf(process.env.BOT_TOKEN);
+  // 1) Make the bot available outside ctx (for webhooks/IPN)
+  globalThis.TaskifiiBot = bot;
+
+  // 2) Store a fallback username we can use when ctx is null
+  let BOT_USERNAME = process.env.BOT_USERNAME || "";
+  bot.telegram.getMe().then(me => { BOT_USERNAME = me.username || BOT_USERNAME; }).catch(() => {});
+
   if (!process.env.CHAPA_PROVIDER_TOKEN) {
     console.warn("⚠️ CHAPA_PROVIDER_TOKEN is not set — invoices will fail.");
   }
@@ -6678,8 +6687,10 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   ]);
 
   try {
-    const tg = (ctx && ctx.telegram) ? ctx.telegram : bot.telegram;
+    const tg = (ctx && ctx.telegram) ? ctx.telegram : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
+    if (!tg) throw new Error("Telegram handle unavailable");
     const sent = await tg.sendMessage(channelId, preview, {
+
 
       parse_mode: "Markdown",
       ...keyboard
