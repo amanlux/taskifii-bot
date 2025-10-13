@@ -1779,8 +1779,11 @@ function botUsernameFrom(ctx, fallback) {
 }
 function applyDeepLink(ctx, fallbackUsername, taskId) {
   const uname = botUsernameFrom(ctx, fallbackUsername);
-  return `tg://resolve?domain=${uname}&start=apply_${taskId}`;
+  // canonical deep-link that works reliably from channel posts
+  return `https://t.me/${uname}?start=apply_${taskId}`;
 }
+
+
 
 function decisionsLocked(task) {
   // lock is true if we set decisionsLockedAt OR any applicant already confirmed
