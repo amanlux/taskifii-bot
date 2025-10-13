@@ -1537,11 +1537,14 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
       me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
-      `https://t.me/${ctx.botInfo.username}?start=apply_${task._id}`
+      `https://t.me/${(ctx && ctx.botInfo && ctx.botInfo.username) || BOT_USERNAME}?start=apply_${task._id}`
+
     )]
   ]);
 
-  const sent = await ctx.telegram.sendMessage(channelId, preview, {
+  const tg = (ctx && ctx.telegram) ? ctx.telegram : bot.telegram;
+  const sent = await tg.sendMessage(channelId, preview, {
+
     parse_mode: "Markdown",
     reply_markup: keyboard.reply_markup
   });
@@ -6660,12 +6663,15 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
       user.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ", 
-      `https://t.me/${ctx.botInfo.username}?start=apply_${task._id}`
+      `https://t.me/${(ctx && ctx.botInfo && ctx.botInfo.username) || BOT_USERNAME}?start=apply_${task._id}`
+
     )]
   ]);
 
   try {
-    const sent = await ctx.telegram.sendMessage(channelId, preview, {
+    const tg = (ctx && ctx.telegram) ? ctx.telegram : bot.telegram;
+    const sent = await tg.sendMessage(channelId, preview, {
+
       parse_mode: "Markdown",
       ...keyboard
     });
