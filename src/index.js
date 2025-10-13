@@ -1306,7 +1306,7 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
     last_name:  user.fullName ? (user.fullName.split(" ").slice(1).join(" ") || "User") : "User",
     tx_ref: txRef,
     callback_url: `${process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://taskifii-bot.onrender.com"}/chapa/ipn`,
-    return_url: `${process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://taskifii-bot.onrender.com"}/paid`
+    
 
   };
   
