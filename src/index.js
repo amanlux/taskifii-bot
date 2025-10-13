@@ -1616,25 +1616,25 @@ async function afterTaskPosted({ ctx, task, me, draft }) {
            : (globalThis.TaskifiiBot && globalThis.TaskifiiBot.telegram);
   if (!tg) { console.error("afterTaskPosted: telegram handle unavailable"); return; }
 
-  // (A) DM: lightweight “task is live” + cancel button (uses your existing CANCEL_TASK handler)
-  try {
-    const txt = me?.language === "am"
-      ? "✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል! ከዚህ ቻት ውስጥ ተግዳሮቱን መቆጣጠር ትችላለህ።"
-      : "✅ Your task is live! You can manage it from this chat.";
-    const kb  = Markup.inlineKeyboard([
-      [Markup.button.callback(me?.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", `CANCEL_TASK_${task._id}`)]
-    ]);
-    await tg.sendMessage(me.telegramId, txt, { reply_markup: kb.reply_markup });
-  } catch (e) {
-    console.error("afterTaskPosted DM error:", e);
-  }
+  // (A) DM: REMOVE this block to avoid duplicate confirmation + cancel button
+  // try {
+  //   const txt = me?.language === "am"
+  //     ? "✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል! ከዚህ ቻት ውስጥ ተግዳሮቱን መቆጣጠር ትችላለህ።"
+  //     : "✅ Your task is live! You can manage it from this chat.";
+  //   const kb  = Markup.inlineKeyboard([
+  //     [Markup.button.callback(me?.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", `CANCEL_TASK_${task._id}`)]
+  //   ]);
+  //   await tg.sendMessage(me.telegramId, txt, { reply_markup: kb.reply_markup });
+  // } catch (e) {
+  //   console.error("afterTaskPosted DM error:", e);
+  // }
 
-  // (B) Best-effort admin/profile refresh (kept in try{} so missing fns won’t crash)
+  // (B) profile/admin refresh (keep)
   try { if (typeof updateAdminProfilePost === "function") {
     await updateAdminProfilePost({ telegram: tg }, me);
   }} catch (e) { console.error("afterTaskPosted updateAdminProfilePost:", e); }
 
-  // (C) Kick off your timers (names already exist in your file; guard each call)
+  // (C) timers (keep)
   try { if (typeof scheduleApplicationWindow === "function")
     await scheduleApplicationWindow(task._id, tg);
   } catch (e) { console.error("scheduleApplicationWindow:", e); }
@@ -1647,7 +1647,7 @@ async function afterTaskPosted({ ctx, task, me, draft }) {
     await scheduleAutoClose(task._id, tg);
   } catch (e) { console.error("scheduleAutoClose:", e); }
 
-  // (D) Clean up any preview message saved on the draft (if present)
+  // (D) preview cleanup (keep)
   try {
     if (draft?.previewChatId && draft?.previewMessageId) {
       await tg.deleteMessage(draft.previewChatId, draft.previewMessageId);
@@ -1656,6 +1656,7 @@ async function afterTaskPosted({ ctx, task, me, draft }) {
     console.warn("afterTaskPosted: preview cleanup failed:", e);
   }
 }
+
 
 // ---- END: unified post-payment follow-ups ----
 
