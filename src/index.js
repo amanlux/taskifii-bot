@@ -1285,18 +1285,18 @@ function isValidEmail(email) {
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
+// ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
 async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
-  const secret = process.env.CHAPA_SECRET_KEY;
-  if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
+  const secret = defaultChapaSecretForInit();
+  if (!secret) throw new Error("CHAPA secret missing");
 
   // Allow safe test overrides while you test
   const rawPhone  = user.phone || process.env.CHAPA_TEST_PHONE;
   const rawEmail0 = user.email || process.env.CHAPA_TEST_EMAIL;
 
-
   // Normalize phone: include only if valid Ethiopian format
   const normalizedPhone = normalizeEtPhone(user?.phone);
-  const email = emailForChapa(user);      // ← use the helper
+  const email = emailForChapa(user);      // ← existing helper
 
   const payload = {
     amount: String(amountBirr),
@@ -1306,25 +1306,21 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
     last_name:  user.fullName ? (user.fullName.split(" ").slice(1).join(" ") || "User") : "User",
     tx_ref: txRef,
     callback_url: `${process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://taskifii-bot.onrender.com"}/chapa/ipn`,
-    
-
   };
-  
+
   if (normalizedPhone) payload.phone_number = normalizedPhone;
 
   // TEMP: log once so you can see exactly what's sent
   console.log("[Chapa init] email:", payload.email);
 
-
   const resp = await fetch("https://api.chapa.co/v1/transaction/initialize", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${secret}`,
+      Authorization: `Bearer ${secret}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
   });
-  
 
   const data = await resp.json().catch(() => null);
   const checkout = data?.data?.checkout_url;
@@ -1332,6 +1328,42 @@ async function chapaInitializeEscrow({ amountBirr, currency, txRef, user }) {
     throw new Error(`Chapa init failed: ${resp.status} ${JSON.stringify(data)}`);
   }
   return { checkout_url: checkout };
+}
+
+// Choose the right Chapa secret by mode
+const CHAPA_SECRETS = {
+  live: process.env.CHAPA_LIVE_SECRET_KEY || process.env.CHAPA_SECRET_KEY || "",
+  test: process.env.CHAPA_TEST_SECRET_KEY || "",
+};
+
+// Internal: verify with a specific secret
+async function _verifyChapaWithSecret(txRef, secret) {
+  if (!secret) return { ok: false, data: null };
+  const resp = await fetch(
+    `https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(txRef)}`,
+    { method: "GET", headers: { Authorization: `Bearer ${secret}` } }
+  );
+  const data = await resp.json().catch(() => null);
+  const txStatus = String(data?.data?.status || "").toLowerCase();
+  return { ok: resp.ok && txStatus === "success", data };
+}
+
+// Try live first (most likely), then test. Returns { ok, mode, data }
+async function verifyChapaTxRefSmart(txRef) {
+  if (CHAPA_SECRETS.live) {
+    const r = await _verifyChapaWithSecret(txRef, CHAPA_SECRETS.live);
+    if (r.ok) return { ok: true, mode: "live", data: r.data };
+  }
+  if (CHAPA_SECRETS.test) {
+    const r = await _verifyChapaWithSecret(txRef, CHAPA_SECRETS.test);
+    if (r.ok) return { ok: true, mode: "test", data: r.data };
+  }
+  return { ok: false, mode: null, data: null };
+}
+
+// Prefer live when configured; else test; else legacy
+function defaultChapaSecretForInit() {
+  return CHAPA_SECRETS.live || CHAPA_SECRETS.test || process.env.CHAPA_SECRET_KEY || "";
 }
 
 // Always give Chapa an email it will accept.
@@ -1372,11 +1404,8 @@ function emailForChapa(user) {
 // ── FIXED: use the correct Chapa refund endpoint ──────────────────────────────
 
 // Chapa refund — verify first, then refund using Chapa's canonical reference if present
+// Chapa refund — verify first, then refund using the correct mode/secret
 async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
-  const secret = process.env.CHAPA_SECRET_KEY;
-  if (!secret) throw new Error("CHAPA_SECRET_KEY missing");
-
-  // Only auto-refund if this was the Chapa-hosted path and we stored tx_ref
   if (intent?.provider !== "chapa_hosted" || !intent?.chapaTxRef) {
     const err = new Error("Not a Chapa-hosted transaction (no chapaTxRef/provider mismatch).");
     err.code = "NOT_CHAPA_HOSTED";
@@ -1385,26 +1414,24 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
 
   const originalTxRef = String(intent.chapaTxRef).trim();
 
-  // 1) Verify: this returns Chapa’s canonical identifiers
-  const verifyResp = await fetch(
-    `https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(originalTxRef)}`,
-    { headers: { Authorization: `Bearer ${secret}` } }
-  );
-  const verifyData = await verifyResp.json().catch(() => null);
-  const txStatus = String(verifyData?.data?.status || "").toLowerCase();
-  if (!verifyResp.ok || txStatus !== "success") {
-    const e = new Error(`Cannot refund: verify failed or not paid. status=${verifyResp.status} txStatus=${txStatus}`);
+  // 1) Smart-verify (detects live/test)
+  const v = await verifyChapaTxRefSmart(originalTxRef);
+  if (!v.ok) {
+    const e = new Error(`Cannot refund: verify failed or not paid.`);
     e.code = "VERIFY_FAILED";
-    e.details = { verifyData };
+    e.details = { verifyData: v.data };
     throw e;
   }
 
-  // 2) Prefer Chapa’s own reference for refund if available; else fallback to tx_ref
-  // In many integrations, refunds succeed more reliably when using `reference`.
-  const chapaReference =
-    (verifyData && verifyData.data && (verifyData.data.reference || verifyData.data.tx_ref)) || originalTxRef;
+  // Pick the matching secret for refund
+  const secret = v.mode === "test" ? CHAPA_SECRETS.test : CHAPA_SECRETS.live;
+  if (!secret) throw new Error(`Missing Chapa ${v.mode} secret key`);
 
-  // 3) Build form – amount optional (omit to full-refund)
+  // 2) Prefer Chapa canonical reference if provided
+  const chapaReference =
+    (v.data && v.data.data && (v.data.data.reference || v.data.data.tx_ref)) || originalTxRef;
+
+  // 3) Refund (amount omitted = full refund; include if you want partial)
   const form = new URLSearchParams();
   if (intent.amount) form.append("amount", String(intent.amount));
   form.append("reason", reason);
@@ -1412,7 +1439,7 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
   const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(chapaReference)}`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${secret}`,
+      Authorization: `Bearer ${secret}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
     body: form.toString(),
@@ -1421,11 +1448,12 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
   const data = await res.json().catch(() => ({}));
   if (!res.ok || (data?.status && String(data.status).toLowerCase() !== "success")) {
     throw new Error(
-      `Refund API declined: ${res.status} ${JSON.stringify(data)} [provider=${intent?.provider} tx_ref=${chapaReference}]`
+      `Refund API declined: ${res.status} ${JSON.stringify(data)} [mode=${v.mode} tx_ref=${chapaReference}]`
     );
   }
   return data;
 }
+
 
 
 
@@ -1487,23 +1515,12 @@ async function applyGatekeeper(ctx, next) {
     return next();
   }
 }
+// Backward-compatible boolean verifier used around the codebase
 async function verifyChapaTxRef(txRef) {
-  const secret = process.env.CHAPA_SECRET_KEY;
-  const resp = await fetch(
-    `https://api.chapa.co/v1/transaction/verify/${encodeURIComponent(txRef)}`,
-    {
-      method: "GET",
-      headers: { Authorization: `Bearer ${secret}` },
-    }
-  );
-
-  // Only treat it as PAID when the nested transaction status is "success".
-  // The top-level `status: "success"` just means the API call succeeded.
-  const data = await resp.json().catch(() => null);
-  const txStatus = String(data?.data?.status || "").toLowerCase();
-
-  return resp.ok && txStatus === "success";
+  const r = await verifyChapaTxRefSmart(txRef);
+  return r.ok;
 }
+
 
 // Reuse this in both Telegram-invoice and Hosted-Checkout flows
 async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
