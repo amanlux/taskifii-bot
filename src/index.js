@@ -2617,6 +2617,44 @@ mongoose
     checkPendingReminders(bot);
     // Run every hour to catch any missed reminders
     setInterval(() => checkPendingReminders(bot), 3600000);
+async function retryQueuedRefunds() {
+  try {
+    const queued = await PaymentIntent.find({
+      status: "paid",
+      refundStatus: { $in: ["queued", "requested"] }
+    }).limit(25);
+
+    for (const intent of queued) {
+      try {
+        await refundEscrowWithChapa(intent, "Retry: creator canceled before engagement");
+        await PaymentIntent.updateOne(
+          { _id: intent._id },
+          { $set: { refundStatus: "succeeded", refundedAt: new Date() } }
+        );
+        console.log("Queued refund succeeded:", intent._id.toString());
+      } catch (err) {
+        const msg = String(err?.message || "").toLowerCase();
+        if (!msg.includes("insufficient balance")) {
+          // Hard failure: stop retrying and surface for manual help
+          await PaymentIntent.updateOne(
+            { _id: intent._id },
+            { $set: { refundStatus: "failed" } }
+          );
+          console.error("Queued refund hard-failed:", intent._id.toString(), err);
+        } else {
+          // Still insufficient funds — keep it queued; we'll retry later
+          console.log("Queued refund still waiting for funds:", intent._id.toString());
+        }
+      }
+    }
+  } catch (e) {
+    console.error("retryQueuedRefunds error:", e);
+  }
+}
+
+// run every 10 minutes
+  setInterval(retryQueuedRefunds, 10 * 60 * 1000);
+
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
@@ -7083,15 +7121,26 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
         await ctx.reply(okMsg);
       } catch (apiErr) {
         console.error("Chapa refund failed:", apiErr);
+
+        const msg = String(apiErr?.message || "").toLowerCase();
+        const insufficient = msg.includes("insufficient balance");
+
         await PaymentIntent.updateOne(
           { _id: intent._id },
-          { $set: { refundStatus: "failed" } }
+          { $set: { refundStatus: insufficient ? "queued" : "failed" } }
         );
+
         const sorry = (lang === "am")
-          ? "⚠️ ራስ-ሰር መመለስ አልተሳካም። እባክዎ ድጋፍ ጋር ይገናኙ ወይም በግል እንመልሳለን።"
-          : "⚠️ We couldn’t auto-refund via the provider. We’ll resolve it promptly via support.";
+          ? (insufficient
+              ? "⚠️ ራስ-ሰር መመለስ አልተሳካም (የንግድ ቀሪ ሂሳብ ዝቅተኛ ስለሆነ)። በቅርቡ እንደገና እንሞክራለን እና በተሳካ ጊዜ እናሳውቃለን።"
+              : "⚠️ ራስ-ሰር መመለስ አልተሳካም። እባክዎ ድጋፍ ጋር ይገናኙ ወይም በግል እንመልሳለን።")
+          : (insufficient
+              ? "⚠️ Auto-refund didn’t go through (merchant balance too low). We’ll retry shortly and notify you when it succeeds."
+              : "⚠️ We couldn’t auto-refund via the provider. We’ll resolve it promptly via support.");
+
         await ctx.reply(sorry);
       }
+
     }
   } catch (e) {
     console.error("Refund flow error:", e);
