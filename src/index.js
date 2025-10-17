@@ -129,6 +129,50 @@ const Banlist = mongoose.models.Banlist
 // Ratings / Finalization / Credits
 // ---------------------------
 const RATING_CHANNEL_ID = "-1002289847417";
+// ---- Refund audit channel (private) ----
+const REFUND_AUDIT_CHANNEL_ID = "-1002616271109";
+
+// Format the expiry exactly like the task channel message (Africa/Addis_Ababa, GMT+3)
+function formatExpiresAtForAudit(date) {
+  try {
+    // Match the style you show in channel posts (local ET time)
+    const opts = { timeZone: "Africa/Addis_Ababa", year: "numeric", month: "short", day: "2-digit",
+                   hour: "2-digit", minute: "2-digit", hour12: false };
+    // Example: Oct 17, 2025, 14:30 (GMT+3)
+    const s = new Intl.DateTimeFormat("en-GB", opts).format(date);
+    return `${s} (GMT+3)`;
+  } catch {
+    return date.toISOString();
+  }
+}
+
+// Compose and send the giant audit message to the private channel
+async function sendRefundAudit(bot, {
+  tag, // "#refundfailed" or "#refundsuccessful"
+  task, creator, intent,
+  extra = {} // { reason, chapaReference, refundId }
+}) {
+  const creatorName = creator?.fullName || creator?.username || String(creator?.telegramId || "");
+  const messageLines = [
+    `#taskRefund ${tag}`,
+    `Task Description: ${task?.description || "-"}`,
+    `Expiry (as shown): ${formatExpiresAtForAudit(task?.expiry)}`,
+    `Fee (ETB): ${task?.paymentFee ?? intent?.amount ?? "-"}`,
+    `Creator Telegram ID: ${creator?.telegramId ?? "-"}`,
+    `Creator Name: ${creatorName}`,
+  ];
+
+  if (extra.reason)        messageLines.push(`Reason: ${extra.reason}`);
+  if (extra.chapaReference) messageLines.push(`Chapa Reference: ${extra.chapaReference}`);
+  if (extra.refundId)      messageLines.push(`Refund ID: ${extra.refundId}`);
+
+  const text = messageLines.join("\n");
+  try {
+    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, text, { disable_web_page_preview: true });
+  } catch (e) {
+    console.error("Failed to send refund audit message:", e);
+  }
+}
 
 const FinalizationSchema = new mongoose.Schema({
   task: { type: Schema.Types.ObjectId, ref: 'Task', unique: true, required: true },
@@ -2646,6 +2690,53 @@ async function retryQueuedRefunds() {
           console.log("Queued refund still waiting for funds:", intent._id.toString());
         }
       }
+      // inside for (const intent of queued) { ... }
+      try {
+        const data = await refundEscrowWithChapa(intent, "Retry: auto-refund on expiry");
+        const task = await Task.findById(intent.task);
+        const creator = task ? await User.findById(task.creator) : null;
+
+        const chapaReference =
+          (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
+        const refundId =
+          (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
+
+        await PaymentIntent.updateOne(
+          { _id: intent._id },
+          { $set: { refundStatus: "succeeded", refundedAt: new Date(), chapaReference, refundId } }
+        );
+
+        // audit
+        if (task) {
+          await sendRefundAudit(globalThis.TaskifiiBot, {
+            tag: "#refundsuccessful",
+            task, creator, intent,
+            extra: { reason: "Retry queued refund", chapaReference, refundId }
+          });
+        }
+        console.log("Queued refund succeeded:", intent._id.toString());
+      } catch (err) {
+        const msg = String(err?.message || "").toLowerCase();
+        const hardFail = !msg.includes("insufficient balance");
+        if (hardFail) {
+          await PaymentIntent.updateOne(
+            { _id: intent._id },
+            { $set: { refundStatus: "failed" } }
+          );
+          // audit
+          const task = await Task.findById(intent.task);
+          const creator = task ? await User.findById(task.creator) : null;
+          if (task) {
+            await sendRefundAudit(globalThis.TaskifiiBot, {
+              tag: "#refundfailed",
+              task, creator, intent,
+              extra: { reason: "Retry hard-failed" }
+            });
+          }
+        }
+        // else keep queued
+      }
+
     }
   } catch (e) {
     console.error("retryQueuedRefunds error:", e);
@@ -4651,6 +4742,84 @@ async function disableExpiredTaskButtons(bot) {
       // Update task status
       task.status = "Expired";
       await task.save();
+
+      // --- AUTO-REFUND ON EXPIRY (non-interactive paths) -----------------------
+      try {
+        // Only if money was actually collected
+        const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
+        if (intent && intent.refundStatus !== "succeeded") {
+          const creator = await User.findById(task.creator);
+
+          // Determine scenario & reason
+          const hasApplicants = Array.isArray(task.applicants) && task.applicants.length > 0;
+          const accepted = (task.applicants || []).filter(a => a.status === "Accepted");
+
+          // Did any accepted doer actually click "Do the task"? (engagement lock)
+          const doerStarted = accepted.length > 0
+            ? !!(await EngagementLock.findOne({ task: task._id, role: 'doer', active: true }).lean())
+            : false;
+
+          let shouldRefund = false;
+          let reason = "";
+
+          if (!hasApplicants) {
+            shouldRefund = true;
+            reason = "Expired with no applicants";
+          } else if (accepted.length === 0) {
+            shouldRefund = true;
+            reason = "Expired without creator action (no accepted applicant)";
+          } else if (!doerStarted) {
+            shouldRefund = true;
+            reason = "Accepted doer did not start (no 'Do the task' before expiry)";
+          }
+
+          if (shouldRefund) {
+            // Mark as requested so we never double-refund
+            await PaymentIntent.updateOne(
+              { _id: intent._id, refundStatus: { $ne: "succeeded" } },
+              { $set: { refundStatus: "requested" } }
+            );
+
+            try {
+              // Attempt the refund via Chapa
+              const data = await refundEscrowWithChapa(intent, `Auto-refund on expiry: ${reason}`);
+
+              // Try to extract reference / refund id from provider payload (if present)
+              const chapaReference =
+                (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
+              const refundId =
+                (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
+
+              await PaymentIntent.updateOne(
+                { _id: intent._id },
+                { $set: { refundStatus: "succeeded", refundedAt: new Date(), chapaReference, refundId } }
+              );
+
+              await sendRefundAudit(bot, {
+                tag: "#refundsuccessful",
+                task, creator, intent,
+                extra: { reason, chapaReference, refundId }
+              });
+            } catch (apiErr) {
+              const msg = String(apiErr?.message || "").toLowerCase();
+              const insufficient = msg.includes("insufficient balance");
+
+              await PaymentIntent.updateOne(
+                { _id: intent._id },
+                { $set: { refundStatus: insufficient ? "queued" : "failed" } }
+              );
+
+              await sendRefundAudit(bot, {
+                tag: "#refundfailed",
+                task, creator, intent,
+                extra: { reason }
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Auto-refund-on-expiry error:", e);
+      }
 
       // Disable buttons for accepted applicants
       const acceptedApps = task.applicants.filter(app => app.status === "Accepted");
