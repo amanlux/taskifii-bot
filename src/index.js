@@ -153,12 +153,16 @@ async function sendRefundAudit(bot, {
   extra = {} // { reason, chapaReference, refundId }
 }) {
   const creatorName = creator?.fullName || creator?.username || String(creator?.telegramId || "");
+  const creatorUserId = creator?._id ? String(creator._id) : "-";
+  const creatorTelegramId = creator?.telegramId ?? "-";
+
   const messageLines = [
     `#taskRefund ${tag}`,
     `Task Description: ${task?.description || "-"}`,
     `Expiry (as shown): ${formatExpiresAtForAudit(task?.expiry)}`,
     `Fee (ETB): ${task?.paymentFee ?? intent?.amount ?? "-"}`,
-    `Creator Telegram ID: ${creator?.telegramId ?? "-"}`,
+    `Creator User ID: ${creatorUserId}`,
+    `Creator Telegram ID: ${creatorTelegramId}`,
     `Creator Name: ${creatorName}`,
   ];
 
