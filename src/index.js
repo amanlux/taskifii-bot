@@ -1286,6 +1286,50 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
+async function checkPendingRefunds() {
+  try {
+    const pendings = await PaymentIntent.find({
+      status: "paid",
+      refundStatus: "pending",
+    }).limit(50);
+
+    for (const intent of pendings) {
+      try {
+        // Use the same reference you stored earlier (fallback to tx_ref)
+        const ref = intent.chapaReference || intent.chapaTxRef;
+        if (!ref) continue;
+
+        // Re-verify using your smart verifier (live/test auto-pick)
+        // Many providers reflect refund state on the same verify payload;
+        // if Chapa exposes a dedicated refund-status endpoint, wire it here similarly.
+        const v = await verifyChapaTxRefSmart(ref);
+
+        // Heuristic: consider it settled when provider no longer reports it as
+        // refundable and/or returns a refund object with success/completed.
+        const settled =
+          v.ok && v.data && v.data.data && (
+            v.data.data.refund_status === "success" ||
+            v.data.data.refund_status === "completed" ||
+            v.data.data.status === "refunded"
+          );
+
+        if (settled) {
+          await PaymentIntent.updateOne(
+            { _id: intent._id },
+            { $set: { refundStatus: "succeeded", refundedAt: new Date() } }
+          );
+          // (Optional) audit you already have
+        }
+        // else keep as pending
+      } catch (e) {
+        // Swallow and try again next run
+      }
+    }
+  } catch (e) {
+    console.error("checkPendingRefunds error:", e);
+  }
+}
+
 // Normalizes ET mobile numbers to +2519xxxxxxxx / +2517xxxxxxxx; returns null if unknown.
 function normalizeEtPhone(raw) {
   if (!raw) return null;
@@ -2670,29 +2714,7 @@ async function retryQueuedRefunds() {
 
     for (const intent of queued) {
       try {
-        await refundEscrowWithChapa(intent, "Retry: creator canceled before engagement");
-        await PaymentIntent.updateOne(
-          { _id: intent._id },
-          { $set: { refundStatus: "succeeded", refundedAt: new Date() } }
-        );
-        console.log("Queued refund succeeded:", intent._id.toString());
-      } catch (err) {
-        const msg = String(err?.message || "").toLowerCase();
-        if (!msg.includes("insufficient balance")) {
-          // Hard failure: stop retrying and surface for manual help
-          await PaymentIntent.updateOne(
-            { _id: intent._id },
-            { $set: { refundStatus: "failed" } }
-          );
-          console.error("Queued refund hard-failed:", intent._id.toString(), err);
-        } else {
-          // Still insufficient funds — keep it queued; we'll retry later
-          console.log("Queued refund still waiting for funds:", intent._id.toString());
-        }
-      }
-      // inside for (const intent of queued) { ... }
-      try {
-        const data = await refundEscrowWithChapa(intent, "Retry: auto-refund on expiry");
+        const data = await refundEscrowWithChapa(intent, "Retry queued refund");
         const task = await Task.findById(intent.task);
         const creator = task ? await User.findById(task.creator) : null;
 
@@ -2703,48 +2725,41 @@ async function retryQueuedRefunds() {
 
         await PaymentIntent.updateOne(
           { _id: intent._id },
-          { $set: { refundStatus: "succeeded", refundedAt: new Date(), chapaReference, refundId } }
+          { $set: { refundStatus: "pending", refundedAt: null, chapaReference, refundId } }
         );
 
-        // audit
         if (task) {
           await sendRefundAudit(globalThis.TaskifiiBot, {
             tag: "#refundsuccessful",
             task, creator, intent,
-            extra: { reason: "Retry queued refund", chapaReference, refundId }
+            extra: { reason: "Retry queued refund (provider accepted)", chapaReference, refundId }
           });
         }
-        console.log("Queued refund succeeded:", intent._id.toString());
+        console.log("Queued refund request accepted by provider:", intent._id.toString());
       } catch (err) {
         const msg = String(err?.message || "").toLowerCase();
-        const hardFail = !msg.includes("insufficient balance");
-        if (hardFail) {
+        if (!msg.includes("insufficient balance")) {
           await PaymentIntent.updateOne(
             { _id: intent._id },
             { $set: { refundStatus: "failed" } }
           );
-          // audit
-          const task = await Task.findById(intent.task);
-          const creator = task ? await User.findById(task.creator) : null;
-          if (task) {
-            await sendRefundAudit(globalThis.TaskifiiBot, {
-              tag: "#refundfailed",
-              task, creator, intent,
-              extra: { reason: "Retry hard-failed" }
-            });
-          }
+          console.error("Queued refund hard-failed:", intent._id.toString(), err);
+        } else {
+          console.log("Queued refund still waiting for funds:", intent._id.toString());
         }
-        // else keep queued
       }
-
     }
   } catch (e) {
     console.error("retryQueuedRefunds error:", e);
   }
 }
 
+
 // run every 10 minutes
   setInterval(retryQueuedRefunds, 10 * 60 * 1000);
+  
+  setInterval(checkPendingRefunds, 15 * 60 * 1000);
+
 
   })
   .catch((err) => {
@@ -4792,7 +4807,7 @@ async function disableExpiredTaskButtons(bot) {
 
               await PaymentIntent.updateOne(
                 { _id: intent._id },
-                { $set: { refundStatus: "succeeded", refundedAt: new Date(), chapaReference, refundId } }
+                { $set: { refundStatus: "pending", refundedAt: new Date(), chapaReference, refundId } }
               );
 
               await sendRefundAudit(bot, {
@@ -7281,7 +7296,7 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
         await refundEscrowWithChapa(intent, "Creator canceled before engagement");
         await PaymentIntent.updateOne(
           { _id: intent._id },
-          { $set: { refundStatus: "succeeded", refundedAt: new Date() } }
+          { $set: { refundStatus: "pending", refundedAt: new Date() } }
         );
 
         const okMsg = (lang === "am")
