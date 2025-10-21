@@ -4206,11 +4206,22 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   
   // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
   if (["100%","30:40:30","50:50"].includes((updated.exchangeStrategy || "").trim())) {
+    // Build the message for the task creator
+    const creatorLang = creatorUser.language || lang;
+    const creatorText = buildWinnerCreatorMessage({
+      task: updated,
+      doer: user,
+      creatorLang
+    });
+    const extraForCreator = buildExchangeAndSkillSection(updated, creatorLang);
+    const creatorMsg = [creatorText, extraForCreator].filter(Boolean).join("\n\n");
+
     await ctx.telegram.sendMessage(
-    creator.telegramId,
+    creatorUser.telegramId,     // ✅ use the variable that exists here
     creatorMsg,
     { parse_mode: "Markdown" }
     );
+
 // ⛔️ removed reply_markup and the countdown setTimeout
 
   }
