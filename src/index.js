@@ -802,6 +802,18 @@ const TEXT = {
   en: "📎 The task creator attached this file for you.",
   am: "📎 የተግዳሮቱ ፈጣሪ ለእርስዎ ይህን ፋይል ላክቷል።"
   },
+  receivedValidatedBtn: {
+    en: "Received and validated",
+    am: "ተቀብሏል እና ተረጋገጠ"
+  },
+  receivedNeedsFixBtn: {
+    en: "Received but needs fixing",
+    am: "ተቀብሏል ግን ማሻሻል ይፈልጋል"
+  },
+  notReceivedBtn: {
+    en: "Not received",
+    am: "አልተቀበለም"
+  },
 
 
 
@@ -4232,8 +4244,16 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     await ctx.telegram.sendMessage(
       creatorUser.telegramId,
       creatorMsg,
-      { parse_mode: "Markdown" }
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback(TEXT.receivedValidatedBtn[creatorLang], `CREATOR_RECV_VALIDATED_${updated._id}`)],
+          [Markup.button.callback(TEXT.receivedNeedsFixBtn[creatorLang], `CREATOR_RECV_NEEDS_FIX_${updated._id}`)],
+          [Markup.button.callback(TEXT.notReceivedBtn[creatorLang], `CREATOR_RECV_NOT_RECEIVED_${updated._id}`)],
+        ])
+      }
     );
+
   }
 
   
@@ -4285,6 +4305,35 @@ bot.action("_DISABLED_DO_TASK_CANCEL",  async (ctx) => { await ctx.answerCbQuery
 
 // CREATOR: Mission (inert if escalated)
 
+bot.action(/^CREATOR_RECV_VALIDATED_(.+)$/, async (ctx) => {
+  try {
+    const creator = await User.findOne({ telegramId: ctx.from.id });
+    const lang = creator?.language || "en";
+    await ctx.answerCbQuery(lang === "am" ? "ተመዝግቧል። በቅርቡ ተግባር ይጨመራል።" : "Noted. Functionality coming soon.");
+  } catch (_) {
+    await ctx.answerCbQuery();
+  }
+});
+
+bot.action(/^CREATOR_RECV_NEEDS_FIX_(.+)$/, async (ctx) => {
+  try {
+    const creator = await User.findOne({ telegramId: ctx.from.id });
+    const lang = creator?.language || "en";
+    await ctx.answerCbQuery(lang === "am" ? "ተመዝግቧል። በቅርቡ ተግባር ይጨመራል።" : "Noted. Functionality coming soon.");
+  } catch (_) {
+    await ctx.answerCbQuery();
+  }
+});
+
+bot.action(/^CREATOR_RECV_NOT_RECEIVED_(.+)$/, async (ctx) => {
+  try {
+    const creator = await User.findOne({ telegramId: ctx.from.id });
+    const lang = creator?.language || "en";
+    await ctx.answerCbQuery(lang === "am" ? "ተመዝግቧል። በቅርቡ ተግባር ይጨመራል።" : "Noted. Functionality coming soon.");
+  } catch (_) {
+    await ctx.answerCbQuery();
+  }
+});
 
 // RATE buttons: RATE_<taskId>_(doerRatesCreator|creatorRatesDoer)_<1..5>
 bot.action(/^RATE_([a-f0-9]{24})_(doerRatesCreator|creatorRatesDoer)_(\d)$/, async (ctx) => {
