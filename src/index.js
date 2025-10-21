@@ -4041,8 +4041,7 @@ bot.action("SET_LANG_AM", async (ctx) => {
 });
 
 
-// Dummy handlers for the confirmation buttons
-// Replace the whole DO_TASK_CONFIRM action handler with this:
+
 // Works for both: DO_TASK_CONFIRM  and  DO_TASK_CONFIRM_<taskId>
 bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -4205,6 +4204,8 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   }
   
   // If strategy is allowed, notify creator with the long message
+  let creatorUser = await User.findById(task.creator);
+
   if (["100%","30:40:30","50:50"].includes((updated.exchangeStrategy || "").trim())) {
     // we already have creatorUser above; use it consistently
     const creatorLang = (creatorUser && creatorUser.language) || lang;
@@ -4244,7 +4245,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
 
   // Build doer-facing long message + two stacked buttons + countdown
   const doerLang = lang; // user's language
-  const creatorUser = await User.findById(updated.creator);
+  
 
   // compute timing pieces (same approach you already use for creator)
   const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
