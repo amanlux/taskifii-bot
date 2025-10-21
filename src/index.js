@@ -4204,27 +4204,37 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     console.error("Failed to send related file to doer:", e);
   }
   
-  // If strategy is 100%, notify creator with the long message + stacked buttons + countdown
+  // If strategy is allowed, notify creator with the long message
   if (["100%","30:40:30","50:50"].includes((updated.exchangeStrategy || "").trim())) {
-    // Build the message for the task creator
-    const creatorLang = creatorUser.language || lang;
+    // we already have creatorUser above; use it consistently
+    const creatorLang = (creatorUser && creatorUser.language) || lang;
+
+    // compute minutes exactly like you do for the doer block
+    const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
+    const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
+    const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
+    const fee = updated.paymentFee || 0;
+    const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
+    const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
+
     const creatorText = buildWinnerCreatorMessage({
       task: updated,
       doer: user,
-      creatorLang
+      creatorLang,
+      totalMinutes,
+      revMinutes,
+      penaltyHoursToZero
     });
     const extraForCreator = buildExchangeAndSkillSection(updated, creatorLang);
     const creatorMsg = [creatorText, extraForCreator].filter(Boolean).join("\n\n");
 
     await ctx.telegram.sendMessage(
-    creatorUser.telegramId,     // ✅ use the variable that exists here
-    creatorMsg,
-    { parse_mode: "Markdown" }
+      creatorUser.telegramId,
+      creatorMsg,
+      { parse_mode: "Markdown" }
     );
-
-// ⛔️ removed reply_markup and the countdown setTimeout
-
   }
+
   
   // Notify creator/channel using your existing helper
   const creator = await User.findById(updated.creator);
