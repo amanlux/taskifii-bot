@@ -5536,6 +5536,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       ])
     );
   }
+  // If no special flow was matched, proceed to next middleware to handle message forwarding
+  return next();
 });
 
 async function handleDescription(ctx, draft) {
@@ -6987,7 +6989,67 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
 
 
       // fallback per type (photo/document/video/audio/voice/sticker/animation/text/...)
-      const sendOneFallback = async (rec) => { /* ... as in your file ... */ };
+      // Inside bot.action(/^COMPLETED_SENT_(.+)$/) ...
+      const sendOneFallback = async (rec) => {
+        switch (rec.type) {
+          case 'text':
+            // Plain text (including links or emoji)
+            await ctx.telegram.sendMessage(creatorTid, rec.text);
+            break;
+          case 'photo':
+            // Photo with caption
+            await ctx.telegram.sendPhoto(
+              creatorTid, 
+              rec.photoBestFileId || rec.fileIds.slice(-1)[0], 
+              { caption: rec.caption || undefined }
+            );
+            break;
+          case 'video':
+            await ctx.telegram.sendVideo(
+              creatorTid, 
+              rec.videoFileId || rec.fileIds[0], 
+              { caption: rec.caption || undefined }
+            );
+            break;
+          case 'document':
+            await ctx.telegram.sendDocument(
+              creatorTid, 
+              rec.documentFileId || rec.fileIds[0], 
+              { caption: rec.caption || undefined }
+            );
+            break;
+          case 'audio':
+            await ctx.telegram.sendAudio(
+              creatorTid, 
+              rec.audioFileId, 
+              { caption: rec.caption || undefined }
+            );
+            break;
+          case 'voice':
+            await ctx.telegram.sendVoice(creatorTid, rec.voiceFileId);
+            break;
+          case 'sticker':
+            await ctx.telegram.sendSticker(creatorTid, rec.stickerFileId);
+            break;
+          case 'animation':
+            await ctx.telegram.sendAnimation(
+              creatorTid, 
+              rec.animationFileId, 
+              { caption: rec.caption || undefined }
+            );
+            break;
+          case 'video_note':
+            await ctx.telegram.sendVideoNote(creatorTid, rec.videoNoteFileId);
+            break;
+          default:
+            // Fallback for any unhandled type: send caption or text if available
+            if (rec.caption) {
+              await ctx.telegram.sendMessage(creatorTid, rec.caption);
+            }
+            break;
+        }
+      };
+
 
       // Prefer forward for forwarded; else copy; else fallback
       const deliverSingle = async (rec) => {
