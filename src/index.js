@@ -1762,9 +1762,6 @@ async function captureIfActiveDoerMessage(ctx) {
   );
 }
 
-// Hook it once to all relevant updates (keeps your other logic untouched)
-bot.on('message', captureIfActiveDoerMessage);
-bot.on('edited_message', captureIfActiveDoerMessage);
 
 async function mirrorDoerWorkToCreator(bot, taskId) {
   // Load the task, creator, doer-work
@@ -3291,6 +3288,9 @@ bot.use(async (ctx, next) => {
  
 // After you create `bot` and before existing start/onboarding handlers:
 bot.use(applyGatekeeper);
+// Hook it once to all relevant updates (keeps your other logic untouched)
+bot.on('message', captureIfActiveDoerMessage);
+bot.on('edited_message', captureIfActiveDoerMessage);
 
 
 
@@ -8691,140 +8691,9 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
   }
 });
 
-// Capture every message the winner sends while their work window is active.
-// We only store (chatId,messageId) so we can copyMessage later (preserves types/captions).
-bot.on('message', async (ctx, next) => {
-  try {
-    const fromId = ctx.from?.id;
-    if (!fromId) return next();
-
-    // Is this user an active doer on some task?
-    const work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' }).lean();
-    if (!work) return next();
-
-    // Filter out the two system prompts you explicitely do NOT want included
-    const txt = ctx.message?.text || ctx.message?.caption || "";
-    const blockedEn = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
-    const blockedAm = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
-
-    if (txt && (txt.trim() === blockedEn.trim() || txt.trim() === blockedAm.trim())) {
-      return next();
-    }
-
-    const m = ctx.message;
-    const base = {
-      messageId: m.message_id,
-      date: new Date(m.date * 1000),
-      type: undefined,
-      mediaGroupId: m.media_group_id,
-      text: undefined,
-      caption: undefined,
-      fileIds: [],
-      photoBestFileId: undefined,
-      documentFileId: undefined,
-      videoFileId: undefined,
-      audioFileId: undefined,
-      voiceFileId: undefined,
-      videoNoteFileId: undefined,
-      stickerFileId: undefined
-    };
-    
-
-    base.mediaGroupId = m.media_group_id || undefined; // NEW
-    base.isForwarded = !!(m.forward_from || m.forward_from_chat || m.forward_origin || m.forward_date); // NEW
 
 
-    // text (incl. links)
-    if (m.text) {
-      base.type = 'text';
-      base.text = m.text;
-    }
-    
-    // photos (possibly an album)
-    if (m.photo && Array.isArray(m.photo) && m.photo.length) {
-      base.type = 'photo';
-      // largest size is last item
-      base.fileIds = m.photo.map(p => p.file_id);
-      base.photoBestFileId = m.photo[m.photo.length - 1].file_id;
-      if (m.caption) base.caption = m.caption;
-    }
 
-    // document (pdf, etc.)
-    if (m.document) {
-      base.type = 'document';
-      base.documentFileId = m.document.file_id;
-      base.fileIds = [m.document.file_id];
-      if (m.caption) base.caption = m.caption;
-    }
-
-    // video
-    if (m.video) {
-      base.type = 'video';
-      base.videoFileId = m.video.file_id;
-      base.fileIds = [m.video.file_id];
-      if (m.caption) base.caption = m.caption;
-    }
-
-    // audio (music)
-    if (m.audio) {
-      base.type = 'audio';
-      base.audioFileId = m.audio.file_id;
-      base.fileIds = [m.audio.file_id];
-      if (m.caption) base.caption = m.caption;
-    }
-    // animation (GIF / mp4 GIF)
-    if (m.animation) {
-      base.type = 'animation';
-      base.animationFileId = m.animation.file_id;
-      base.fileIds = [m.animation.file_id];
-      if (m.caption) base.caption = m.caption;
-    }
-
-    
-
-    // voice (PTT/voice note)
-    if (m.voice) {
-      base.type = 'voice';
-      base.voiceFileId = m.voice.file_id;
-      base.fileIds = [m.voice.file_id];
-    }
-
-    // video_note
-    if (m.video_note) {
-      base.type = 'video_note';
-      base.videoNoteFileId = m.video_note.file_id;
-      base.fileIds = [m.video_note.file_id];
-    }
-
-    // sticker (emoji-like)
-    if (m.sticker) {
-      base.type = 'sticker';
-      base.stickerFileId = m.sticker.file_id;
-      base.fileIds = [m.sticker.file_id];
-    }
-
-    // fallbacks for caption-only cases
-    if (!base.type && (m.caption || m.media_group_id)) {
-      base.type = 'unknown';
-      if (m.caption) base.caption = m.caption;
-    }
-
-    await DoerWork.updateOne(
-      { _id: work._id },
-      { $push: { messages: base } }
-    );
-
-
-    return next();
-  } catch (e) {
-    console.error("capture doer message error:", e);
-    return next();
-  }
-});
-
-// Hook it once to all relevant updates (keeps your other logic untouched)
-bot.on('message', captureIfActiveDoerMessage);
-bot.on('edited_message', captureIfActiveDoerMessage);
 // Error handling middleware
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
