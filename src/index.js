@@ -6960,8 +6960,31 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       const creatorTid = task.creator.telegramId;
 
       // group by mediaGroupId; singles stay single
-      function groupMessages(records) { /* ... as in your file ... */ }
-      const groups = groupMessages(msgs);
+      function groupMessages(records) {
+        const out = [];
+        let i = 0;
+        while (i < records.length) {
+          const r = records[i];
+          if (r.mediaGroupId) {
+            const gid = r.mediaGroupId;
+            const bucket = [r];
+            i++;
+            while (i < records.length && records[i].mediaGroupId === gid) {
+              bucket.push(records[i]);
+              i++;
+            }
+            out.push(bucket);
+          } else {
+            out.push([r]);
+            i++;
+          }
+        }
+        return out;
+      }
+
+      const groupsTmp = groupMessages(msgs);
+      const groups = Array.isArray(groupsTmp) ? groupsTmp : [];
+
 
       // fallback per type (photo/document/video/audio/voice/sticker/animation/text/...)
       const sendOneFallback = async (rec) => { /* ... as in your file ... */ };
@@ -6976,12 +6999,59 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       };
 
       // Albums: try copy each → media group → per-item
-      const deliverGroup = async (bucket) => { /* ... as in your file ... */ };
+      const deliverGroup = async (bucket) => {
+        // singletons or non-album: deliver as a single item
+        if (bucket.length === 1 || !bucket[0].mediaGroupId) {
+          return deliverSingle(bucket[0]);
+        }
+
+        // Try copying each; if every copy works, we’re done
+        let allCopied = true;
+        for (const rec of bucket) {
+          try {
+            await ctx.telegram.copyMessage(creatorTid, work.doerTelegramId, rec.messageId);
+          } catch (_) {
+            allCopied = false;
+            break;
+          }
+        }
+        if (allCopied) return;
+
+        // Build a media group (photos/videos/documents only). If mixed/unsupported, fall back per item.
+        const asMedia = [];
+        for (let idx = 0; idx < bucket.length; idx++) {
+          const rec = bucket[idx];
+          const caption = idx === 0 ? (rec.caption || undefined) : undefined; // Telegram shows only first caption
+          if (rec.type === 'photo' && (rec.photoBestFileId || rec.fileIds?.length)) {
+            asMedia.push({ type: 'photo', media: rec.photoBestFileId || rec.fileIds[rec.fileIds.length - 1], caption });
+          } else if (rec.type === 'video' && (rec.videoFileId || rec.fileIds?.length)) {
+            asMedia.push({ type: 'video', media: rec.videoFileId || rec.fileIds[0], caption });
+          } else if (rec.type === 'document' && (rec.documentFileId || rec.fileIds?.length)) {
+            asMedia.push({ type: 'document', media: rec.documentFileId || rec.fileIds[0], caption });
+          } else {
+            // Unsupported item within the album → send each individually robustly
+            for (const r of bucket) await deliverSingle(r);
+            return;
+          }
+        }
+
+        try {
+          await ctx.telegram.sendMediaGroup(creatorTid, asMedia);
+        } catch (e) {
+          // If the group send fails, deliver items individually to avoid data loss
+          for (const r of bucket) await deliverSingle(r);
+        }
+      };
+
 
       // send in order
       for (const bucket of groups) { await deliverGroup(bucket); }
 
       // then show the two decision buttons to the creator
+      const decisionMsg = (lang === 'am')
+        ? "የተግባሩ ማቅረብ ተላክ። ከታች ያሉትን አማራጮች ይጫኑ።"
+        : "The completed work has been submitted. Please choose below.";
+
       await ctx.telegram.sendMessage(creatorTid, decisionMsg, Markup.inlineKeyboard([
         [ Markup.button.callback(TEXT.validBtn[lang], `CREATOR_VALID_${String(task._id)}`),
           Markup.button.callback(TEXT.needsFixBtn[lang], `CREATOR_NEEDS_FIX_${String(task._id)}`) ]
