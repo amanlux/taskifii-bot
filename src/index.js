@@ -232,10 +232,27 @@ const DoerWorkSchema = new mongoose.Schema({
 
   // Exact original Telegram messages from the doer so we can copy them to the creator
   // preserving captions and types.
+  // add to DoerWorkSchema.messages[*]
   messages: [{
     messageId: Number,
-    date: Date
+    date: Date,
+
+    // NEW (backward-compatible):
+    type: { type: String },                 // 'text','photo','document','video','audio','voice','sticker','video_note'
+    mediaGroupId: { type: String },
+    text: { type: String },
+    caption: { type: String },
+    fileIds: [String],                      // e.g. photo sizes (we’ll pick the largest), or single file_id for doc/video/etc.
+    // for stickers/voices:
+    stickerFileId: { type: String },
+    voiceFileId: { type: String },
+    audioFileId: { type: String },
+    videoFileId: { type: String },
+    documentFileId: { type: String },
+    photoBestFileId: { type: String },      // convenience for single-photo cases
+    videoNoteFileId: { type: String }
   }]
+
 }, { versionKey: false, timestamps: true });
 
 const DoerWork = mongoose.models.DoerWork
@@ -6932,13 +6949,104 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       // 3) Forward (copy) every collected message EXACTLY as sent to the task creator
       // Using copyMessage preserves type and caption.
       const creatorTid = task.creator.telegramId;
-      for (const m of work.messages || []) {
-        try {
-          await ctx.telegram.copyMessage(creatorTid, ctx.from.id, m.messageId);
-        } catch (e) {
-          console.error("copyMessage failed:", e);
+     // Group by media_group_id to preserve albums
+      const msgs = (work.messages || []).slice().sort((a,b) => a.date - b.date);
+
+      // helper to send one message by type
+      const sendOne = async (rec, opts = {}) => {
+        const caption = rec.caption || undefined;
+
+        switch (rec.type) {
+          case 'text':
+            await ctx.telegram.sendMessage(creatorTid, rec.text, { disable_web_page_preview: false });
+            break;
+          case 'photo':
+            // single photo (non-album)
+            await ctx.telegram.sendPhoto(creatorTid, rec.photoBestFileId || rec.fileIds?.[rec.fileIds.length-1], { caption });
+            break;
+          case 'document':
+            await ctx.telegram.sendDocument(creatorTid, rec.documentFileId || rec.fileIds?.[0], { caption });
+            break;
+          case 'video':
+            await ctx.telegram.sendVideo(creatorTid, rec.videoFileId || rec.fileIds?.[0], { caption });
+            break;
+          case 'audio':
+            await ctx.telegram.sendAudio(creatorTid, rec.audioFileId || rec.fileIds?.[0], { caption });
+            break;
+          case 'voice':
+            await ctx.telegram.sendVoice(creatorTid, rec.voiceFileId || rec.fileIds?.[0]);
+            break;
+          case 'video_note':
+            await ctx.telegram.sendVideoNote(creatorTid, rec.videoNoteFileId || rec.fileIds?.[0]);
+            break;
+          case 'sticker':
+            await ctx.telegram.sendSticker(creatorTid, rec.stickerFileId || rec.fileIds?.[0]);
+            break;
+          default:
+            // best-effort fallback (try to forward the original)
+            try {
+              await ctx.telegram.forwardMessage(creatorTid, ctx.from.id, rec.messageId);
+            } catch (_) {
+              // nothing else we can do without a file_id
+            }
         }
+      };
+
+      // now iterate, grouping albums
+      let i = 0;
+      while (i < msgs.length) {
+        const m = msgs[i];
+
+        if (m.mediaGroupId) {
+          // collect the entire album (consecutive items with same mediaGroupId)
+          const g = [];
+          let j = i;
+          while (j < msgs.length && msgs[j].mediaGroupId === m.mediaGroupId) {
+            g.push(msgs[j]);
+            j++;
+          }
+
+          // Prepare InputMedia array. Telegram allows mixed photo/video in albums (<=10).
+          // Caption only on the first item is supported.
+          const media = g.map((it, idx) => {
+            const cap = idx === 0 ? (it.caption || undefined) : undefined;
+            if (it.type === 'photo') {
+              return { type: 'photo', media: it.photoBestFileId || it.fileIds?.[it.fileIds.length-1], caption: cap };
+            } else if (it.type === 'video') {
+              return { type: 'video', media: it.videoFileId || it.fileIds?.[0], caption: cap };
+            } else if (it.type === 'document') {
+              // documents can’t go in media groups, send singly instead
+              return null;
+            } else {
+              return null;
+            }
+          }).filter(Boolean);
+
+          if (media.length > 0) {
+            try {
+              await ctx.telegram.sendMediaGroup(creatorTid, media);
+            } catch (e) {
+              // If album fails (rare), fall back to sending items one by one
+              for (const it of g) {
+                try { await sendOne(it); } catch (e2) { console.error('sendOne(album fallback) failed:', e2); }
+              }
+            }
+          } else {
+            // not album-compatible, send one by one
+            for (const it of g) {
+              try { await sendOne(it); } catch (e2) { console.error('sendOne(non-album) failed:', e2); }
+            }
+          }
+
+          i = j; // advance past album
+          continue;
+        }
+
+        // not an album item
+        try { await sendOne(m); } catch (e) { console.error('sendOne(single) failed:', e); }
+        i++;
       }
+
 
       // 4) Under the forwarded items, show the two decision buttons (dummy handlers for now)
       const decisionMsg = (lang === 'am')
@@ -8276,11 +8384,95 @@ bot.on('message', async (ctx, next) => {
       return next();
     }
 
-    // Store only the essentials for lossless copy
+    const m = ctx.message;
+    const base = {
+      messageId: m.message_id,
+      date: new Date(m.date * 1000),
+      type: undefined,
+      mediaGroupId: m.media_group_id,
+      text: undefined,
+      caption: undefined,
+      fileIds: [],
+      photoBestFileId: undefined,
+      documentFileId: undefined,
+      videoFileId: undefined,
+      audioFileId: undefined,
+      voiceFileId: undefined,
+      videoNoteFileId: undefined,
+      stickerFileId: undefined
+    };
+
+    // text (incl. links)
+    if (m.text) {
+      base.type = 'text';
+      base.text = m.text;
+    }
+
+    // photos (possibly an album)
+    if (m.photo && Array.isArray(m.photo) && m.photo.length) {
+      base.type = 'photo';
+      // largest size is last item
+      base.fileIds = m.photo.map(p => p.file_id);
+      base.photoBestFileId = m.photo[m.photo.length - 1].file_id;
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // document (pdf, etc.)
+    if (m.document) {
+      base.type = 'document';
+      base.documentFileId = m.document.file_id;
+      base.fileIds = [m.document.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // video
+    if (m.video) {
+      base.type = 'video';
+      base.videoFileId = m.video.file_id;
+      base.fileIds = [m.video.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // audio (music)
+    if (m.audio) {
+      base.type = 'audio';
+      base.audioFileId = m.audio.file_id;
+      base.fileIds = [m.audio.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // voice (PTT/voice note)
+    if (m.voice) {
+      base.type = 'voice';
+      base.voiceFileId = m.voice.file_id;
+      base.fileIds = [m.voice.file_id];
+    }
+
+    // video_note
+    if (m.video_note) {
+      base.type = 'video_note';
+      base.videoNoteFileId = m.video_note.file_id;
+      base.fileIds = [m.video_note.file_id];
+    }
+
+    // sticker (emoji-like)
+    if (m.sticker) {
+      base.type = 'sticker';
+      base.stickerFileId = m.sticker.file_id;
+      base.fileIds = [m.sticker.file_id];
+    }
+
+    // fallbacks for caption-only cases
+    if (!base.type && (m.caption || m.media_group_id)) {
+      base.type = 'unknown';
+      if (m.caption) base.caption = m.caption;
+    }
+
     await DoerWork.updateOne(
       { _id: work._id },
-      { $push: { messages: { messageId: ctx.message.message_id, date: new Date(ctx.message.date * 1000) } } }
+      { $push: { messages: base } }
     );
+
 
     return next();
   } catch (e) {
