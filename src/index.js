@@ -1673,6 +1673,259 @@ async function applyGatekeeper(ctx, next) {
     return next();
   }
 }
+
+// ---- UNIVERSAL DOER CAPTURE ----
+// Stores every inbound message from the active doer into DoerWork.messages as-is.
+// Uses your existing DoerWork schema fields.
+async function captureIfActiveDoerMessage(ctx) {
+  const m = ctx.message || ctx.update?.message || ctx.update?.edited_message;
+  if (!m) return;
+
+  // Who sent this?
+  const telegramId = m.from?.id;
+  if (!telegramId) return;
+
+  // Is this user an active doer on some task right now?
+  const doerWork = await DoerWork.findOne({
+    doerTelegramId: telegramId,
+    status: 'active'
+  }).lean();
+
+  if (!doerWork) return;
+
+  // Normalize one record for our DoerWork.messages[]
+  const rec = {
+    messageId: m.message_id,
+    date: new Date((m.date || Math.floor(Date.now()/1000)) * 1000),
+    type: undefined,
+    mediaGroupId: m.media_group_id,
+    text: undefined,
+    caption: undefined,
+    fileIds: [],
+    stickerFileId: undefined,
+    voiceFileId: undefined,
+    audioFileId: undefined,
+    videoFileId: undefined,
+    documentFileId: undefined,
+    photoBestFileId: undefined,
+    animationFileId: undefined,
+    videoNoteFileId: undefined,
+    isForwarded: Boolean(
+      m.forward_from || m.forward_from_chat || m.forward_sender_name || m.is_automatic_forward || m.forward_origin
+    )
+  };
+
+  // Detect & extract content
+  if (m.photo && m.photo.length) {
+    rec.type = 'photo';
+    // pick largest (last) photo size
+    rec.photoBestFileId = m.photo[m.photo.length - 1].file_id;
+    rec.caption = m.caption;
+  } else if (m.document) {
+    rec.type = 'document';
+    rec.documentFileId = m.document.file_id;
+    rec.caption = m.caption;
+  } else if (m.video) {
+    rec.type = 'video';
+    rec.videoFileId = m.video.file_id;
+    rec.caption = m.caption;
+  } else if (m.audio) {
+    rec.type = 'audio';
+    rec.audioFileId = m.audio.file_id;
+    rec.caption = m.caption;
+  } else if (m.voice) {
+    rec.type = 'voice';
+    rec.voiceFileId = m.voice.file_id;
+    rec.caption = m.caption;
+  } else if (m.video_note) {
+    rec.type = 'video_note';
+    rec.videoNoteFileId = m.video_note.file_id;
+  } else if (m.animation) { // GIFs/MP4 gifs
+    rec.type = 'animation';
+    rec.animationFileId = m.animation.file_id;
+    rec.caption = m.caption;
+  } else if (m.sticker) {
+    rec.type = 'sticker';
+    rec.stickerFileId = m.sticker.file_id;
+  } else if (typeof m.text === 'string') {
+    rec.type = 'text';
+    rec.text = m.text; // includes links and emoji
+  } else {
+    // Unknown / unsupported: ignore silently
+    return;
+  }
+
+  // Upsert (push) into messages atomically, preserving chronological order by messageId
+  await DoerWork.updateOne(
+    { _id: doerWork._id },
+    { $push: { messages: rec } }
+  );
+}
+
+// Hook it once to all relevant updates (keeps your other logic untouched)
+bot.on('message', captureIfActiveDoerMessage);
+bot.on('edited_message', captureIfActiveDoerMessage);
+
+async function mirrorDoerWorkToCreator(bot, taskId) {
+  // Load the task, creator, doer-work
+  const task = await Task.findById(taskId).lean();
+  if (!task) return;
+
+  const doerWork = await DoerWork.findOne({ task: task._id }).lean();
+  if (!doerWork || !Array.isArray(doerWork.messages) || doerWork.messages.length === 0) return;
+
+  const creator = await User.findById(task.creator).lean();
+  if (!creator) return;
+  const creatorChatId = creator.telegramId;
+
+  // We will send in original order:
+  const msgs = [...doerWork.messages].sort((a, b) => a.messageId - b.messageId);
+
+  // Group media groups (albums) while keeping singles
+  const groups = new Map(); // mediaGroupId -> array of messages
+  const singles = [];
+
+  for (const x of msgs) {
+    if (x.mediaGroupId) {
+      if (!groups.has(x.mediaGroupId)) groups.set(x.mediaGroupId, []);
+      groups.get(x.mediaGroupId).push(x);
+    } else {
+      singles.push(x);
+    }
+  }
+
+  // 2.1 First send media groups (as albums) in original relative order
+  for (const [_, items] of groups) {
+    // Build InputMedia array
+    const media = items.map((it, idx) => {
+      if (it.type === 'photo' && it.photoBestFileId) {
+        return {
+          type: 'photo',
+          media: it.photoBestFileId,
+          caption: idx === 0 ? it.caption : undefined
+        };
+      }
+      if (it.type === 'video' && it.videoFileId) {
+        return {
+          type: 'video',
+          media: it.videoFileId,
+          caption: idx === 0 ? it.caption : undefined
+        };
+      }
+      if (it.type === 'document' && it.documentFileId) {
+        return {
+          type: 'document',
+          media: it.documentFileId,
+          caption: idx === 0 ? it.caption : undefined
+        };
+      }
+      if (it.type === 'animation' && it.animationFileId) {
+        return {
+          type: 'animation',
+          media: it.animationFileId,
+          caption: idx === 0 ? it.caption : undefined
+        };
+      }
+      // Fallback to text if something slips through
+      return { type: 'photo', media: it.photoBestFileId || it.videoFileId || it.documentFileId };
+    }).filter(Boolean);
+
+    if (media.length > 0) {
+      await bot.telegram.sendMediaGroup(creatorChatId, media, {
+        disable_notification: true,
+        allow_sending_without_reply: true
+      });
+    }
+  }
+
+  // 2.2 Then send the singles in order, choosing the best transport per type
+  for (const it of singles) {
+    try {
+      // If this specific message was originally FORWARDED into the bot,
+      // forward *that original* message to preserve any inline keyboard that came with it.
+      // We have the source chat: the doer’s private chat with the bot (doerWork.doerTelegramId).
+      if (it.isForwarded && it.messageId) {
+        await bot.telegram.forwardMessage(
+          creatorChatId,
+          doerWork.doerTelegramId,      // from chat
+          it.messageId,                 // the forwarded message the bot received
+          { disable_notification: true }
+        );
+        continue;
+      }
+
+      // Otherwise, recreate content:
+      switch (it.type) {
+        case 'photo':
+          await bot.telegram.sendPhoto(creatorChatId, it.photoBestFileId, {
+            caption: it.caption,
+            disable_notification: true
+          });
+          break;
+        case 'video':
+          await bot.telegram.sendVideo(creatorChatId, it.videoFileId, {
+            caption: it.caption,
+            disable_notification: true
+          });
+          break;
+        case 'document':
+          await bot.telegram.sendDocument(creatorChatId, it.documentFileId, {
+            caption: it.caption,
+            disable_notification: true
+          });
+          break;
+        case 'audio':
+          await bot.telegram.sendAudio(creatorChatId, it.audioFileId, {
+            caption: it.caption,
+            disable_notification: true
+          });
+          break;
+        case 'voice':
+          await bot.telegram.sendVoice(creatorChatId, it.voiceFileId, {
+            caption: it.caption,
+            disable_notification: true
+          });
+          break;
+        case 'video_note':
+          await bot.telegram.sendVideoNote(creatorChatId, it.videoNoteFileId, {
+            disable_notification: true
+          });
+          break;
+        case 'animation':
+          await bot.telegram.sendAnimation(creatorChatId, it.animationFileId, {
+            caption: it.caption,
+            disable_notification: true
+          });
+          break;
+        case 'sticker':
+          await bot.telegram.sendSticker(creatorChatId, it.stickerFileId, {
+            disable_notification: true
+          });
+          break;
+        case 'text':
+          await bot.telegram.sendMessage(creatorChatId, it.text, {
+            disable_web_page_preview: false, // allow link previews
+            disable_notification: true
+          });
+          break;
+        default:
+          // fallback: try copyMessage (works for most media too, but doesn’t carry inline keyboards)
+          if (it.messageId) {
+            await bot.telegram.copyMessage(
+              creatorChatId,
+              doerWork.doerTelegramId,
+              it.messageId,
+              { disable_notification: true }
+            );
+          }
+          break;
+      }
+    } catch (e) {
+      console.error('Mirror error for single item', it, e);
+    }
+  }
+}
+
 // Backward-compatible boolean verifier used around the codebase
 async function verifyChapaTxRef(txRef) {
   const r = await verifyChapaTxRefSmart(txRef);
@@ -6954,6 +7207,9 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       work.status = 'completed';
       await work.save();
 
+      // 3) Mirror every collected message to the task creator.
+      await mirrorDoerWorkToCreator(bot, task._id);
+
       // 3) Forward (copy) every collected message EXACTLY as sent to the task creator
       // Using copyMessage preserves type and caption.
       // 3) Mirror every collected message to the task creator.
@@ -8566,7 +8822,9 @@ bot.on('message', async (ctx, next) => {
   }
 });
 
-
+// Hook it once to all relevant updates (keeps your other logic untouched)
+bot.on('message', captureIfActiveDoerMessage);
+bot.on('edited_message', captureIfActiveDoerMessage);
 // Error handling middleware
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
