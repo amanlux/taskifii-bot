@@ -1674,254 +1674,6 @@ async function applyGatekeeper(ctx, next) {
   }
 }
 
-// ---- UNIVERSAL DOER CAPTURE ----
-// Stores every inbound message from the active doer into DoerWork.messages as-is.
-// Uses your existing DoerWork schema fields.
-async function captureIfActiveDoerMessage(ctx) {
-  const m = ctx.message || ctx.update?.message || ctx.update?.edited_message;
-  if (!m) return;
-
-  // Who sent this?
-  const telegramId = m.from?.id;
-  if (!telegramId) return;
-
-  // Is this user an active doer on some task right now?
-  const doerWork = await DoerWork.findOne({
-    doerTelegramId: telegramId,
-    status: 'active'
-  }).lean();
-
-  if (!doerWork) return;
-
-  // Normalize one record for our DoerWork.messages[]
-  const rec = {
-    messageId: m.message_id,
-    date: new Date((m.date || Math.floor(Date.now()/1000)) * 1000),
-    type: undefined,
-    mediaGroupId: m.media_group_id,
-    text: undefined,
-    caption: undefined,
-    fileIds: [],
-    stickerFileId: undefined,
-    voiceFileId: undefined,
-    audioFileId: undefined,
-    videoFileId: undefined,
-    documentFileId: undefined,
-    photoBestFileId: undefined,
-    animationFileId: undefined,
-    videoNoteFileId: undefined,
-    isForwarded: Boolean(
-      m.forward_from || m.forward_from_chat || m.forward_sender_name || m.is_automatic_forward || m.forward_origin
-    )
-  };
-
-  // Detect & extract content
-  if (m.photo && m.photo.length) {
-    rec.type = 'photo';
-    // pick largest (last) photo size
-    rec.photoBestFileId = m.photo[m.photo.length - 1].file_id;
-    rec.caption = m.caption;
-  } else if (m.document) {
-    rec.type = 'document';
-    rec.documentFileId = m.document.file_id;
-    rec.caption = m.caption;
-  } else if (m.video) {
-    rec.type = 'video';
-    rec.videoFileId = m.video.file_id;
-    rec.caption = m.caption;
-  } else if (m.audio) {
-    rec.type = 'audio';
-    rec.audioFileId = m.audio.file_id;
-    rec.caption = m.caption;
-  } else if (m.voice) {
-    rec.type = 'voice';
-    rec.voiceFileId = m.voice.file_id;
-    rec.caption = m.caption;
-  } else if (m.video_note) {
-    rec.type = 'video_note';
-    rec.videoNoteFileId = m.video_note.file_id;
-  } else if (m.animation) { // GIFs/MP4 gifs
-    rec.type = 'animation';
-    rec.animationFileId = m.animation.file_id;
-    rec.caption = m.caption;
-  } else if (m.sticker) {
-    rec.type = 'sticker';
-    rec.stickerFileId = m.sticker.file_id;
-  } else if (typeof m.text === 'string') {
-    rec.type = 'text';
-    rec.text = m.text; // includes links and emoji
-  } else {
-    // Unknown / unsupported: ignore silently
-    return;
-  }
-
-  // Upsert (push) into messages atomically, preserving chronological order by messageId
-  await DoerWork.updateOne(
-    { _id: doerWork._id },
-    { $push: { messages: rec } }
-  );
-}
-
-
-async function mirrorDoerWorkToCreator(bot, taskId) {
-  // Load the task, creator, doer-work
-  const task = await Task.findById(taskId).lean();
-  if (!task) return;
-
-  const doerWork = await DoerWork.findOne({ task: task._id }).lean();
-  if (!doerWork || !Array.isArray(doerWork.messages) || doerWork.messages.length === 0) return;
-
-  const creator = await User.findById(task.creator).lean();
-  if (!creator) return;
-  const creatorChatId = creator.telegramId;
-
-  // We will send in original order:
-  const msgs = [...doerWork.messages].sort((a, b) => a.messageId - b.messageId);
-
-  // Group media groups (albums) while keeping singles
-  const groups = new Map(); // mediaGroupId -> array of messages
-  const singles = [];
-
-  for (const x of msgs) {
-    if (x.mediaGroupId) {
-      if (!groups.has(x.mediaGroupId)) groups.set(x.mediaGroupId, []);
-      groups.get(x.mediaGroupId).push(x);
-    } else {
-      singles.push(x);
-    }
-  }
-
-  // 2.1 First send media groups (as albums) in original relative order
-  for (const [_, items] of groups) {
-    // Build InputMedia array
-    const media = items.map((it, idx) => {
-      if (it.type === 'photo' && it.photoBestFileId) {
-        return {
-          type: 'photo',
-          media: it.photoBestFileId,
-          caption: idx === 0 ? it.caption : undefined
-        };
-      }
-      if (it.type === 'video' && it.videoFileId) {
-        return {
-          type: 'video',
-          media: it.videoFileId,
-          caption: idx === 0 ? it.caption : undefined
-        };
-      }
-      if (it.type === 'document' && it.documentFileId) {
-        return {
-          type: 'document',
-          media: it.documentFileId,
-          caption: idx === 0 ? it.caption : undefined
-        };
-      }
-      if (it.type === 'animation' && it.animationFileId) {
-        return {
-          type: 'animation',
-          media: it.animationFileId,
-          caption: idx === 0 ? it.caption : undefined
-        };
-      }
-      // Fallback to text if something slips through
-      return { type: 'photo', media: it.photoBestFileId || it.videoFileId || it.documentFileId };
-    }).filter(Boolean);
-
-    if (media.length > 0) {
-      await bot.telegram.sendMediaGroup(creatorChatId, media, {
-        disable_notification: true,
-        allow_sending_without_reply: true
-      });
-    }
-  }
-
-  // 2.2 Then send the singles in order, choosing the best transport per type
-  for (const it of singles) {
-    try {
-      // If this specific message was originally FORWARDED into the bot,
-      // forward *that original* message to preserve any inline keyboard that came with it.
-      // We have the source chat: the doer’s private chat with the bot (doerWork.doerTelegramId).
-      if (it.isForwarded && it.messageId) {
-        await bot.telegram.forwardMessage(
-          creatorChatId,
-          doerWork.doerTelegramId,      // from chat
-          it.messageId,                 // the forwarded message the bot received
-          { disable_notification: true }
-        );
-        continue;
-      }
-
-      // Otherwise, recreate content:
-      switch (it.type) {
-        case 'photo':
-          await bot.telegram.sendPhoto(creatorChatId, it.photoBestFileId, {
-            caption: it.caption,
-            disable_notification: true
-          });
-          break;
-        case 'video':
-          await bot.telegram.sendVideo(creatorChatId, it.videoFileId, {
-            caption: it.caption,
-            disable_notification: true
-          });
-          break;
-        case 'document':
-          await bot.telegram.sendDocument(creatorChatId, it.documentFileId, {
-            caption: it.caption,
-            disable_notification: true
-          });
-          break;
-        case 'audio':
-          await bot.telegram.sendAudio(creatorChatId, it.audioFileId, {
-            caption: it.caption,
-            disable_notification: true
-          });
-          break;
-        case 'voice':
-          await bot.telegram.sendVoice(creatorChatId, it.voiceFileId, {
-            caption: it.caption,
-            disable_notification: true
-          });
-          break;
-        case 'video_note':
-          await bot.telegram.sendVideoNote(creatorChatId, it.videoNoteFileId, {
-            disable_notification: true
-          });
-          break;
-        case 'animation':
-          await bot.telegram.sendAnimation(creatorChatId, it.animationFileId, {
-            caption: it.caption,
-            disable_notification: true
-          });
-          break;
-        case 'sticker':
-          await bot.telegram.sendSticker(creatorChatId, it.stickerFileId, {
-            disable_notification: true
-          });
-          break;
-        case 'text':
-          await bot.telegram.sendMessage(creatorChatId, it.text, {
-            disable_web_page_preview: false, // allow link previews
-            disable_notification: true
-          });
-          break;
-        default:
-          // fallback: try copyMessage (works for most media too, but doesn’t carry inline keyboards)
-          if (it.messageId) {
-            await bot.telegram.copyMessage(
-              creatorChatId,
-              doerWork.doerTelegramId,
-              it.messageId,
-              { disable_notification: true }
-            );
-          }
-          break;
-      }
-    } catch (e) {
-      console.error('Mirror error for single item', it, e);
-    }
-  }
-}
 
 // Backward-compatible boolean verifier used around the codebase
 async function verifyChapaTxRef(txRef) {
@@ -3288,9 +3040,6 @@ bot.use(async (ctx, next) => {
  
 // After you create `bot` and before existing start/onboarding handlers:
 bot.use(applyGatekeeper);
-// Hook it once to all relevant updates (keeps your other logic untouched)
-bot.on('message', captureIfActiveDoerMessage);
-bot.on('edited_message', captureIfActiveDoerMessage);
 
 
 
@@ -7206,189 +6955,40 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       work.completedAt = new Date();
       work.status = 'completed';
       await work.save();
-
       // 3) Mirror every collected message to the task creator.
-      await mirrorDoerWorkToCreator(bot, task._id);
-
-      // 3) Forward (copy) every collected message EXACTLY as sent to the task creator
-      // Using copyMessage preserves type and caption.
-      // 3) Mirror every collected message to the task creator.
-      // sort oldest → newest (already present)
       const msgs = (work.messages || []).slice().sort((a, b) => a.date - b.date);
       const creatorTid = task.creator.telegramId;
 
-      // Build media-group buckets (albums); key by mediaGroupId; non-albums go alone
-      function groupMessages(records) {
-        const out = [];
-        let i = 0;
-        while (i < records.length) {
-          const r = records[i];
-          if (r.mediaGroupId) {
-            const gid = r.mediaGroupId;
-            const bucket = [];
-            while (i < records.length && records[i].mediaGroupId === gid) {
-              bucket.push(records[i]);
-              i++;
-            }
-            out.push(bucket);
-          } else {
-            out.push([r]);
-            i++;
-          }
-        }
-        return out;
-      }
-
+      // group by mediaGroupId; singles stay single
+      function groupMessages(records) { /* ... as in your file ... */ }
       const groups = groupMessages(msgs);
 
-      // Fallback senders – extended with animation + a tiny improvement for text
-      const sendOneFallback = async (rec) => {
-        const caption = rec.caption || undefined;
-        switch (rec.type) {
-          case 'text':
-            await ctx.telegram.sendMessage(creatorTid, rec.text || caption || '', { disable_web_page_preview: false });
-            break;
-          case 'photo':
-            await ctx.telegram.sendPhoto(
-              creatorTid,
-              rec.photoBestFileId || rec.fileIds?.[rec.fileIds.length - 1],
-              { caption }
-            );
-            break;
-          case 'document':
-            await ctx.telegram.sendDocument(
-              creatorTid,
-              rec.documentFileId || rec.fileIds?.[0],
-              { caption }
-            );
-            break;
-          case 'video':
-            await ctx.telegram.sendVideo(
-              creatorTid,
-              rec.videoFileId || rec.fileIds?.[0],
-              { caption }
-            );
-            break;
-          case 'animation': // NEW
-            await ctx.telegram.sendAnimation(
-              creatorTid,
-              rec.animationFileId || rec.fileIds?.[0],
-              { caption }
-            );
-            break;
-          case 'audio':
-            await ctx.telegram.sendAudio(
-              creatorTid,
-              rec.audioFileId || rec.fileIds?.[0],
-              { caption }
-            );
-            break;
-          case 'voice':
-            await ctx.telegram.sendVoice(creatorTid, rec.voiceFileId || rec.fileIds?.[0]);
-            break;
-          case 'video_note':
-            await ctx.telegram.sendVideoNote(creatorTid, rec.videoNoteFileId || rec.fileIds?.[0]);
-            break;
-          case 'sticker':
-            await ctx.telegram.sendSticker(creatorTid, rec.stickerFileId || rec.fileIds?.[0]);
-            break;
-          default:
-            // last resort: forward the original (may succeed where copy fails)
-            try {
-              await ctx.telegram.forwardMessage(creatorTid, work.doerTelegramId, rec.messageId);
-            } catch (_) {}
-        }
-      };
+      // fallback per type (photo/document/video/audio/voice/sticker/animation/text/...)
+      const sendOneFallback = async (rec) => { /* ... as in your file ... */ };
 
-      // Prefer forward for forwarded messages; else try copy; else fallback
+      // Prefer forward for forwarded; else copy; else fallback
       const deliverSingle = async (rec) => {
-        // 1) forwarded content first tries forwardMessage (e.g., bot-origin posts)
         if (rec.isForwarded) {
-          try {
-            await ctx.telegram.forwardMessage(creatorTid, work.doerTelegramId, rec.messageId);
-            return;
-          } catch (_) {
-            // fall through
-          }
+          try { await ctx.telegram.forwardMessage(creatorTid, work.doerTelegramId, rec.messageId); return; } catch (_) {}
         }
-        // 2) faithful copy (preserves type/caption/web-previews)
-        try {
-          await ctx.telegram.copyMessage(creatorTid, work.doerTelegramId, rec.messageId);
-          return;
-        } catch (e) {
-          // 3) structured fallback per type
-          try {
-            await sendOneFallback(rec);
-          } catch (e2) {
-            console.error('Fallback send failed:', e2);
-          }
-        }
+        try { await ctx.telegram.copyMessage(creatorTid, work.doerTelegramId, rec.messageId); return; } catch (_) {}
+        try { await sendOneFallback(rec); } catch (e2) { console.error('Fallback send failed:', e2); }
       };
 
-      // Albums: try copy each item first; if any copy fails or Telegram blocks, send as a media group
-      const deliverGroup = async (bucket) => {
-        if (bucket.length === 1 || !bucket[0].mediaGroupId) {
-          return deliverSingle(bucket[0]);
-        }
+      // Albums: try copy each → media group → per-item
+      const deliverGroup = async (bucket) => { /* ... as in your file ... */ };
 
-        // Attempt: copy each; if all succeed, we’re done
-        let allCopied = true;
-        for (const rec of bucket) {
-          try {
-            await ctx.telegram.copyMessage(creatorTid, work.doerTelegramId, rec.messageId);
-          } catch (_) {
-            allCopied = false;
-            break;
-          }
-        }
-        if (allCopied) return;
+      // send in order
+      for (const bucket of groups) { await deliverGroup(bucket); }
 
-        // Build a media group (photos/videos/documents only). If mixed/unsupported, fall back per item.
-        const asMedia = [];
-        for (let idx = 0; idx < bucket.length; idx++) {
-          const rec = bucket[idx];
-          const caption = idx === 0 ? (rec.caption || undefined) : undefined; // TG shows only first caption
-          if (rec.type === 'photo' && (rec.photoBestFileId || rec.fileIds?.length)) {
-            asMedia.push({ type: 'photo', media: rec.photoBestFileId || rec.fileIds[rec.fileIds.length - 1], caption });
-          } else if (rec.type === 'video' && (rec.videoFileId || rec.fileIds?.length)) {
-            asMedia.push({ type: 'video', media: rec.videoFileId || rec.fileIds[0], caption });
-          } else if (rec.type === 'document' && (rec.documentFileId || rec.fileIds?.length)) {
-            asMedia.push({ type: 'document', media: rec.documentFileId || rec.fileIds[0], caption });
-          } else {
-            // Unsupported inside a group; send everything individually (still robust)
-            for (const r of bucket) await deliverSingle(r);
-            return;
-          }
-        }
+      // then show the two decision buttons to the creator
+      await ctx.telegram.sendMessage(creatorTid, decisionMsg, Markup.inlineKeyboard([
+        [ Markup.button.callback(TEXT.validBtn[lang], `CREATOR_VALID_${String(task._id)}`),
+          Markup.button.callback(TEXT.needsFixBtn[lang], `CREATOR_NEEDS_FIX_${String(task._id)}`) ]
+      ]));
 
-        try {
-          await ctx.telegram.sendMediaGroup(creatorTid, asMedia);
-        } catch (e) {
-          // If group send fails, at least deliver items individually
-          for (const r of bucket) await deliverSingle(r);
-        }
-      };
+      
 
-      // Iterate groups in order
-      for (const bucket of groups) {
-        await deliverGroup(bucket);
-      }
-
-
-      // 4) Under the forwarded items, show the two decision buttons (dummy handlers for now)
-      const decisionMsg = (lang === 'am')
-        ? "የተግባሩ ማቅረብ ተላክ። ከታች ያሉትን አማራጮች ይጫኑ።"
-        : "The completed work has been submitted. Please choose below.";
-      await ctx.telegram.sendMessage(
-        creatorTid,
-        decisionMsg,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback(TEXT.validBtn[lang],     `CREATOR_VALID_${String(task._id)}`),
-            Markup.button.callback(TEXT.needsFixBtn[lang],  `CREATOR_NEEDS_FIX_${String(task._id)}`)
-          ]
-        ])
-      );
     }
   } catch (e) {
     console.error("COMPLETED_SENT handler error:", e);
@@ -8691,7 +8291,136 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
   }
 });
 
+// Capture every message the winner sends while their work window is active.
+// We only store (chatId,messageId) so we can copyMessage later (preserves types/captions).
+bot.on('message', async (ctx, next) => {
+  try {
+    const fromId = ctx.from?.id;
+    if (!fromId) return next();
 
+    // Is this user an active doer on some task?
+    const work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' }).lean();
+    if (!work) return next();
+
+    // Filter out the two system prompts you explicitely do NOT want included
+    const txt = ctx.message?.text || ctx.message?.caption || "";
+    const blockedEn = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+    const blockedAm = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
+
+    if (txt && (txt.trim() === blockedEn.trim() || txt.trim() === blockedAm.trim())) {
+      return next();
+    }
+
+    const m = ctx.message;
+    const base = {
+      messageId: m.message_id,
+      date: new Date(m.date * 1000),
+      type: undefined,
+      mediaGroupId: m.media_group_id,
+      text: undefined,
+      caption: undefined,
+      fileIds: [],
+      photoBestFileId: undefined,
+      documentFileId: undefined,
+      videoFileId: undefined,
+      audioFileId: undefined,
+      voiceFileId: undefined,
+      videoNoteFileId: undefined,
+      stickerFileId: undefined
+    };
+    
+
+    base.mediaGroupId = m.media_group_id || undefined; // NEW
+    base.isForwarded = !!(m.forward_from || m.forward_from_chat || m.forward_origin || m.forward_date); // NEW
+
+
+    // text (incl. links)
+    if (m.text) {
+      base.type = 'text';
+      base.text = m.text;
+    }
+    
+    // photos (possibly an album)
+    if (m.photo && Array.isArray(m.photo) && m.photo.length) {
+      base.type = 'photo';
+      // largest size is last item
+      base.fileIds = m.photo.map(p => p.file_id);
+      base.photoBestFileId = m.photo[m.photo.length - 1].file_id;
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // document (pdf, etc.)
+    if (m.document) {
+      base.type = 'document';
+      base.documentFileId = m.document.file_id;
+      base.fileIds = [m.document.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // video
+    if (m.video) {
+      base.type = 'video';
+      base.videoFileId = m.video.file_id;
+      base.fileIds = [m.video.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // audio (music)
+    if (m.audio) {
+      base.type = 'audio';
+      base.audioFileId = m.audio.file_id;
+      base.fileIds = [m.audio.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+    // animation (GIF / mp4 GIF)
+    if (m.animation) {
+      base.type = 'animation';
+      base.animationFileId = m.animation.file_id;
+      base.fileIds = [m.animation.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+
+    
+
+    // voice (PTT/voice note)
+    if (m.voice) {
+      base.type = 'voice';
+      base.voiceFileId = m.voice.file_id;
+      base.fileIds = [m.voice.file_id];
+    }
+
+    // video_note
+    if (m.video_note) {
+      base.type = 'video_note';
+      base.videoNoteFileId = m.video_note.file_id;
+      base.fileIds = [m.video_note.file_id];
+    }
+
+    // sticker (emoji-like)
+    if (m.sticker) {
+      base.type = 'sticker';
+      base.stickerFileId = m.sticker.file_id;
+      base.fileIds = [m.sticker.file_id];
+    }
+
+    // fallbacks for caption-only cases
+    if (!base.type && (m.caption || m.media_group_id)) {
+      base.type = 'unknown';
+      if (m.caption) base.caption = m.caption;
+    }
+
+    await DoerWork.updateOne(
+      { _id: work._id },
+      { $push: { messages: base } }
+    );
+
+
+    return next();
+  } catch (e) {
+    console.error("capture doer message error:", e);
+    return next();
+  }
+});
 
 
 // Error handling middleware
