@@ -251,8 +251,10 @@ const DoerWorkSchema = new mongoose.Schema({
     documentFileId: { type: String },
     photoBestFileId: { type: String },
     // add to base = { ... } initializer
-    isForwarded: !!(m.forward_from || m.forward_from_chat || m.forward_origin || m.forward_date),
-    animationFileId: undefined,
+    // ✅ correct schema fields
+    isForwarded: { type: Boolean, default: false },
+    animationFileId: { type: String },
+
 
     
       // convenience for single-photo cases
@@ -8470,6 +8472,11 @@ bot.on('message', async (ctx, next) => {
       videoNoteFileId: undefined,
       stickerFileId: undefined
     };
+    
+
+    base.mediaGroupId = m.media_group_id || undefined; // NEW
+    base.isForwarded = !!(m.forward_from || m.forward_from_chat || m.forward_origin || m.forward_date); // NEW
+
 
     // text (incl. links)
     if (m.text) {
@@ -8517,10 +8524,7 @@ bot.on('message', async (ctx, next) => {
       if (m.caption) base.caption = m.caption;
     }
 
-    // already done above but to be explicit:
-    if (m.forward_from || m.forward_from_chat || m.forward_origin || m.forward_date) {
-      base.isForwarded = true;
-    }
+    
 
     // voice (PTT/voice note)
     if (m.voice) {
