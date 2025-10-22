@@ -212,6 +212,35 @@ const CreditLogSchema = new mongoose.Schema({
 }, { versionKey: false });
 CreditLogSchema.index({ task:1, type:1 }, { unique: true });
 const CreditLog = mongoose.models.CreditLog || mongoose.model('CreditLog', CreditLogSchema);
+// ---------------------------
+// Doer Work / Submissions
+// ---------------------------
+const DoerWorkSchema = new mongoose.Schema({
+  task:       { type: mongoose.Schema.Types.ObjectId, ref: 'Task', index: true, required: true, unique: true },
+  doer:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  doerTelegramId: { type: Number, required: true, index: true },
+
+  // Robust timer: DB-stored start/deadline so restarts don't matter
+  startedAt:  { type: Date, required: true },
+  deadlineAt: { type: Date, required: true },
+  completedAt:{ type: Date },                   // set when doer taps "Completed task sent"
+  status:     { type: String, enum: ['active','completed'], default: 'active', index: true },
+
+  // We'll store the doer-facing message that contains the "Completed task sent" button,
+  // so we can flip it to a checked/inert state.
+  doerControlMessageId: { type: Number },
+
+  // Exact original Telegram messages from the doer so we can copy them to the creator
+  // preserving captions and types.
+  messages: [{
+    messageId: Number,
+    date: Date
+  }]
+}, { versionKey: false, timestamps: true });
+
+const DoerWork = mongoose.models.DoerWork
+  || mongoose.model('DoerWork', DoerWorkSchema);
+
 
 // --- Helper: top frequent fields for a doer based on rated tasks ---
 // --- Helper: top frequent fields for a doer based on finished/rated work ---
@@ -802,17 +831,17 @@ const TEXT = {
   en: "📎 The task creator attached this file for you.",
   am: "📎 የተግዳሮቱ ፈጣሪ ለእርስዎ ይህን ፋይል ላክቷል።"
   },
-  receivedValidatedBtn: {
-    en: "Received and validated",
-    am: "ተቀብሏል እና ተረጋገጠ"
+    completedSentBtn: {
+    en: "Completed task sent",
+    am: "ተግባሩ ተልኳል"
   },
-  receivedNeedsFixBtn: {
-    en: "Received but needs fixing",
-    am: "ተቀብሏል ግን ማሻሻል ይፈልጋል"
+  validBtn: {
+    en: "Valid",
+    am: "ትክክል ነው"
   },
-  notReceivedBtn: {
-    en: "Not received",
-    am: "አልተቀበለም"
+  needsFixBtn: {
+    en: "Needs Fixing",
+    am: "ማስተካከል ይፈልጋል"
   },
 
 
@@ -4214,7 +4243,54 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   } catch (e) {
     console.error("Failed to send related file to doer:", e);
   }
-  
+    // ─────────────────────────────────────────────────────────────
+  // Winner has pressed "Do the task": start the work timer and
+  // show the "Completed task sent" control to the doer.
+  // ─────────────────────────────────────────────────────────────
+  try {
+    const lang = user?.language || "en";
+    // Compute timer window from task's timeToComplete (in hours)
+    const tHours = Number(updated?.timeToComplete || 0);
+    const startedAt  = new Date();
+    const deadlineAt = new Date(startedAt.getTime() + Math.max(1, tHours) * 60 * 60 * 1000);
+
+    // Upsert a DoerWork record (idempotent if button is pressed twice by accident)
+    const doerWork = await DoerWork.findOneAndUpdate(
+      { task: updated._id },
+      {
+        $setOnInsert: {
+          task: updated._id,
+          doer: user._id,
+          doerTelegramId: user.telegramId,
+          startedAt,
+          deadlineAt,
+          status: 'active',
+          messages: []
+        }
+      },
+      { new: true, upsert: true }
+    );
+
+    // Send the control message WITH the "Completed task sent" button
+    const controlMsg = await ctx.telegram.sendMessage(
+      user.telegramId,
+      (lang === 'am')
+        ? "ስራዎን ጀምሩ። ሁሉንም ጨርሰው ላከው በኋላ \"ተግባሩ ተልኳል\" ይጫኑ።"
+        : "You can start now. When you’ve sent everything, tap “Completed task sent”.",
+      Markup.inlineKeyboard([
+        [Markup.button.callback(TEXT.completedSentBtn[lang], `COMPLETED_SENT_${String(updated._id)}`)]
+      ])
+    );
+
+    // Save control message id for later highlighting
+    if (!doerWork.doerControlMessageId) {
+      doerWork.doerControlMessageId = controlMsg.message_id;
+      await doerWork.save();
+    }
+  } catch (e) {
+    console.error("Failed to initialize DoerWork/timer:", e);
+  }
+
   // If strategy is allowed, notify creator with the long message
   let creatorUser = await User.findById(task.creator);
 
@@ -4244,16 +4320,8 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     await ctx.telegram.sendMessage(
       creatorUser.telegramId,
       creatorMsg,
-      {
-        parse_mode: "Markdown",
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback(TEXT.receivedValidatedBtn[creatorLang], `CREATOR_RECV_VALIDATED_${updated._id}`)],
-          [Markup.button.callback(TEXT.receivedNeedsFixBtn[creatorLang], `CREATOR_RECV_NEEDS_FIX_${updated._id}`)],
-          [Markup.button.callback(TEXT.notReceivedBtn[creatorLang], `CREATOR_RECV_NOT_RECEIVED_${updated._id}`)],
-        ])
-      }
+      { parse_mode: "Markdown" }
     );
-
   }
 
   
@@ -4305,35 +4373,6 @@ bot.action("_DISABLED_DO_TASK_CANCEL",  async (ctx) => { await ctx.answerCbQuery
 
 // CREATOR: Mission (inert if escalated)
 
-bot.action(/^CREATOR_RECV_VALIDATED_(.+)$/, async (ctx) => {
-  try {
-    const creator = await User.findOne({ telegramId: ctx.from.id });
-    const lang = creator?.language || "en";
-    await ctx.answerCbQuery(lang === "am" ? "ተመዝግቧል። በቅርቡ ተግባር ይጨመራል።" : "Noted. Functionality coming soon.");
-  } catch (_) {
-    await ctx.answerCbQuery();
-  }
-});
-
-bot.action(/^CREATOR_RECV_NEEDS_FIX_(.+)$/, async (ctx) => {
-  try {
-    const creator = await User.findOne({ telegramId: ctx.from.id });
-    const lang = creator?.language || "en";
-    await ctx.answerCbQuery(lang === "am" ? "ተመዝግቧል። በቅርቡ ተግባር ይጨመራል።" : "Noted. Functionality coming soon.");
-  } catch (_) {
-    await ctx.answerCbQuery();
-  }
-});
-
-bot.action(/^CREATOR_RECV_NOT_RECEIVED_(.+)$/, async (ctx) => {
-  try {
-    const creator = await User.findOne({ telegramId: ctx.from.id });
-    const lang = creator?.language || "en";
-    await ctx.answerCbQuery(lang === "am" ? "ተመዝግቧል። በቅርቡ ተግባር ይጨመራል።" : "Noted. Functionality coming soon.");
-  } catch (_) {
-    await ctx.answerCbQuery();
-  }
-});
 
 // RATE buttons: RATE_<taskId>_(doerRatesCreator|creatorRatesDoer)_<1..5>
 bot.action(/^RATE_([a-f0-9]{24})_(doerRatesCreator|creatorRatesDoer)_(\d)$/, async (ctx) => {
@@ -6850,6 +6889,85 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     )]
   ]));
 });
+bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  try {
+    const taskId = ctx.match[1];
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
+
+    const task = await Task.findById(taskId).populate("creator");
+    if (!task) return;
+
+    const work = await DoerWork.findOne({ task: task._id, doerTelegramId: ctx.from.id });
+    if (!work) return;
+
+    // If already completed, just keep the button inert/checked
+    const alreadyCompleted = work.status === 'completed' || !!work.completedAt;
+
+    // 1) Flip the doer button to a checked/inert state (but keep it visible)
+    if (work.doerControlMessageId) {
+      try {
+        await ctx.telegram.editMessageReplyMarkup(
+          ctx.from.id,
+          work.doerControlMessageId,
+          undefined,
+          {
+            inline_keyboard: [
+              [Markup.button.callback(`✔ ${TEXT.completedSentBtn[lang]}`, `_DISABLED_COMPLETED_SENT`)]
+            ]
+          }
+        );
+      } catch (e) {
+        // non-fatal
+      }
+    }
+
+    if (!alreadyCompleted) {
+      // 2) Stop the timer (DB-based)
+      work.completedAt = new Date();
+      work.status = 'completed';
+      await work.save();
+
+      // 3) Forward (copy) every collected message EXACTLY as sent to the task creator
+      // Using copyMessage preserves type and caption.
+      const creatorTid = task.creator.telegramId;
+      for (const m of work.messages || []) {
+        try {
+          await ctx.telegram.copyMessage(creatorTid, ctx.from.id, m.messageId);
+        } catch (e) {
+          console.error("copyMessage failed:", e);
+        }
+      }
+
+      // 4) Under the forwarded items, show the two decision buttons (dummy handlers for now)
+      const decisionMsg = (lang === 'am')
+        ? "የተግባሩ ማቅረብ ተላክ። ከታች ያሉትን አማራጮች ይጫኑ።"
+        : "The completed work has been submitted. Please choose below.";
+      await ctx.telegram.sendMessage(
+        creatorTid,
+        decisionMsg,
+        Markup.inlineKeyboard([
+          [
+            Markup.button.callback(TEXT.validBtn[lang],     `CREATOR_VALID_${String(task._id)}`),
+            Markup.button.callback(TEXT.needsFixBtn[lang],  `CREATOR_NEEDS_FIX_${String(task._id)}`)
+          ]
+        ])
+      );
+    }
+  } catch (e) {
+    console.error("COMPLETED_SENT handler error:", e);
+  }
+});
+
+// Dummy handlers (you said: just wire task id for now)
+bot.action(/^CREATOR_VALID_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery("Marked Valid (dummy).");
+});
+bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery("Marked Needs Fixing (dummy).");
+});
+
 // Verify hosted checkout by tx_ref, then post task (same UX as non-escrow path)
 bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
   try {
@@ -8138,6 +8256,38 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
   }
 });
 
+// Capture every message the winner sends while their work window is active.
+// We only store (chatId,messageId) so we can copyMessage later (preserves types/captions).
+bot.on('message', async (ctx, next) => {
+  try {
+    const fromId = ctx.from?.id;
+    if (!fromId) return next();
+
+    // Is this user an active doer on some task?
+    const work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' }).lean();
+    if (!work) return next();
+
+    // Filter out the two system prompts you explicitely do NOT want included
+    const txt = ctx.message?.text || ctx.message?.caption || "";
+    const blockedEn = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+    const blockedAm = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
+
+    if (txt && (txt.trim() === blockedEn.trim() || txt.trim() === blockedAm.trim())) {
+      return next();
+    }
+
+    // Store only the essentials for lossless copy
+    await DoerWork.updateOne(
+      { _id: work._id },
+      { $push: { messages: { messageId: ctx.message.message_id, date: new Date(ctx.message.date * 1000) } } }
+    );
+
+    return next();
+  } catch (e) {
+    console.error("capture doer message error:", e);
+    return next();
+  }
+});
 
 
 // Error handling middleware
