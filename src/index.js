@@ -6948,30 +6948,47 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
 
       // 3) Forward (copy) every collected message EXACTLY as sent to the task creator
       // Using copyMessage preserves type and caption.
+      // 3) Mirror every collected message to the task creator.
+      // Try copyMessage first (most faithful). If that fails, fall back to your type-specific senders.
       const creatorTid = task.creator.telegramId;
-     // Group by media_group_id to preserve albums
-      const msgs = (work.messages || []).slice().sort((a,b) => a.date - b.date);
 
-      // helper to send one message by type
-      const sendOne = async (rec, opts = {}) => {
+      // sort oldest → newest
+      const msgs = (work.messages || []).slice().sort((a, b) => a.date - b.date);
+
+      // fallback single-sender (keeps your existing logic intact)
+      const sendOneFallback = async (rec) => {
         const caption = rec.caption || undefined;
-
         switch (rec.type) {
           case 'text':
             await ctx.telegram.sendMessage(creatorTid, rec.text, { disable_web_page_preview: false });
             break;
           case 'photo':
-            // single photo (non-album)
-            await ctx.telegram.sendPhoto(creatorTid, rec.photoBestFileId || rec.fileIds?.[rec.fileIds.length-1], { caption });
+            await ctx.telegram.sendPhoto(
+              creatorTid,
+              rec.photoBestFileId || rec.fileIds?.[rec.fileIds.length - 1],
+              { caption }
+            );
             break;
           case 'document':
-            await ctx.telegram.sendDocument(creatorTid, rec.documentFileId || rec.fileIds?.[0], { caption });
+            await ctx.telegram.sendDocument(
+              creatorTid,
+              rec.documentFileId || rec.fileIds?.[0],
+              { caption }
+            );
             break;
           case 'video':
-            await ctx.telegram.sendVideo(creatorTid, rec.videoFileId || rec.fileIds?.[0], { caption });
+            await ctx.telegram.sendVideo(
+              creatorTid,
+              rec.videoFileId || rec.fileIds?.[0],
+              { caption }
+            );
             break;
           case 'audio':
-            await ctx.telegram.sendAudio(creatorTid, rec.audioFileId || rec.fileIds?.[0], { caption });
+            await ctx.telegram.sendAudio(
+              creatorTid,
+              rec.audioFileId || rec.fileIds?.[0],
+              { caption }
+            );
             break;
           case 'voice':
             await ctx.telegram.sendVoice(creatorTid, rec.voiceFileId || rec.fileIds?.[0]);
@@ -6983,68 +7000,33 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
             await ctx.telegram.sendSticker(creatorTid, rec.stickerFileId || rec.fileIds?.[0]);
             break;
           default:
-            // best-effort fallback (try to forward the original)
+            // last resort: forward the original
             try {
-              await ctx.telegram.forwardMessage(creatorTid, ctx.from.id, rec.messageId);
-            } catch (_) {
-              // nothing else we can do without a file_id
-            }
+              await ctx.telegram.forwardMessage(creatorTid, work.doerTelegramId, rec.messageId);
+            } catch (_) {}
         }
       };
 
-      // now iterate, grouping albums
-      let i = 0;
-      while (i < msgs.length) {
-        const m = msgs[i];
-
-        if (m.mediaGroupId) {
-          // collect the entire album (consecutive items with same mediaGroupId)
-          const g = [];
-          let j = i;
-          while (j < msgs.length && msgs[j].mediaGroupId === m.mediaGroupId) {
-            g.push(msgs[j]);
-            j++;
+      // copy-first helper
+      const copyOne = async (rec) => {
+        try {
+          // copyMessage mirrors the original (type, caption, web previews, etc.)
+          await ctx.telegram.copyMessage(creatorTid, work.doerTelegramId, rec.messageId);
+        } catch (e) {
+          // If copy fails (rare), fall back to your existing type-specific send
+          try {
+            await sendOneFallback(rec);
+          } catch (e2) {
+            console.error('Fallback send failed:', e2);
           }
-
-          // Prepare InputMedia array. Telegram allows mixed photo/video in albums (<=10).
-          // Caption only on the first item is supported.
-          const media = g.map((it, idx) => {
-            const cap = idx === 0 ? (it.caption || undefined) : undefined;
-            if (it.type === 'photo') {
-              return { type: 'photo', media: it.photoBestFileId || it.fileIds?.[it.fileIds.length-1], caption: cap };
-            } else if (it.type === 'video') {
-              return { type: 'video', media: it.videoFileId || it.fileIds?.[0], caption: cap };
-            } else if (it.type === 'document') {
-              // documents can’t go in media groups, send singly instead
-              return null;
-            } else {
-              return null;
-            }
-          }).filter(Boolean);
-
-          if (media.length > 0) {
-            try {
-              await ctx.telegram.sendMediaGroup(creatorTid, media);
-            } catch (e) {
-              // If album fails (rare), fall back to sending items one by one
-              for (const it of g) {
-                try { await sendOne(it); } catch (e2) { console.error('sendOne(album fallback) failed:', e2); }
-              }
-            }
-          } else {
-            // not album-compatible, send one by one
-            for (const it of g) {
-              try { await sendOne(it); } catch (e2) { console.error('sendOne(non-album) failed:', e2); }
-            }
-          }
-
-          i = j; // advance past album
-          continue;
         }
+      };
 
-        // not an album item
-        try { await sendOne(m); } catch (e) { console.error('sendOne(single) failed:', e); }
-        i++;
+      // Iterate in order. If you want to preserve "albums" strictly as albums,
+      // you can keep your media-group aggregation. However, copying each message
+      // one-by-one is the most robust and least error-prone.
+      for (const m of msgs) {
+        await copyOne(m);
       }
 
 
