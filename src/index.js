@@ -249,7 +249,13 @@ const DoerWorkSchema = new mongoose.Schema({
     audioFileId: { type: String },
     videoFileId: { type: String },
     documentFileId: { type: String },
-    photoBestFileId: { type: String },      // convenience for single-photo cases
+    photoBestFileId: { type: String },
+    // add to base = { ... } initializer
+    isForwarded: !!(m.forward_from || m.forward_from_chat || m.forward_origin || m.forward_date),
+    animationFileId: undefined,
+
+    
+      // convenience for single-photo cases
     videoNoteFileId: { type: String }
   }]
 
@@ -6949,18 +6955,40 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       // 3) Forward (copy) every collected message EXACTLY as sent to the task creator
       // Using copyMessage preserves type and caption.
       // 3) Mirror every collected message to the task creator.
-      // Try copyMessage first (most faithful). If that fails, fall back to your type-specific senders.
+      // sort oldest → newest (already present)
+      const msgs = (work.messages || []).slice().sort((a, b) => a.date - b.date);
       const creatorTid = task.creator.telegramId;
 
-      // sort oldest → newest
-      const msgs = (work.messages || []).slice().sort((a, b) => a.date - b.date);
+      // Build media-group buckets (albums); key by mediaGroupId; non-albums go alone
+      function groupMessages(records) {
+        const out = [];
+        let i = 0;
+        while (i < records.length) {
+          const r = records[i];
+          if (r.mediaGroupId) {
+            const gid = r.mediaGroupId;
+            const bucket = [];
+            while (i < records.length && records[i].mediaGroupId === gid) {
+              bucket.push(records[i]);
+              i++;
+            }
+            out.push(bucket);
+          } else {
+            out.push([r]);
+            i++;
+          }
+        }
+        return out;
+      }
 
-      // fallback single-sender (keeps your existing logic intact)
+      const groups = groupMessages(msgs);
+
+      // Fallback senders – extended with animation + a tiny improvement for text
       const sendOneFallback = async (rec) => {
         const caption = rec.caption || undefined;
         switch (rec.type) {
           case 'text':
-            await ctx.telegram.sendMessage(creatorTid, rec.text, { disable_web_page_preview: false });
+            await ctx.telegram.sendMessage(creatorTid, rec.text || caption || '', { disable_web_page_preview: false });
             break;
           case 'photo':
             await ctx.telegram.sendPhoto(
@@ -6983,6 +7011,13 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
               { caption }
             );
             break;
+          case 'animation': // NEW
+            await ctx.telegram.sendAnimation(
+              creatorTid,
+              rec.animationFileId || rec.fileIds?.[0],
+              { caption }
+            );
+            break;
           case 'audio':
             await ctx.telegram.sendAudio(
               creatorTid,
@@ -7000,20 +7035,30 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
             await ctx.telegram.sendSticker(creatorTid, rec.stickerFileId || rec.fileIds?.[0]);
             break;
           default:
-            // last resort: forward the original
+            // last resort: forward the original (may succeed where copy fails)
             try {
               await ctx.telegram.forwardMessage(creatorTid, work.doerTelegramId, rec.messageId);
             } catch (_) {}
         }
       };
 
-      // copy-first helper
-      const copyOne = async (rec) => {
+      // Prefer forward for forwarded messages; else try copy; else fallback
+      const deliverSingle = async (rec) => {
+        // 1) forwarded content first tries forwardMessage (e.g., bot-origin posts)
+        if (rec.isForwarded) {
+          try {
+            await ctx.telegram.forwardMessage(creatorTid, work.doerTelegramId, rec.messageId);
+            return;
+          } catch (_) {
+            // fall through
+          }
+        }
+        // 2) faithful copy (preserves type/caption/web-previews)
         try {
-          // copyMessage mirrors the original (type, caption, web previews, etc.)
           await ctx.telegram.copyMessage(creatorTid, work.doerTelegramId, rec.messageId);
+          return;
         } catch (e) {
-          // If copy fails (rare), fall back to your existing type-specific send
+          // 3) structured fallback per type
           try {
             await sendOneFallback(rec);
           } catch (e2) {
@@ -7022,11 +7067,53 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
         }
       };
 
-      // Iterate in order. If you want to preserve "albums" strictly as albums,
-      // you can keep your media-group aggregation. However, copying each message
-      // one-by-one is the most robust and least error-prone.
-      for (const m of msgs) {
-        await copyOne(m);
+      // Albums: try copy each item first; if any copy fails or Telegram blocks, send as a media group
+      const deliverGroup = async (bucket) => {
+        if (bucket.length === 1 || !bucket[0].mediaGroupId) {
+          return deliverSingle(bucket[0]);
+        }
+
+        // Attempt: copy each; if all succeed, we’re done
+        let allCopied = true;
+        for (const rec of bucket) {
+          try {
+            await ctx.telegram.copyMessage(creatorTid, work.doerTelegramId, rec.messageId);
+          } catch (_) {
+            allCopied = false;
+            break;
+          }
+        }
+        if (allCopied) return;
+
+        // Build a media group (photos/videos/documents only). If mixed/unsupported, fall back per item.
+        const asMedia = [];
+        for (let idx = 0; idx < bucket.length; idx++) {
+          const rec = bucket[idx];
+          const caption = idx === 0 ? (rec.caption || undefined) : undefined; // TG shows only first caption
+          if (rec.type === 'photo' && (rec.photoBestFileId || rec.fileIds?.length)) {
+            asMedia.push({ type: 'photo', media: rec.photoBestFileId || rec.fileIds[rec.fileIds.length - 1], caption });
+          } else if (rec.type === 'video' && (rec.videoFileId || rec.fileIds?.length)) {
+            asMedia.push({ type: 'video', media: rec.videoFileId || rec.fileIds[0], caption });
+          } else if (rec.type === 'document' && (rec.documentFileId || rec.fileIds?.length)) {
+            asMedia.push({ type: 'document', media: rec.documentFileId || rec.fileIds[0], caption });
+          } else {
+            // Unsupported inside a group; send everything individually (still robust)
+            for (const r of bucket) await deliverSingle(r);
+            return;
+          }
+        }
+
+        try {
+          await ctx.telegram.sendMediaGroup(creatorTid, asMedia);
+        } catch (e) {
+          // If group send fails, at least deliver items individually
+          for (const r of bucket) await deliverSingle(r);
+        }
+      };
+
+      // Iterate groups in order
+      for (const bucket of groups) {
+        await deliverGroup(bucket);
       }
 
 
@@ -8389,7 +8476,7 @@ bot.on('message', async (ctx, next) => {
       base.type = 'text';
       base.text = m.text;
     }
-
+    
     // photos (possibly an album)
     if (m.photo && Array.isArray(m.photo) && m.photo.length) {
       base.type = 'photo';
@@ -8421,6 +8508,18 @@ bot.on('message', async (ctx, next) => {
       base.audioFileId = m.audio.file_id;
       base.fileIds = [m.audio.file_id];
       if (m.caption) base.caption = m.caption;
+    }
+    // animation (GIF / mp4 GIF)
+    if (m.animation) {
+      base.type = 'animation';
+      base.animationFileId = m.animation.file_id;
+      base.fileIds = [m.animation.file_id];
+      if (m.caption) base.caption = m.caption;
+    }
+
+    // already done above but to be explicit:
+    if (m.forward_from || m.forward_from_chat || m.forward_origin || m.forward_date) {
+      base.isForwarded = true;
     }
 
     // voice (PTT/voice note)
