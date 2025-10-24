@@ -7207,13 +7207,7 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
   }
 });
 
-// Dummy handlers (you said: just wire task id for now)
-bot.action(/^CREATOR_VALID_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery("Marked Valid (dummy).");
-});
-bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery("Marked Needs Fixing (dummy).");
-});
+
 
 // Verify hosted checkout by tx_ref, then post task (same UX as non-escrow path)
 bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
