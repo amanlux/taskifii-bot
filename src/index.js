@@ -232,7 +232,6 @@ const DoerWorkSchema = new mongoose.Schema({
 
   // Exact original Telegram messages from the doer so we can copy them to the creator
   // preserving captions and types.
-  // add to DoerWorkSchema.messages[*]
   messages: [{
     messageId: Number,
     date: Date,
@@ -242,7 +241,7 @@ const DoerWorkSchema = new mongoose.Schema({
     mediaGroupId: { type: String },
     text: { type: String },
     caption: { type: String },
-    fileIds: [String],                      // e.g. photo sizes (we’ll pick the largest), or single file_id for doc/video/etc.
+    fileIds: [String],                      // e.g. photo sizes (we'll pick the largest), or single file_id for doc/video/etc.
     // for stickers/voices:
     stickerFileId: { type: String },
     voiceFileId: { type: String },
@@ -254,12 +253,41 @@ const DoerWorkSchema = new mongoose.Schema({
     // ✅ correct schema fields
     isForwarded: { type: Boolean, default: false },
     animationFileId: { type: String },
-
-
     
-      // convenience for single-photo cases
+    // convenience for single-photo cases
     videoNoteFileId: { type: String }
-  }]
+  }],
+
+  // NEW: Fields for revision requests from the task creator
+  fixRequests: [{
+    messageId: Number,
+    date: Date,
+    type: { type: String },                  // e.g. 'text','photo','document', etc.
+    mediaGroupId: String,
+    text: String,
+    caption: String,
+    fileIds: [String],
+    stickerFileId: String,
+    voiceFileId: String,
+    audioFileId: String,
+    videoFileId: String,
+    documentFileId: String,
+    photoBestFileId: String,
+    animationFileId: String,
+    videoNoteFileId: String,
+    isForwarded: { type: Boolean, default: false }
+  }],
+  fixNoticeSentAt: { type: Date },
+  
+  // NEW: Revision tracking
+  revisionStartedAt: { type: Date },
+  revisionDeadlineAt: { type: Date },
+  revisionCount: { type: Number, default: 0 },
+  currentRevisionStatus: { 
+    type: String, 
+    enum: ['none', 'awaiting_fix', 'fix_received', 'accepted'], 
+    default: 'none' 
+  }
 
 }, { versionKey: false, timestamps: true });
 
@@ -1355,6 +1383,58 @@ async function checkTaskExpiries(bot) {
   
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
+}
+// ─── Utility: Release Payment & Finalize Task ─────────────────────────
+async function releasePaymentAndFinalize(taskId, reason) {
+  try {
+    // Load task, doer, creator, and payment info
+    const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
+    if (!task) return;
+    const doerApp = task.applicants.find(a => a.confirmedAt);
+    if (!doerApp) return;
+    const doer = doerApp.user;
+    const creator = task.creator;
+    // Calculate payout amount (minus 4% commission)
+    const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
+    const totalAmount = intent ? intent.amount : (task.paymentFee || 0);
+    const commission = Math.round(totalAmount * 4) / 100;  // 4% commission
+    const payoutAmount = totalAmount - commission;
+    // Initiate transfer via Chapa API (using test mode keys)
+    const payload = {
+      account_number: doer.bankDetails?.[0]?.accountNumber || "",
+      bank_code: /* TODO: map doer.bankDetails[0].bankName to code */ "",
+      amount: payoutAmount.toFixed(2),
+      currency: "ETB",
+      reference: `task_payout_${task._id}`
+    };
+    if (doer.fullName) payload.account_name = doer.fullName;
+    try {
+      const res = await fetch("https://api.chapa.co/v1/transfers", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        console.error("Chapa payout failed:", data || res.statusText);
+      } else {
+        console.log("✅ Escrow payout initiated via Chapa:", data?.data || data);
+      }
+    } catch (err) {
+      console.error("Chapa transfer API error:", err);
+    }
+    // Update internal stats (commission and earnings)
+    await creditIfNeeded('doerEarned', task, doer._id);
+    await creditIfNeeded('creatorSpent', task, creator._id);
+    // Trigger rating flow for both users
+    const tg = globalThis.TaskifiiBot?.telegram || ctx.telegram;
+    await finalizeAndRequestRatings(reason, taskId, tg);
+  } catch (err) {
+    console.error("Error in releasePaymentAndFinalize:", err);
+  }
 }
 async function checkPendingRefunds() {
   try {
@@ -8554,7 +8634,304 @@ bot.on('message', async (ctx, next) => {
   }
 });
 
+// ─── When Doer Marks Task as Completed ───────────────────────────
+bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
+  try {
+    const taskId = ctx.match[1];
+    const task = await Task.findById(taskId);
+    if (!task) return;
+    // Find or create the DoerWork entry (should exist from task start)
+    const work = await DoerWork.findOne({ task: task._id });
+    if (!work) return;
+    const lang = (await User.findById(task.creator))?.language || 'en';
 
+    // Flip the doer's control button to checked (already handled above)...
+
+    // Mark task delivered
+    work.completedAt = new Date();
+    work.status = 'completed';
+    await work.save();
+
+    // Mirror all doer messages to task creator (already done above)...
+
+    // Prepare and send the decision message with "Valid" and "Needs Fixing" options
+    const decisionMsg = (lang === 'am')
+      ? "የተጠናቋል ስራ ተልኳል። እባክዎ በታች ያሉትን አማራጮች ይምረጡ።"
+      : "The completed work has been submitted. Please choose below.";
+    const decisionKeyboard = Markup.inlineKeyboard([
+      [
+        Markup.button.callback(TEXT.validBtn[lang], `CREATOR_VALID_${task._id}`),
+        Markup.button.callback(TEXT.needsFixBtn[lang], `CREATOR_NEEDS_FIX_${task._id}`)
+      ]
+    ]);
+    const sent = await ctx.telegram.sendMessage(task.creator.telegramId, decisionMsg, decisionKeyboard);
+    
+    // Store the creator's decision message ID for later editing
+    work.creatorDecisionMessageId = sent.message_id;
+    await work.save();
+
+    // Start a revision timer (using DB values to compute deadlines)
+    const revisionMs = (task.revisionTime || 0) * 60 * 60 * 1000;
+    const halfMs = revisionMs / 2;
+    if (halfMs > 0) {
+      setTimeout(async () => {
+        try {
+          // Re-fetch work and task to check status at halfway
+          const workNow = await DoerWork.findOne({ task: task._id });
+          const taskNow = await Task.findById(task._id);
+          if (!taskNow || !workNow) return;
+          const halfDeadline = new Date(work.completedAt.getTime() + halfMs);
+          const now = new Date();
+          const fixNoticeSent = workNow.fixNoticeSentAt;
+          const alreadyFinalized = (await FinalizationState.findOne({ task: task._id }))?.concludedAt;
+          if (!alreadyFinalized && !fixNoticeSent && now >= halfDeadline) {
+            // Half of revision time passed with no fix notice – finalize as Valid
+            try {
+              // Disable decision buttons and highlight "Valid" (if not already done)
+              await ctx.telegram.editMessageReplyMarkup(task.creator.telegramId, work.creatorDecisionMessageId, undefined, {
+                inline_keyboard: [[
+                  Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_VALID`),
+                  Markup.button.callback(TEXT.needsFixBtn[lang], `_DISABLED_NEEDS_FIX`)
+                ]]
+              }).catch(()=>{});
+            } catch (e) { /* ignore if message was already edited */ }
+            // Release payment and trigger rating flow
+            await releasePaymentAndFinalize(task._id, 'timeout');
+          }
+        } catch (err) {
+          console.error("Half-time auto-finalize error:", err);
+        }
+      }, halfMs);
+    } else {
+      // If revisionTime is 0 hours, finalize immediately with no revision period
+      await releasePaymentAndFinalize(task._id, 'accepted');
+    }
+  } catch (e) {
+    console.error("COMPLETED_SENT handler error:", e);
+  }
+});
+
+// ─── CREATOR “Valid” Action ───────────────────────────
+bot.action(/^CREATOR_VALID_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || 'en';
+  // Highlight "Valid" and disable "Needs Fixing"
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_VALID`),
+        Markup.button.callback(TEXT.needsFixBtn[lang], `_DISABLED_NEEDS_FIX`)
+      ]]
+    });
+  } catch {}
+  // Immediately finalize: release escrow and send rating prompts
+  await releasePaymentAndFinalize(taskId, 'accepted');
+});
+
+// ─── CREATOR “Needs Fixing” Action ───────────────────────────
+bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || 'en';
+  // Only allow if still within first half of revision time
+  const work = await DoerWork.findOne({ task: taskId });
+  if (!work) return;
+  const task = await Task.findById(taskId);
+  const halfDeadline = new Date(work.completedAt.getTime() + (task.revisionTime * 60 * 60 * 1000) / 2);
+  if (new Date() > halfDeadline) {
+    // Too late: half revision window passed, auto-validating
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [[
+          Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_VALID`),
+          Markup.button.callback(TEXT.needsFixBtn[lang], `_DISABLED_NEEDS_FIX`)
+        ]]
+      });
+    } catch {}
+    // Finalize as valid since revision window lapsed
+    await releasePaymentAndFinalize(taskId, 'timeout');
+    return;
+  }
+  // Disable both decision buttons and mark "Needs Fixing" as chosen
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[
+        Markup.button.callback(TEXT.validBtn[lang], `_DISABLED_VALID`),
+        Markup.button.callback(`✔ ${TEXT.needsFixBtn[lang]}`, `_DISABLED_NEEDS_FIX`)
+      ]]
+    });
+  } catch {}
+  // Notify the creator to list all issues and provide a "Send Fix Notice" button
+  const instructMsg = (lang === 'am')
+    ? "❗ እባክዎን ያስተካክሏቸው ሁሉንም ጉዳዮች በመልእክቶች ተዝርዞ ይጻፉ። ከተግባሩ ግልባጭ ውጪ ማስፈልግ አይፈቀድም። የቀረውን ጊዜ ተጠቅመው ይህን ዝርዝር ያቅርቡ። ከተጨረሱ በኋላ “ማስተካከል ማሳወቂያ ላክ” የሚለውን ቁልፍ ይጫኑ።"
+    : "❗ Please *list everything* that needs fixing in separate messages below. You cannot request changes beyond the original task description. You have until halfway through the revision period to send this list. Once done, tap **Send Fix Notice**.";
+  await ctx.reply(instructMsg, {
+    parse_mode: "Markdown",
+    ...Markup.inlineKeyboard([
+      [ Markup.button.callback(
+          lang === 'am' ? "🛠 ማስተካከል ማሳወቂያ ላክ" : "🛠 Send Fix Notice",
+          `CREATOR_SEND_FIX_NOTICE_${taskId}`
+      ) ]
+    ])
+  });
+  // Put the creator into "fix listing" mode to capture their messages
+  ctx.session = ctx.session || {};
+  ctx.session.fixingTaskId = taskId;
+  // (Also mark in DB when revision was requested, if needed)
+  // work.revisionRequestedAt = new Date();
+  // await work.save();
+});
+
+// ─── CREATOR “Send Fix Notice” Action ───────────────────────────
+bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const creator = await User.findOne({ telegramId: ctx.from.id });
+  const lang = creator?.language || 'en';
+  // Load the work and any collected fix request messages
+  const work = await DoerWork.findOne({ task: taskId }).populate('doer');
+  if (!work) return;
+  const doerUser = work.doer;
+  const doerTid = work.doerTelegramId;
+  const now = new Date();
+  const halfDeadline = new Date(work.completedAt.getTime() + (await Task.findById(taskId)).revisionTime * 60 * 60 * 1000 / 2);
+  if (now > halfDeadline) {
+    // Past halfway point – treat as expired
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[ Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_SEND_FIX_NOTICE`) ]]
+    }).catch(()=>{});
+    // Auto-finalize as valid
+    await releasePaymentAndFinalize(taskId, 'timeout');
+    return;
+  }
+  // Check if creator provided any fix details
+  if (!work.fixRequests || work.fixRequests.length === 0) {
+    // No messages listed – show error with remaining time
+    const remainingMs = halfDeadline.getTime() - now.getTime();
+    const minsLeft = Math.max(0, Math.ceil(remainingMs / 60000));
+    let timeLeftStr;
+    if (minsLeft >= 60) {
+      const hrs = Math.floor(minsLeft / 60);
+      const mins = minsLeft % 60;
+      timeLeftStr = (hrs > 0)
+        ? `${hrs} hour${hrs>1?'s':''}${mins>0?` ${mins} min${mins>1?'s':''}`:''}`
+        : `${mins} minute${mins!==1?'s':''}`;
+    } else {
+      timeLeftStr = `${minsLeft} minute${minsLeft!==1?'s':''}`;
+    }
+    const alertMsg = (lang === 'am')
+      ? `❌ ማስተካከል ምንም ነገር አልጻፉም። ቀሪ ጊዜ፡ ${minsLeft} ደቂቃ።`
+      : `❌ You haven't listed any issues to fix. Time remaining: ${timeLeftStr}.`;
+    return ctx.answerCbQuery(alertMsg, { show_alert: true });
+  }
+  // Creator provided fix requests: forward all to the task doer
+  for (const req of work.fixRequests) {
+    try {
+      await ctx.telegram.forwardMessage(doerTid, creator.telegramId, req.messageId);
+    } catch (err) {
+      console.error("Failed to forward fix request message:", err);
+    }
+  }
+  // Notify the doer with options to report or send corrected work
+  const doerLang = doerUser.language || 'en';
+  const doerMsgText = (doerLang === 'am')
+    ? "⚠️ ተግዳሮቱን ፈጣሪ ማስተካከል እንዳለበት ጠይቋል። እባክዎን የተጠየቁትን ነገሮች አስተካክሏቸው የተስተካከለውን ስራ ይላኩ። የተሳሳቱ ጥያቄዎች እንዳሉ ቢያስቡ ሪፖርት ማድረግ ይችላሉ።"
+    : "⚠️ The client has requested some revisions. Please address the issues and send the corrected work. If any request seems out of scope, you may report it.";
+  await ctx.telegram.sendMessage(doerTid, doerMsgText, Markup.inlineKeyboard([
+    [
+      Markup.button.callback(doerLang === 'am' ? "⚠️ ሪፖርት" : "⚠️ Report this", `DOER_REPORT_${taskId}`),
+      Markup.button.callback(doerLang === 'am' ? "✅ አስተካክሏል እንደገና ላክ" : "✅ Send corrected version", `DOER_SEND_CORRECTED_${taskId}`)
+    ]
+  ]));
+  // Mark the fix notice as sent and disable the creator's button
+  work.fixNoticeSentAt = new Date();
+  await work.save();
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[ Markup.button.callback(
+        lang === 'am' ? "✔ ማስተካከል ማሳወቂያ ተልኳል" : "✔ Fix Notice Sent",
+        `_DISABLED_SEND_FIX_NOTICE`
+      ) ]]
+    });
+  } catch {}
+  // Clear the creator's session fix mode
+  ctx.session.fixingTaskId = null;
+});
+
+// ─── Handle Creator’s Fix Comments (Message Handler) ───────────────────
+bot.on('message', async (ctx) => {
+  if (!ctx.session?.fixingTaskId) return;  // only handle if user is in fix-listing mode
+  const taskId = ctx.session.fixingTaskId;
+  // Ignore system/command messages
+  const msg = ctx.message;
+  if (!msg || msg.text?.startsWith('/')) return;
+  try {
+    const work = await DoerWork.findOne({ task: taskId });
+    if (!work) {
+      ctx.session.fixingTaskId = null;
+      return;
+    }
+    // Build a record for this fix-request message
+    const entry = {
+      messageId: msg.message_id,
+      date: new Date(msg.date * 1000),                // Telegram timestamp
+      type: msg.sticker ? 'sticker'
+           : msg.photo ? 'photo'
+           : msg.document ? 'document'
+           : msg.video ? 'video'
+           : msg.audio ? 'audio'
+           : msg.voice ? 'voice'
+           : 'text'
+    };
+    if (msg.text) entry.text = msg.text;
+    if (msg.caption) entry.caption = msg.caption;
+    if (msg.media_group_id) entry.mediaGroupId = msg.media_group_id;
+    // Store file identifiers for media (for record-keeping)
+    if (msg.photo) {
+      entry.fileIds = msg.photo.map(p => p.file_id);
+    } else if (msg.document) {
+      entry.fileIds = [ msg.document.file_id ];
+    } else if (msg.video) {
+      entry.fileIds = [ msg.video.file_id ];
+    } else if (msg.audio) {
+      entry.fileIds = [ msg.audio.file_id ];
+    } else if (msg.voice) {
+      entry.fileIds = [ msg.voice.file_id ];
+    } else if (msg.sticker) {
+      entry.fileIds = [ msg.sticker.file_id ];
+    }
+    // Append to fixRequests in DB
+    work.fixRequests = work.fixRequests || [];
+    work.fixRequests.push(entry);
+    await work.save();
+  } catch (err) {
+    console.error("Error recording fix request message:", err);
+  }
+});
+
+// ─── DOER Dummy Actions for Report/Corrected (to be implemented later) ───
+bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery("Report received. (To be implemented)", { show_alert: true });
+  // Future: mark as escalated/disputed, notify admins, etc.
+});
+bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery("Please send the corrected work here.", { show_alert: true });
+  // Future: allow doer to upload corrected files and notify creator for re-validation
+});
+
+// ─── Disabled Button Handlers (prevent clicks on inert buttons) ─────────
+bot.action("_DISABLED_VALID", async (ctx) => { 
+  await ctx.answerCbQuery(); 
+});
+bot.action("_DISABLED_NEEDS_FIX", async (ctx) => { 
+  await ctx.answerCbQuery(); 
+});
+bot.action("_DISABLED_SEND_FIX_NOTICE", async (ctx) => { 
+  await ctx.answerCbQuery(); 
+});
 // Error handling middleware
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
