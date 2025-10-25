@@ -1385,6 +1385,7 @@ async function checkTaskExpiries(bot) {
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
 // ─── Utility: Release Payment & Finalize Task ─────────────────────────
+// ── Updated releasePaymentAndFinalize Function ──
 async function releasePaymentAndFinalize(taskId, reason) {
   try {
     // Load task, doer, creator, and payment info
@@ -1394,47 +1395,105 @@ async function releasePaymentAndFinalize(taskId, reason) {
     if (!doerApp) return;
     const doer = doerApp.user;
     const creator = task.creator;
-    // Calculate payout amount (minus 4% commission)
+    
+    // Calculate payout amount (minus 5% commission)
     const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
     const totalAmount = intent ? intent.amount : (task.paymentFee || 0);
-    const commission = Math.round(totalAmount * 4) / 100;  // 4% commission
+    const commission = Math.round(totalAmount * 5) / 100;  // 5% commission
     const payoutAmount = totalAmount - commission;
-    // Initiate transfer via Chapa API (using test mode keys)
-    const payload = {
-      account_number: doer.bankDetails?.[0]?.accountNumber || "",
-      bank_code: /* TODO: map doer.bankDetails[0].bankName to code */ "",
-      amount: payoutAmount.toFixed(2),
-      currency: "ETB",
-      reference: `task_payout_${task._id}`
-    };
-    if (doer.fullName) payload.account_name = doer.fullName;
+
+    // Fetch supported banks from Chapa
+    let banksList = [];
     try {
-      const res = await fetch("https://api.chapa.co/v1/transfers", {
-        method: "POST",
+      const resBanks = await fetch("https://api.chapa.co/v1/banks", {
+        method: "GET",
         headers: {
-          Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
+          Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`
+        }
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        console.error("Chapa payout failed:", data || res.statusText);
+      const dataBanks = await resBanks.json().catch(() => null);
+      if (!resBanks.ok || !dataBanks?.data) {
+        console.error("Failed to fetch bank list from Chapa:", dataBanks || resBanks.statusText);
       } else {
-        console.log("✅ Escrow payout initiated via Chapa:", data?.data || data);
+        // Filter banks to ETB currency (if needed)
+        banksList = dataBanks.data.filter(b => b.currency === "ETB");
       }
     } catch (err) {
-      console.error("Chapa transfer API error:", err);
+      console.error("Error fetching bank list:", err);
     }
-    // Update internal stats (commission and earnings)
-    await creditIfNeeded('doerEarned', task, doer._id);
-    await creditIfNeeded('creatorSpent', task, creator._id);
-    // Trigger rating flow for both users
-    const tg = globalThis.TaskifiiBot?.telegram || ctx.telegram;
-    await finalizeAndRequestRatings(reason, taskId, tg);
+    
+    if (!banksList.length) {
+      // If we could not retrieve banks, log and finalize without payout
+      console.error("No bank list available – skipping payout.");
+      await creditIfNeeded('doerEarned', task, doer._id);
+      await creditIfNeeded('creatorSpent', task, creator._id);
+      const tg = globalThis.TaskifiiBot.telegram;
+      await finalizeAndRequestRatings(reason, taskId, tg);
+      return;
+    }
+
+    // Store payout context for this user (to be used in callbacks)
+    global.pendingPayouts = global.pendingPayouts || {};
+    global.pendingPayouts[doer.telegramId] = {
+      taskId: String(task._id),
+      doerId: doer._id,
+      creatorId: creator._id,
+      payoutAmount: payoutAmount.toFixed(2),
+      reference: `task_payout_${task._id}`,
+      banks: banksList,
+      selectedBankId: null,
+      accountPromptMessageId: null
+    };
+
+    // Prompt the doer to choose a bank from the fetched list
+    const lang = doer.language || "en";
+    const chooseBankText = (lang === "am") 
+      ? "እባክዎ የእርስዎን ባንክ ይምረጡ።" 
+      : "Please choose your bank for payout:";
+    const firstPageButtons = buildBankKeyboard(String(task._id), banksList, 0, null);
+    
+    await globalThis.TaskifiiBot.telegram.sendMessage(
+      doer.telegramId,
+      `${chooseBankText}`,
+      { reply_markup: firstPageButtons.reply_markup }
+    );
+
+    // Exit the function to wait for user input
+    return;
   } catch (err) {
     console.error("Error in releasePaymentAndFinalize:", err);
   }
+}
+// Helper to build inline keyboard for a given page of banks (10 per page)
+function buildBankKeyboard(taskId, banks, page, selectedBankId) {
+  const FIELDS_PER_PAGE = 10;
+  const start = page * FIELDS_PER_PAGE;
+  const end = Math.min(start + FIELDS_PER_PAGE, banks.length);
+  const keyboard = [];
+
+  // Create a button for each bank on this page
+  for (let i = start; i < end; i++) {
+    const bank = banks[i];
+    const isSelected = selectedBankId && selectedBankId === bank.id;
+    const label = isSelected ? `✔ ${bank.name}` : bank.name;
+    keyboard.push([
+      Markup.button.callback(label, `PAYOUT_SELECT_${taskId}_${bank.id}`)
+    ]);
+  }
+
+  // Navigation buttons for pagination
+  const navButtons = [];
+  if (page > 0) {
+    navButtons.push(Markup.button.callback("⬅️ Prev", `PAYOUT_PAGE_${taskId}_${page-1}`));
+  }
+  if (end < banks.length) {
+    navButtons.push(Markup.button.callback("Next ➡️", `PAYOUT_PAGE_${taskId}_${page+1}`));
+  }
+  if (navButtons.length) {
+    keyboard.push(navButtons);
+  }
+
+  return Markup.inlineKeyboard(keyboard);
 }
 async function checkPendingRefunds() {
   try {
@@ -2831,6 +2890,40 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
     return res.send("ok");
   } catch (e) {
     console.error("IPN handler error:", e);
+    return res.status(500).send("error");
+  }
+});
+
+// Transfer Approval Webhook (for Chapa server-side approval)
+app.post("/chapa/transfer_approval", [express.urlencoded({ extended: true }), express.json()], async (req, res) => {
+  try {
+    // Chapa sends a signature in the headers and transfer details in the body
+    const providedSignature = req.get("Chapa-Signature") || req.get("chapa-signature");
+    if (!providedSignature) {
+      console.error("Transfer approval request missing signature");
+      return res.status(400).send("missing signature");
+    }
+    
+    const secret = process.env.CHAPA_APPROVAL_SECRET || "";
+    // Compute HMAC SHA256 of the secret
+    const expectedSignature = require("crypto")
+      .createHmac("sha256", secret)
+      .update(secret)
+      .digest("hex");
+      
+    if (providedSignature !== expectedSignature) {
+      console.warn("Invalid Chapa approval signature:", providedSignature);
+      return res.status(400).send("invalid signature");
+    }
+
+    // Optionally, verify the transfer details here
+    const { reference, amount, bank, account_number } = req.body;
+    console.log("✅ Transfer approval received for:", reference, amount, bank, account_number);
+    
+    // Since the signature is valid, approve the transfer
+    return res.status(200).send("OK");
+  } catch (e) {
+    console.error("Error in transfer approval webhook:", e);
     return res.status(500).send("error");
   }
 });
@@ -5169,6 +5262,101 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     }
   }
 
+   // 5. Payout flow: awaiting account number
+  if (ctx.session?.payoutFlow?.step === "awaiting_account") {
+    const userId = ctx.from.id;
+    const pending = global.pendingPayouts?.[userId];
+    if (!pending) {
+      ctx.session.payoutFlow = undefined;
+      return next();
+    }
+    
+    const accountNumber = ctx.message.text.trim();
+    
+    // Basic validation: account number should be numeric
+    if (!/^\d+$/.test(accountNumber)) {
+      const errMsg = (pending.selectedBankName) 
+        ? `❌ Invalid account number format. Please enter only digits for your ${pending.selectedBankName} account.` 
+        : "❌ Invalid account number format. Please enter only digits.";
+      await ctx.reply(errMsg);
+      return;
+    }
+    
+    // If bank info includes expected length, validate length
+    const bankInfo = pending.banks.find(b => b.id === pending.selectedBankId);
+    if (bankInfo?.acct_length && accountNumber.length !== bankInfo.acct_length) {
+      const errMsg = `❌ The account number should be ${bankInfo.acct_length} digits long. Please re-enter the correct number.`;
+      await ctx.reply(errMsg);
+      return;
+    }
+
+    // Prepare transfer payload
+    const payload = {
+      account_number: accountNumber,
+      bank_code: pending.selectedBankId,
+      amount: pending.payoutAmount,
+      currency: "ETB",
+      reference: pending.reference
+    };
+    
+    // Include account_name if available
+    const user = await User.findOne({ telegramId: userId });
+    if (user?.fullName) payload.account_name = user.fullName;
+
+    // Call Chapa Transfers API to initiate the payout
+    let transferData;
+    try {
+      const res = await fetch("https://api.chapa.co/v1/transfers", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+      transferData = await res.json().catch(() => null);
+      if (!res.ok) {
+        const errorMessage = transferData?.message || transferData?.data || res.statusText;
+        console.error("Chapa payout failed:", errorMessage);
+        await ctx.reply(`❌ Payout failed: ${errorMessage}\n🔁 Please double-check the account details and try again.`);
+        return;
+      }
+    } catch (err) {
+      console.error("Chapa transfer API error:", err);
+      await ctx.reply("❌ An error occurred while initiating the payout. Please try again.");
+      return;
+    }
+
+    console.log("✅ Escrow payout initiated via Chapa:", transferData?.data || transferData);
+    
+    // Disable all bank buttons now that payout is initiated
+    try {
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+    } catch (_) {}
+
+    // Send confirmation to the user
+    const successMsg = (user?.language === "am") 
+      ? "✅ ክፍያዎት ተከናወነ! በቀጣዮቹ ደቂቃዎች/ቀናት ውስጥ ገንዘቡ ወደ መልዕክት መለስ አካውንትዎ ይገባል።"
+      : "✅ Your payout has been initiated! The funds will be transferred to your account shortly.";
+    await ctx.reply(successMsg);
+
+    // Record payout in internal stats and trigger the rating flow
+    const task = await Task.findById(pending.taskId);
+    if (task) {
+      await creditIfNeeded('doerEarned', task, pending.doerId);
+      await creditIfNeeded('creatorSpent', task, pending.creatorId);
+    }
+    
+    const tg = globalThis.TaskifiiBot.telegram;
+    await finalizeAndRequestRatings('accepted', pending.taskId, tg);
+
+    // Cleanup session and pending state
+    ctx.session.payoutFlow = undefined;
+    delete global.pendingPayouts[userId];
+    return;
+  }
+
+  
   // ─────────── 3. Handle profile editing ───────────
   const text = ctx.message.text?.trim();
   const tgId = ctx.from.id;
@@ -8420,7 +8608,81 @@ bot.on('message', async (ctx, next) => {
     return next();
   }
 });
+// Handle pagination for bank list
+bot.action(/^PAYOUT_PAGE_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const page = parseInt(ctx.match[2]);
+  const userId = ctx.from.id;
+  const pending = global.pendingPayouts?.[userId];
+  if (!pending || String(pending.taskId) !== taskId) {
+    return ctx.answerCbQuery("❌ Session expired. Please try again.");
+  }
+  // Delete the old message to avoid clutter (optional)
+  try { await ctx.deleteMessage(); } catch(e) {}
+  // Send the new page of bank buttons
+  const keyboardMarkup = buildBankKeyboard(taskId, pending.banks, page, pending.selectedBankId);
+  return ctx.reply(
+    pending.banks && pending.banks.length 
+      ? (pending.selectedBankId 
+          ? "Choose a bank for payout (current selection marked with ✔):" 
+          : "Please choose your bank for payout:") 
+      : "No banks available.",
+    keyboardMarkup
+  );
+});
 
+// Handle bank selection
+bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  const bankId = parseInt(ctx.match[2]);
+  const userId = ctx.from.id;
+  const pending = global.pendingPayouts?.[userId];
+  if (!pending || String(pending.taskId) !== taskId) {
+    return ctx.answerCbQuery("❌ Session expired. Please try again.");
+  }
+  // Find the selected bank details
+  const bank = pending.banks.find(b => b.id === bankId);
+  if (!bank) {
+    return ctx.answerCbQuery("❌ Bank not found. Please try again.");
+  }
+
+  // Update selected bank in session and highlight it
+  pending.selectedBankId = bank.id;
+  pending.selectedBankName = bank.name;
+  // Edit the bank list message to highlight the chosen bank
+  try {
+    const newMarkup = buildBankKeyboard(taskId, pending.banks, 
+                                        Math.floor(pending.banks.findIndex(b => b.id === bankId) / 10), 
+                                        pending.selectedBankId);
+    await ctx.editMessageReplyMarkup(newMarkup.reply_markup);
+  } catch (e) {
+    console.error("Failed to highlight selected bank:", e);
+  }
+
+  // Prompt user for the account number of the selected bank
+  const lang = (await User.findOne({ telegramId: userId }))?.language || "en";
+  const promptText = (lang === "am") 
+    ? `🏦 ${bank.name} ን ይመርጡ። አሁን የአካውንት ቁጥርዎን ያስገቡ።` 
+    : `🏦 *${bank.name}* selected. Please enter the account number:`;
+  // If a prompt message was sent before, edit it; otherwise, send a new prompt
+  if (pending.accountPromptMessageId) {
+    try {
+      await ctx.telegram.editMessageText(userId, pending.accountPromptMessageId, undefined, promptText, { parse_mode: "Markdown" });
+    } catch {
+      // If editing fails (e.g., message too old), send a new prompt
+      const msg = await ctx.reply(promptText, { parse_mode: "Markdown" });
+      pending.accountPromptMessageId = msg.message_id;
+    }
+  } else {
+    const msg = await ctx.reply(promptText, { parse_mode: "Markdown" });
+    pending.accountPromptMessageId = msg.message_id;
+  }
+
+  // Prepare session state to expect an account number next
+  ctx.session.payoutFlow = { step: "awaiting_account", taskId: taskId };
+});
 // ─── When Doer Marks Task as Completed ───────────────────────────
 bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
   try {
