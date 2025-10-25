@@ -8687,92 +8687,68 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
 bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
   try {
     const taskId = ctx.match[1];
-
-    // 1. Load the task
     const task = await Task.findById(taskId);
     if (!task) return;
-
-    // 2. Load the work record for this task
     const work = await DoerWork.findOne({ task: task._id });
     if (!work) return;
-
-    // 3. Load the task creator user (this is where we get telegramId safely)
+    
+    // ✅ Load the task creator's user to get their Telegram ID
     const creatorUser = await User.findById(task.creator);
-    if (!creatorUser || !creatorUser.telegramId) {
-      console.error("COMPLETED_SENT: creator telegramId missing for task", taskId);
-      return;
-    }
-
-    // 4. Figure out creator's language preference
+    if (!creatorUser) return;  // Safety check
     const lang = creatorUser.language || 'en';
 
-    // 5. Mark task delivered in DB
+    // Flip the doer's control button to checked (already handled above)...
+
+    // Mark task delivered
     work.completedAt = new Date();
     work.status = 'completed';
     await work.save();
 
-    // TODO: mirror doer messages to creator
-    // (Your comment says "already done above". If you already forward the work.messages
-    // somewhere else in your flow, cool. If not, we can wire it here later without touching anything else.)
+    // Mirror all doer messages to task creator (already done above)...
 
-    // 6. Build the decision message for the creator
+    // Prepare and send the decision message with "Valid" and "Needs Fixing" options
     const decisionMsg = (lang === 'am')
       ? "የተጠናቋል ስራ ተልኳል። እባክዎ በታች ያሉትን አማራጮች ይምረጡ።"
       : "The completed work has been submitted. Please choose below.";
-
     const decisionKeyboard = Markup.inlineKeyboard([
       [
         Markup.button.callback(TEXT.validBtn[lang], `CREATOR_VALID_${task._id}`),
         Markup.button.callback(TEXT.needsFixBtn[lang], `CREATOR_NEEDS_FIX_${task._id}`)
       ]
     ]);
-
-    // 7. Send that message to the *creator's* Telegram chat
-    const sent = await ctx.telegram.sendMessage(
-      creatorUser.telegramId,
-      decisionMsg,
-      decisionKeyboard
-    );
-
-    // 8. Remember the message id so later you can edit/disable buttons
+    const sent = await ctx.telegram.sendMessage( creatorUser.telegramId, decisionMsg, decisionKeyboard);
+    
+    // Store the creator's decision message ID for later editing
     work.creatorDecisionMessageId = sent.message_id;
     await work.save();
 
-    // 9. Set up the revision timer logic (unchanged from your code)
+    // Start a revision timer (using DB values to compute deadlines)
     const revisionMs = (task.revisionTime || 0) * 60 * 60 * 1000;
     const halfMs = revisionMs / 2;
-
     if (halfMs > 0) {
+      const creatorTgId = creatorUser.telegramId;  // capture ID for closure
       setTimeout(async () => {
         try {
-          // Re-fetch fresh data inside the timeout
+          // Re-fetch work and task to check status at halfway
           const workNow = await DoerWork.findOne({ task: task._id });
           const taskNow = await Task.findById(task._id);
           if (!taskNow || !workNow) return;
-
           const halfDeadline = new Date(work.completedAt.getTime() + halfMs);
           const now = new Date();
           const fixNoticeSent = workNow.fixNoticeSentAt;
           const alreadyFinalized = (await FinalizationState.findOne({ task: task._id }))?.concludedAt;
-
           if (!alreadyFinalized && !fixNoticeSent && now >= halfDeadline) {
-            // Auto-finalize as Valid
+            // Half of revision time passed with no fix notice – finalize as Valid
             try {
-              await ctx.telegram.editMessageReplyMarkup(
-                creatorUser.telegramId,
-                work.creatorDecisionMessageId,
-                undefined,
-                {
-                  inline_keyboard: [[
-                    Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_VALID`),
-                    Markup.button.callback(TEXT.needsFixBtn[lang], `_DISABLED_NEEDS_FIX`)
-                  ]]
-                }
-              ).catch(() => {});
-            } catch (e) {
-              // ignore edit errors
-            }
-
+              // Disable decision buttons and highlight "Valid" (if not already done)
+              await ctx.telegram.editMessageReplyMarkup( creatorTgId, work.creatorDecisionMessageId, undefined, {
+                inline_keyboard: [[
+                  Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_VALID`),
+                  Markup.button.callback(TEXT.needsFixBtn[lang], `_DISABLED_NEEDS_FIX`)
+                ]]
+              }).catch(()=>{});
+            } catch (e) { /* ignore if message was already edited */ }
+            // Release payment and trigger rating flow
             await releasePaymentAndFinalize(task._id, 'timeout');
           }
         } catch (err) {
@@ -8780,15 +8756,13 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
         }
       }, halfMs);
     } else {
-      // If revisionTime is 0, finalize immediately
+      // If revisionTime is 0 hours, finalize immediately with no revision period
       await releasePaymentAndFinalize(task._id, 'accepted');
     }
-
   } catch (e) {
     console.error("COMPLETED_SENT handler error:", e);
   }
 });
-
 
 // ─── CREATOR “Valid” Action ───────────────────────────
 bot.action(/^CREATOR_VALID_(.+)$/, async (ctx) => {
