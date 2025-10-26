@@ -2847,6 +2847,14 @@ app.use(express.json());
 app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()], async (req, res) => {
 
   try {
+    const providedSecret = req.get("Chapa-Webhook-Secret") || req.get("chapa-webhook-secret") || "";
+    const expectedSecret = process.env.CHAPA_PAYOUT_WEBHOOK_SECRET || "";
+    if (expectedSecret && providedSecret !== expectedSecret) {
+      console.warn("Invalid payout webhook secret");
+      return res.status(400).send("invalid secret");
+    }
+
+    
     // Chapa typically includes at least tx_ref (and sometimes reference/status) in the POST.
     const txRef = String(
       req.body?.tx_ref || req.body?.txRef || req.query?.tx_ref || ""
