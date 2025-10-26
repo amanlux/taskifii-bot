@@ -2847,6 +2847,11 @@ app.use(express.json());
 app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()], async (req, res) => {
 
   try {
+    // Ignore payout webhooks here. Those are handled in /chapa/payout
+    if (req.body?.event === "payout.success" && req.body?.reference?.startsWith("task_payout_")) {
+      // just acknowledge so Chapa stops retrying
+      return res.status(200).send("ok");
+    }
     // Chapa typically includes at least tx_ref (and sometimes reference/status) in the POST.
     const txRef = String(
       req.body?.tx_ref || req.body?.txRef || req.query?.tx_ref || ""
