@@ -2847,14 +2847,6 @@ app.use(express.json());
 app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()], async (req, res) => {
 
   try {
-    const providedSecret = req.get("Chapa-Webhook-Secret") || req.get("chapa-webhook-secret") || "";
-    const expectedSecret = process.env.CHAPA_PAYOUT_WEBHOOK_SECRET || "";
-    if (expectedSecret && providedSecret !== expectedSecret) {
-      console.warn("Invalid payout webhook secret");
-      return res.status(400).send("invalid secret");
-    }
-
-    
     // Chapa typically includes at least tx_ref (and sometimes reference/status) in the POST.
     const txRef = String(
       req.body?.tx_ref || req.body?.txRef || req.query?.tx_ref || ""
@@ -2936,109 +2928,39 @@ app.post("/chapa/transfer_approval", [express.urlencoded({ extended: true }), ex
   }
 });
 
-// Chapa payout webhook (money going OUT to the task doer)
-app.post(
-  "/chapa/payout_ipn",
-  [express.urlencoded({ extended: true }), express.json()],
-  async (req, res) => {
-    try {
-      // 1. (Optional but good) simple shared-secret check
-      // Set CHAPA_PAYOUT_WEBHOOK_SECRET in .env to something only you + Chapa know
-      const providedSecret = req.get("Chapa-Webhook-Secret") || req.get("chapa-webhook-secret") || "";
-      const expectedSecret = process.env.CHAPA_PAYOUT_WEBHOOK_SECRET || "";
-      if (expectedSecret && providedSecret !== expectedSecret) {
-        console.warn("Invalid payout webhook secret");
-        return res.status(400).send("invalid secret");
+// NEW: Webhook endpoint for Chapa payout success events
+app.post("/chapa/payout", async (req, res) => {
+  try {
+    // Chapa sends JSON payload with event="payout.success" and a reference field.
+    const { event, reference } = req.body;
+    // Only handle payout success events with our custom reference prefix
+    if (event === "payout.success" && typeof reference === "string") {
+      const prefix = "task_payout_";
+      if (reference.startsWith(prefix)) {
+        // Extract the taskId from the reference string
+        const taskId = reference.slice(prefix.length);
+        if (taskId) {
+          // Mark the task as paid in the database
+          // (Assumes Task model is already required as `const Task = require("./models/Task");`)
+          const update = { paidAt: new Date() };
+          // Optionally set a status or flag, e.g. status = "Completed" if desired:
+          // update.status = "Completed";
+          const result = await Task.updateOne({ _id: taskId }, { $set: update });
+          if (result.matchedCount) {
+            console.log(`Chapa payout webhook: marked Task ${taskId} as paid.`);
+          } else {
+            console.warn(`Chapa payout webhook: no Task found with id ${taskId}.`);
+          }
+        }
       }
-
-      // 2. Make sure this is actually a payout success
-      const body = req.body || {};
-      const eventType = body.event || body.type || "";
-      const payoutStatus = body.status || "";
-      // We only finalize if Chapa says it's a success
-      if (
-        String(eventType).toLowerCase().includes("payout") &&
-        String(payoutStatus).toLowerCase() === "success"
-      ) {
-        // 3. Example reference: "task_payout_68fccd767bd4f7d627c426a9"
-        const reference = body.reference || body.ref || "";
-        if (!reference || !reference.startsWith("task_payout_")) {
-          console.error("Payout IPN missing/invalid reference:", body);
-          return res.status(400).send("bad reference");
-        }
-
-        // Extract MongoDB taskId after "task_payout_"
-        const taskIdMatch = reference.match(/^task_payout_([a-f0-9]{24})$/);
-        if (!taskIdMatch) {
-          console.error("Payout IPN could not parse taskId from reference:", reference);
-          return res.status(400).send("bad taskId format");
-        }
-        const taskId = taskIdMatch[1];
-
-        // 4. Fetch task + people
-        const task = await Task.findById(taskId)
-          .populate("creator")
-          .populate("applicants.user");
-
-        if (!task) {
-          console.error("Payout IPN: task not found for", taskId);
-          return res.status(404).send("task_not_found");
-        }
-
-        // The chosen doer is the applicant with confirmedAt
-        const doerApp = task.applicants.find(a => a.confirmedAt);
-        if (!doerApp) {
-          console.error("Payout IPN: no confirmed doer for task", taskId);
-          return res.status(404).send("no_doer");
-        }
-
-        const doer = doerApp.user;
-        const creator = task.creator;
-
-        // 5. Credit ledgers if not already credited
-        await creditIfNeeded("doerEarned", task, doer._id);
-        await creditIfNeeded("creatorSpent", task, creator._id);
-
-        // 6. Ask both sides for ratings + mark finalization
-        // finalizeAndRequestRatings(reason, taskId, bot.telegram)
-        // We don’t have ctx here, so we use the global bot instance like you already do elsewhere.
-        try {
-          const tg = globalThis.TaskifiiBot.telegram;
-          await finalizeAndRequestRatings(
-            "payout_success",
-            task._id,
-            tg
-          );
-        } catch (err) {
-          console.error("Payout IPN finalize error:", err);
-        }
-
-        // 7. Release engagement locks so they can move on to other tasks
-        try {
-          await releaseLocksForTask(task._id);
-        } catch (err) {
-          console.error("Payout IPN lock release error:", err);
-        }
-
-        console.log("✅ Finalized task after payout success:", {
-          taskId: task._id.toString(),
-          reference,
-          doerTelegramId: doer.telegramId,
-          creatorTelegramId: creator.telegramId
-        });
-
-        // Tell Chapa we processed it
-        return res.status(200).send("ok");
-      } else {
-        console.warn("Payout IPN ignored (not success):", body);
-        return res.status(200).send("ignored");
-      }
-    } catch (e) {
-      console.error("Error in /chapa/payout_ipn:", e);
-      return res.status(500).send("error");
     }
+  } catch (err) {
+    console.error("Error handling Chapa payout webhook:", err);
+    // (We still respond 200 to prevent retries, but you could use 500 to signal failure)
   }
-);
+  // Respond with 200 OK so Chapa knows we received the event
+  res.sendStatus(200);
+});
 
 
 
