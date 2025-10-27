@@ -3265,10 +3265,12 @@ bot.use(applyGatekeeper);
     // HARD-GUARD: block all menu/apply flows while engagement-locked
     if (await isEngagementLocked(ctx.from.id)) {
       const u0 = await User.findOne({ telegramId: ctx.from.id });
-      const lang0 = u0?.language || 'en';
-      const msg0 = (lang0 === 'am')
+      const lang0 = (u0 && u0.language) ? u0.language : 'en';  // <— subtle but important
+
+      const lockedMsg = (lang0 === 'am')
         ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።"
         : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+
       await ctx.reply(msg0);
       return;
     }
@@ -8559,7 +8561,15 @@ bot.on('message', async (ctx, next) => {
     const blockedEn = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
     const blockedAm = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
 
-    if (txt && (txt.trim() === blockedEn.trim() || txt.trim() === blockedAm.trim())) {
+    
+    if (
+      txt &&
+      (
+        txt.trim() === "/start" ||
+        txt.trim() === blockedEn.trim() ||
+        txt.trim() === blockedAm.trim()
+      )
+    ) {
       return next();
     }
 
