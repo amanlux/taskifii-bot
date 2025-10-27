@@ -8553,7 +8553,11 @@ bot.on('message', async (ctx, next) => {
     if (!fromId) return next();
 
     // Is this user an active doer on some task?
-    const work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' }).lean();
+    // Find the latest active task work for this user
+    const work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' })
+                                .sort({ startedAt: -1 })
+                                .lean();
+
     if (!work) return next();
 
     // Filter out the two system prompts you explicitely do NOT want included
