@@ -4488,13 +4488,17 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   // show the "Completed task sent" control to the doer.
   // ─────────────────────────────────────────────────────────────
   try {
+    
+    // same top part: lang, startedAt, deadlineAt, DoerWork upsert stays as-is
+
     const lang = user?.language || "en";
+
     // Compute timer window from task's timeToComplete (in hours)
     const tHours = Number(updated?.timeToComplete || 0);
     const startedAt  = new Date();
     const deadlineAt = new Date(startedAt.getTime() + Math.max(1, tHours) * 60 * 60 * 1000);
 
-    // Upsert a DoerWork record (idempotent if button is pressed twice by accident)
+    // Upsert DoerWork (unchanged)
     const doerWork = await DoerWork.findOneAndUpdate(
       { task: updated._id },
       {
@@ -4511,7 +4515,29 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
       { new: true, upsert: true }
     );
 
-    
+    // ⬇️ NEW: send the big "🎉 ..." message *with* the button
+    const controlMsg = await ctx.telegram.sendMessage(
+      user.telegramId,
+      doerMsg, // <-- this is the long message that starts with "🎉 You are now the official task doer..."
+      {
+        parse_mode: "Markdown",
+        reply_markup: Markup.inlineKeyboard([
+          [
+            Markup.button.callback(
+              TEXT.completedSentBtn[lang],
+              `COMPLETED_SENT_${String(updated._id)}`
+            )
+          ]
+        ]).reply_markup
+      }
+    );
+
+    // Save the message_id so later we can flip the button to ✔
+    if (!doerWork.doerControlMessageId) {
+      doerWork.doerControlMessageId = controlMsg.message_id;
+      await doerWork.save();
+    }
+
   } catch (e) {
     console.error("Failed to initialize DoerWork/timer:", e);
   }
@@ -4586,20 +4612,8 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   const extra = buildExchangeAndSkillSection(updated, doerLang);
   const doerMsg = [doerText, extra].filter(Boolean).join("\n\n");
 
-  await ctx.telegram.sendMessage(
-    user.telegramId,
-    doerMsg,
-    {
-      parse_mode: "Markdown",
-      reply_markup: Markup.inlineKeyboard([
-        [Markup.button.callback(TEXT.completedSentBtn[lang], `COMPLETED_SENT_${String(updated._id)}`)]
-      ])
-    }
-  );
-
-// ⛔️ removed reply_markup and the countdown setTimeout
-
-  return;
+  
+  
 
 });
 
