@@ -4483,6 +4483,39 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   } catch (e) {
     console.error("Failed to send related file to doer:", e);
   }
+    // Build the long message for the doer, including bank info, penalty info, etc.
+  const doerLang = lang; // winner's language
+
+  // Calculate timing the same way you're already doing it
+  const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
+  const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
+  const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
+  const fee = updated.paymentFee || 0;
+  const penaltyHoursToZero = penaltyPerHour > 0
+    ? Math.ceil(fee / penaltyPerHour)
+    : 0;
+
+  // Total = task work + revision window + 30 min pay window + penalty runway
+  const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
+
+  // Make sure the doer's bank info can be rendered
+  updated.doerUser = user;
+
+  const doerText = buildWinnerDoerMessage({
+    task: updated,
+    creator: creatorUser,
+    doerLang,
+    totalMinutes,
+    revMinutes,
+    penaltyHoursToZero
+  });
+
+  // This is your "extra" section (skills / exchange strategy etc.)
+  const extra = buildExchangeAndSkillSection(updated, doerLang);
+
+  // Final combined message that starts with "🎉 You are now the official task doer..."
+  const doerMsg = [doerText, extra].filter(Boolean).join("\n\n");
+
     // ─────────────────────────────────────────────────────────────
   // Winner has pressed "Do the task": start the work timer and
   // show the "Completed task sent" control to the doer.
@@ -4582,36 +4615,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
   }
 
-  // Build doer-facing long message + two stacked buttons + countdown
-  const doerLang = lang; // user's language
   
-
-  // compute timing pieces (same approach you already use for creator)
-  const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
-  const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60)); // keep decimal inputs
-  const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
-  const fee = updated.paymentFee || 0;
-  const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
-
-  // Total = complete + revision + 30min for payment + penalty runway
-  const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
-
-  // IMPORTANT: pass the actual doer to render bank options
-  updated.doerUser = user;
-
-  const doerText = buildWinnerDoerMessage({
-    task: updated,
-    creator: creatorUser,
-    doerLang,
-    totalMinutes,
-    revMinutes,
-    penaltyHoursToZero
-  });
-
-  // ⬇️ add these 2 lines
-  const extra = buildExchangeAndSkillSection(updated, doerLang);
-  const doerMsg = [doerText, extra].filter(Boolean).join("\n\n");
-
   
   
 
