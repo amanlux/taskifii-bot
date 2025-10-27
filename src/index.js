@@ -4512,70 +4512,6 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     );
 
     
-    // --- AFTER notifying the creator and channel ---
-    // Build the long doer message (🎉 etc.) plus skill/exchange extras
-    const doerLang = lang; // user's language
-
-    // timing pieces (same approach you already use for creator)
-    const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
-    const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
-    const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
-    const fee = updated.paymentFee || 0;
-    const penaltyHoursToZero = penaltyPerHour > 0
-      ? Math.ceil(fee / penaltyPerHour)
-      : 0;
-    const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
-
-    // make sure bank details render using the actual doer
-    updated.doerUser = user;
-
-    const doerTextMain = buildWinnerDoerMessage({
-      task: updated,
-      creator: creatorUser,
-      doerLang,
-      totalMinutes,
-      revMinutes,
-      penaltyHoursToZero
-    });
-
-    const extraSection = buildExchangeAndSkillSection(updated, doerLang);
-
-    // This is your "You can start now..." instruction moved to the bottom
-    const bottomInstruction =
-      (doerLang === 'am')
-        ? "ስራዎን ጀምሩ። ሁሉንም ጨርሰው ላከው በኋላ \"ተግባሩ ተልኳል\" ይጫኑ።"
-        : "You can start now. When you’ve sent everything, tap “Completed task sent”.";
-
-    // Combine them into one final message body
-    const finalDoerMsg = [
-      doerTextMain,
-      extraSection,
-      bottomInstruction
-    ].filter(Boolean).join("\n\n");
-
-    // Send ONE message to the doer that includes the button under it
-    const finalMsg = await ctx.telegram.sendMessage(
-      user.telegramId,
-      finalDoerMsg,
-      {
-        parse_mode: "Markdown",
-        reply_markup: Markup.inlineKeyboard([
-          [
-            Markup.button.callback(
-              TEXT.completedSentBtn[doerLang],
-              `COMPLETED_SENT_${String(updated._id)}`
-            )
-          ]
-        ])
-      }
-    );
-
-    // Save that message id so you can later update/lock that same message
-    if (!doerWork.doerControlMessageId) {
-      doerWork.doerControlMessageId = finalMsg.message_id;
-      await doerWork.save();
-    }
-
   } catch (e) {
     console.error("Failed to initialize DoerWork/timer:", e);
   }
@@ -4650,7 +4586,13 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   const extra = buildExchangeAndSkillSection(updated, doerLang);
   const doerMsg = [doerText, extra].filter(Boolean).join("\n\n");
 
-  await ctx.reply(doerMsg, { parse_mode: "Markdown" });
+  await ctx.reply(doerMsg, {
+    parse_mode: "Markdown",
+    reply_markup: Markup.inlineKeyboard([
+      // Use the same completedSentBtn text and callback as before
+      [Markup.button.callback(TEXT.completedSentBtn[lang], `COMPLETED_SENT_${String(updated._id)}`)]
+    ])
+  });
 // ⛔️ removed reply_markup and the countdown setTimeout
 
   return;
