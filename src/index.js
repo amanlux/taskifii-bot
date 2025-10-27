@@ -4462,31 +4462,35 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     console.error("Error highlighting/locking buttons:", err);
   }
 
-  // ── NEW: ADD THIS CODE BLOCK RIGHT HERE ──
-  // Lock both participants until you release them
+  // 1. we already know `task` / `updated` / `user` from earlier in this handler
+  // make sure creatorUser exists FIRST so we can use it later
+  let creatorUser = await User.findById(updated.creator);
+
+  // 2. lock both sides so nobody else can take it
   try {
-    const creatorUser = await User.findById(updated.creator);
     if (creatorUser) {
       await lockBothForTask(updated, user._id, creatorUser._id);
     }
   } catch (e) {
-    console.error('failed to set engagement locks:', e);
-  } 
-  // ⬇️ PASTE YOUR SNIPPET RIGHT HERE ⬇️
-  // If the task creator provided a related file, send it to the winner now,
-  // then send a short message underneath it.
+    console.error("failed to set engagement locks:", e);
+  }
+
+  // 3. if the task had an attached file, send it to the doer
   try {
     if (updated?.relatedFile) {
       await sendTaskRelatedFile(ctx.telegram, user.telegramId, updated.relatedFile);
-      await ctx.telegram.sendMessage(user.telegramId, TEXT.relatedFileForYou[lang]);
+      const langForFile = user.language || "en";
+      await ctx.telegram.sendMessage(user.telegramId, TEXT.relatedFileForYou[langForFile]);
     }
   } catch (e) {
     console.error("Failed to send related file to doer:", e);
   }
-    // Build the long message for the doer, including bank info, penalty info, etc.
-  const doerLang = lang; // winner's language
 
-  // Calculate timing the same way you're already doing it
+  // 4. BUILD THE MESSAGE FOR THE DOER (🎉 ... + bank info + penalties + extra)
+  //    we do this BEFORE sending anything, so doerMsg is defined
+  const doerLang = user.language || "en";
+
+  // timing numbers used in both messages
   const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
   const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
   const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
@@ -4495,10 +4499,11 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     ? Math.ceil(fee / penaltyPerHour)
     : 0;
 
-  // Total = task work + revision window + 30 min pay window + penalty runway
-  const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
+  // total window = complete time + revision time + 30min payment window + penalty runway
+  const totalMinutes =
+    timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
 
-  // Make sure the doer's bank info can be rendered
+  // let buildWinnerDoerMessage() render correct banking info for THIS doer
   updated.doerUser = user;
 
   const doerText = buildWinnerDoerMessage({
@@ -4510,28 +4515,21 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     penaltyHoursToZero
   });
 
-  // This is your "extra" section (skills / exchange strategy etc.)
   const extra = buildExchangeAndSkillSection(updated, doerLang);
 
-  // Final combined message that starts with "🎉 You are now the official task doer..."
+  // final combined message that starts with "🎉 You are now the official task doer..."
   const doerMsg = [doerText, extra].filter(Boolean).join("\n\n");
 
-    // ─────────────────────────────────────────────────────────────
-  // Winner has pressed "Do the task": start the work timer and
-  // show the "Completed task sent" control to the doer.
-  // ─────────────────────────────────────────────────────────────
+  // 5. CREATE / UPSERT DoerWork, START TIMER, SEND doerMsg WITH BUTTON
   try {
-    
-    // same top part: lang, startedAt, deadlineAt, DoerWork upsert stays as-is
+    const langForDoer = user.language || "en";
 
-    const lang = user?.language || "en";
-
-    // Compute timer window from task's timeToComplete (in hours)
     const tHours = Number(updated?.timeToComplete || 0);
     const startedAt  = new Date();
-    const deadlineAt = new Date(startedAt.getTime() + Math.max(1, tHours) * 60 * 60 * 1000);
+    const deadlineAt = new Date(
+      startedAt.getTime() + Math.max(1, tHours) * 60 * 60 * 1000
+    );
 
-    // Upsert DoerWork (unchanged)
     const doerWork = await DoerWork.findOneAndUpdate(
       { task: updated._id },
       {
@@ -4541,23 +4539,25 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
           doerTelegramId: user.telegramId,
           startedAt,
           deadlineAt,
-          status: 'active',
+          status: "active",
           messages: []
         }
       },
       { new: true, upsert: true }
     );
 
-    // ⬇️ NEW: send the big "🎉 ..." message *with* the button
+    // send ONE message to the doer:
+    // - the big 🎉 message
+    // - with the "Completed task sent" button under it
     const controlMsg = await ctx.telegram.sendMessage(
       user.telegramId,
-      doerMsg, // <-- this is the long message that starts with "🎉 You are now the official task doer..."
+      doerMsg,
       {
         parse_mode: "Markdown",
         reply_markup: Markup.inlineKeyboard([
           [
             Markup.button.callback(
-              TEXT.completedSentBtn[lang],
+              TEXT.completedSentBtn[langForDoer],
               `COMPLETED_SENT_${String(updated._id)}`
             )
           ]
@@ -4565,7 +4565,8 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
       }
     );
 
-    // Save the message_id so later we can flip the button to ✔
+    // remember the message id (so later when they tap Completed task sent,
+    // you can edit this SAME message to show the ✔ version)
     if (!doerWork.doerControlMessageId) {
       doerWork.doerControlMessageId = controlMsg.message_id;
       await doerWork.save();
@@ -4575,44 +4576,55 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     console.error("Failed to initialize DoerWork/timer:", e);
   }
 
-  // If strategy is allowed, notify creator with the long message
-  let creatorUser = await User.findById(task.creator);
+  // 6. SEND MESSAGE TO CREATOR (the one that explains timing, penalties, contact, etc.)
+  try {
+    // Only send if the exchange strategy allows it (you had this logic already)
+    if (["100%","30:40:30","50:50"].includes((updated.exchangeStrategy || "").trim())) {
+      const creatorLang = (creatorUser && creatorUser.language) || (user.language || "en");
 
-  if (["100%","30:40:30","50:50"].includes((updated.exchangeStrategy || "").trim())) {
-    // we already have creatorUser above; use it consistently
-    const creatorLang = (creatorUser && creatorUser.language) || lang;
+      const timeToCompleteMinsC = (updated.timeToComplete || 0) * 60;
+      const revMinutesC = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
+      const penaltyPerHourC = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
+      const feeC = updated.paymentFee || 0;
+      const penaltyHoursToZeroC = penaltyPerHourC > 0
+        ? Math.ceil(feeC / penaltyPerHourC)
+        : 0;
 
-    // compute minutes exactly like you do for the doer block
-    const timeToCompleteMins = (updated.timeToComplete || 0) * 60;
-    const revMinutes = Math.max(0, Math.round((updated.revisionTime || 0) * 60));
-    const penaltyPerHour = updated.penaltyPerHour ?? updated.latePenalty ?? 0;
-    const fee = updated.paymentFee || 0;
-    const penaltyHoursToZero = penaltyPerHour > 0 ? Math.ceil(fee / penaltyPerHour) : 0;
-    const totalMinutes = timeToCompleteMins + revMinutes + 30 + (penaltyHoursToZero * 60);
+      const totalMinutesC =
+        timeToCompleteMinsC + revMinutesC + 30 + (penaltyHoursToZeroC * 60);
 
-    const creatorText = buildWinnerCreatorMessage({
-      task: updated,
-      doer: user,
-      creatorLang,
-      totalMinutes,
-      revMinutes,
-      penaltyHoursToZero
-    });
-    const extraForCreator = buildExchangeAndSkillSection(updated, creatorLang);
-    const creatorMsg = [creatorText, extraForCreator].filter(Boolean).join("\n\n");
+      const creatorText = buildWinnerCreatorMessage({
+        task: updated,
+        doer: user,
+        creatorLang,
+        totalMinutes: totalMinutesC,
+        revMinutes: revMinutesC,
+        penaltyHoursToZero: penaltyHoursToZeroC
+      });
 
-    await ctx.telegram.sendMessage(
-      creatorUser.telegramId,
-      creatorMsg,
-      { parse_mode: "Markdown" }
-    );
+      const extraForCreator = buildExchangeAndSkillSection(updated, creatorLang);
+      const creatorMsg = [creatorText, extraForCreator].filter(Boolean).join("\n\n");
+
+      if (creatorUser) {
+        await ctx.telegram.sendMessage(
+          creatorUser.telegramId,
+          creatorMsg,
+          { parse_mode: "Markdown" }
+        );
+      }
+    }
+  } catch (e) {
+    console.error("Failed to send creator summary:", e);
   }
 
-  
-  // Notify creator/channel using your existing helper
-  const creator = await User.findById(updated.creator);
-  if (creator) {
-    await sendWinnerTaskDoerToChannel(bot, updated, user, creator);
+  // 7. ANNOUNCE TO CHANNEL / UPDATE UI FOR CREATOR
+  try {
+    const freshCreator = await User.findById(updated.creator);
+    if (freshCreator) {
+      await sendWinnerTaskDoerToChannel(bot, updated, user, freshCreator);
+    }
+  } catch (e) {
+    console.error("Failed to sendWinnerTaskDoerToChannel:", e);
   }
 
   
