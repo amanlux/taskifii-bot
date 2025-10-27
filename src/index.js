@@ -4586,13 +4586,17 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   const extra = buildExchangeAndSkillSection(updated, doerLang);
   const doerMsg = [doerText, extra].filter(Boolean).join("\n\n");
 
-  await ctx.reply(doerMsg, {
-    parse_mode: "Markdown",
-    reply_markup: Markup.inlineKeyboard([
-      // Use the same completedSentBtn text and callback as before
-      [Markup.button.callback(TEXT.completedSentBtn[lang], `COMPLETED_SENT_${String(updated._id)}`)]
-    ])
-  });
+  await ctx.telegram.sendMessage(
+    user.telegramId,
+    doerMsg,
+    {
+      parse_mode: "Markdown",
+      reply_markup: Markup.inlineKeyboard([
+        [Markup.button.callback(TEXT.completedSentBtn[lang], `COMPLETED_SENT_${String(updated._id)}`)]
+      ])
+    }
+  );
+
 // ⛔️ removed reply_markup and the countdown setTimeout
 
   return;
