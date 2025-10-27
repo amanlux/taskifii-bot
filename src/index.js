@@ -8763,44 +8763,41 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery(); // acknowledge tap
   try {
     const taskId = ctx.match[1];
+
+    // Load task
     const task = await Task.findById(taskId);
     if (!task) return;
 
-    const work = await DoerWork.findOne({ task: task._id });
+    // 🔄 Freshly load the work doc with latest messages from Mongo
+    let work = await DoerWork.findOne({ task: task._id });
     if (!work) return;
 
-    // Get doer language for correct error message
+    // Figure out doer's language (for error messages)
     const doerUser = await User.findById(work.doer);
     const doerLang = doerUser?.language || 'en';
 
-    // 1️⃣ VALIDATION SAFEGUARD:
-    // Has this doer actually sent at least ONE valid message/file?
-    // (messages[] is filled by bot.on('message') while status === 'active' :contentReference[oaicite:3]{index=3})
+    // ✅ VALIDATION: do we have at least one saved submission message?
     const hasAnyValidSubmission = Array.isArray(work.messages) && work.messages.length > 0;
 
     if (!hasAnyValidSubmission) {
-      // If nothing valid was captured, STOP the flow and tell them what to do.
       const errText = (doerLang === 'am')
         ? "እባክዎ የተጠናቀቀውን ስራ ወይም የተግባሩን የተጠናቀቀ ማረጋገጫ በመላክ በኋላ ብቻ “Completed task sent” ይጫኑ።"
         : "Please send the completed task or clear proof of completion first, then press “Completed task sent.”";
 
       await ctx.reply(errText);
-      return; // 🔒 DO NOT mark completed, DO NOT notify creator
+      return; // stop here, do NOT mark completed
     }
 
-    // --- if we reach here, we allow the normal flow to continue ---
+    // 🔄 Re-fetch as a full doc just in case something changed in between
+    work = await DoerWork.findOne({ task: task._id });
+    if (!work) return;
 
-    // (rest of your original code continues here)
-    // const creatorUser = await User.findById(task.creator);
-    // ...
-    
-    // Load the task creator's user (to get their Telegram ID and language)
+    // Load the task creator to DM them / ask them to review
     const creatorUser = await User.findById(task.creator);
     if (!creatorUser) return;
     const lang = creatorUser.language || 'en';
-    
-    // Flip the doer's control button to checked (✔ Completed task sent)
-    
+
+    // Flip the button for the doer -> "✔ Completed task sent"
     try {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [[
@@ -8810,57 +8807,54 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     } catch (err) {
       console.error("Error highlighting Completed task button:", err);
     }
-    
-    // Mark task as delivered in the database (stop the active timer)
+
+    // Mark task as delivered, stop the timer
     work.completedAt = new Date();
     work.status = 'completed';
     await work.save();
-    
-    // Forward all doer’s messages/files to the task creator, preserving format
+
+    // Forward all captured proof messages to the task creator (preserving media and inline keyboards via copyMessage)
     for (const entry of work.messages) {
       try {
         await ctx.telegram.copyMessage(
-          creatorUser.telegramId,   // target: creator
-          work.doerTelegramId,      // from: doer's chat
-          entry.messageId           // message to copy
+          creatorUser.telegramId,  // send to creator
+          work.doerTelegramId,     // from doer chat
+          entry.messageId          // original message id
         );
       } catch (err) {
         console.error("Failed to forward doer message:", err);
       }
     }
-    
-    // Send the creator a decision prompt with "Valid" and "Needs Fixing" options
+
+    // Ask creator to mark it Valid or Needs Fixing
     const decisionMsg = (lang === 'am')
       ? "የተጠናቋል ስራ ተልኳል። እባክዎ በታች ያሉትን አማራጮች ይምረጡ።"
       : "The completed work has been submitted. Please choose below.";
+
     const decisionKeyboard = Markup.inlineKeyboard([
       [
-        Markup.button.callback(TEXT.validBtn[lang], `CREATOR_VALID_${task._id}`),
-        Markup.button.callback(TEXT.needsFixBtn[lang], `CREATOR_NEEDS_FIX_${task._id}`)
+        Markup.button.callback(
+          TEXT.validBtn[lang] || "Valid",
+          `WORK_VALID_${task._id}`
+        ),
+        Markup.button.callback(
+          TEXT.needsFixBtn[lang] || "Needs Fixing",
+          `WORK_NEEDS_FIX_${task._id}`
+        )
       ]
     ]);
-    const sent = await ctx.telegram.sendMessage(creatorUser.telegramId, decisionMsg, decisionKeyboard);
-    
-    // Save the creator’s message ID (for editing those buttons later if needed)
-    work.creatorDecisionMessageId = sent.message_id;
-    await work.save();
-    
-    // (Revision timer logic remains unchanged below ...)
-    const revisionMs = (task.revisionTime || 0) * 60 * 60 * 1000;
-    const halfMs = revisionMs / 2;
-    if (halfMs > 0) {
-      const creatorTgId = creatorUser.telegramId;
-      setTimeout(async () => {
-        // ... [existing half-time auto-finalize code] ...
-      }, halfMs);
-    } else {
-      // If no revision period, finalize immediately
-      await releasePaymentAndFinalize(task._id, 'accepted');
-    }
-  } catch (e) {
-    console.error("COMPLETED_SENT handler error:", e);
+
+    await ctx.telegram.sendMessage(
+      creatorUser.telegramId,
+      decisionMsg,
+      decisionKeyboard
+    );
+
+  } catch (err) {
+    console.error("Error in COMPLETED_SENT handler:", err);
   }
 });
+
 
 
 // ─── CREATOR “Valid” Action ───────────────────────────
