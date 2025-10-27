@@ -8750,13 +8750,39 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
 });
 // ─── When Doer Marks Task as Completed ───────────────────────────
 bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();  // Acknowledge the button press immediately
+  await ctx.answerCbQuery(); // acknowledge tap
   try {
     const taskId = ctx.match[1];
     const task = await Task.findById(taskId);
     if (!task) return;
+
     const work = await DoerWork.findOne({ task: task._id });
     if (!work) return;
+
+    // Get doer language for correct error message
+    const doerUser = await User.findById(work.doer);
+    const doerLang = doerUser?.language || 'en';
+
+    // 1️⃣ VALIDATION SAFEGUARD:
+    // Has this doer actually sent at least ONE valid message/file?
+    // (messages[] is filled by bot.on('message') while status === 'active' :contentReference[oaicite:3]{index=3})
+    const hasAnyValidSubmission = Array.isArray(work.messages) && work.messages.length > 0;
+
+    if (!hasAnyValidSubmission) {
+      // If nothing valid was captured, STOP the flow and tell them what to do.
+      const errText = (doerLang === 'am')
+        ? "እባክዎ የተጠናቀቀውን ስራ ወይም የተግባሩን የተጠናቀቀ ማረጋገጫ በመላክ በኋላ ብቻ “Completed task sent” ይጫኑ።"
+        : "Please send the completed task or clear proof of completion first, then press “Completed task sent.”";
+
+      await ctx.reply(errText);
+      return; // 🔒 DO NOT mark completed, DO NOT notify creator
+    }
+
+    // --- if we reach here, we allow the normal flow to continue ---
+
+    // (rest of your original code continues here)
+    // const creatorUser = await User.findById(task.creator);
+    // ...
     
     // Load the task creator's user (to get their Telegram ID and language)
     const creatorUser = await User.findById(task.creator);
@@ -8764,8 +8790,7 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     const lang = creatorUser.language || 'en';
     
     // Flip the doer's control button to checked (✔ Completed task sent)
-    const doerUser = await User.findById(work.doer);
-    const doerLang = doerUser?.language || 'en';
+    
     try {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [[
