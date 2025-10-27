@@ -8764,40 +8764,51 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
   try {
     const taskId = ctx.match[1];
 
-    // Load task
+    // 1. Load the task
     const task = await Task.findById(taskId);
     if (!task) return;
 
-    // 🔄 Freshly load the work doc with latest messages from Mongo
+    // 2. Always pull a FRESH copy of DoerWork from DB
     let work = await DoerWork.findOne({ task: task._id });
     if (!work) return;
 
-    // Figure out doer's language (for error messages)
+    // 3. Figure out doer's language for messages + button
     const doerUser = await User.findById(work.doer);
     const doerLang = doerUser?.language || 'en';
 
-    // ✅ VALIDATION: do we have at least one saved submission message?
+    // 3.5 If they've ALREADY completed earlier, don't run validation again, don't resend error.
+    // Just make sure their button is checked, then quietly stop.
+    if (work.status === 'completed') {
+      try {
+        await ctx.editMessageReplyMarkup({
+          inline_keyboard: [[
+            Markup.button.callback(`✔ ${TEXT.completedSentBtn[doerLang]}`, '_DISABLED_COMPLETED_SENT')
+          ]]
+        });
+      } catch (err) {
+        console.error("Error ensuring Completed task button is inert/checked:", err);
+      }
+      return;
+    }
+
+    // 4. REFRESH work AGAIN right before checking messages
+    //    (This makes sure we see messages[] after bot.on('message') pushed them)
+    work = await DoerWork.findOne({ task: task._id });
+    if (!work) return;
+
     const hasAnyValidSubmission = Array.isArray(work.messages) && work.messages.length > 0;
 
     if (!hasAnyValidSubmission) {
+      // Tell them to actually send proof FIRST
       const errText = (doerLang === 'am')
         ? "እባክዎ የተጠናቀቀውን ስራ ወይም የተግባሩን የተጠናቀቀ ማረጋገጫ በመላክ በኋላ ብቻ “Completed task sent” ይጫኑ።"
         : "Please send the completed task or clear proof of completion first, then press “Completed task sent.”";
 
       await ctx.reply(errText);
-      return; // stop here, do NOT mark completed
+      return; // stop here, DO NOT mark completed, DO NOT ping creator
     }
 
-    // 🔄 Re-fetch as a full doc just in case something changed in between
-    work = await DoerWork.findOne({ task: task._id });
-    if (!work) return;
-
-    // Load the task creator to DM them / ask them to review
-    const creatorUser = await User.findById(task.creator);
-    if (!creatorUser) return;
-    const lang = creatorUser.language || 'en';
-
-    // Flip the button for the doer -> "✔ Completed task sent"
+    // 5. Flip the doer's button to checked
     try {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [[
@@ -8808,25 +8819,29 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       console.error("Error highlighting Completed task button:", err);
     }
 
-    // Mark task as delivered, stop the timer
+    // 6. Mark task work as completed & save
     work.completedAt = new Date();
     work.status = 'completed';
     await work.save();
 
-    // Forward all captured proof messages to the task creator (preserving media and inline keyboards via copyMessage)
+    // 7. Notify the task creator with the copied proof messages
+    const creatorUser = await User.findById(task.creator);
+    if (!creatorUser) return;
+    const lang = creatorUser.language || 'en';
+
     for (const entry of work.messages) {
       try {
         await ctx.telegram.copyMessage(
-          creatorUser.telegramId,  // send to creator
-          work.doerTelegramId,     // from doer chat
-          entry.messageId          // original message id
+          creatorUser.telegramId,   // to creator
+          work.doerTelegramId,      // from doer's chat
+          entry.messageId           // original message ID in doer's chat
         );
       } catch (err) {
         console.error("Failed to forward doer message:", err);
       }
     }
 
-    // Ask creator to mark it Valid or Needs Fixing
+    // 8. Ask creator to mark Valid / Needs Fixing
     const decisionMsg = (lang === 'am')
       ? "የተጠናቋል ስራ ተልኳል። እባክዎ በታች ያሉትን አማራጮች ይምረጡ።"
       : "The completed work has been submitted. Please choose below.";
@@ -8854,6 +8869,7 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     console.error("Error in COMPLETED_SENT handler:", err);
   }
 });
+
 
 
 
