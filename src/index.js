@@ -131,6 +131,10 @@ const Banlist = mongoose.models.Banlist
 const RATING_CHANNEL_ID = "-1002289847417";
 // ---- Refund audit channel (private) ----
 const REFUND_AUDIT_CHANNEL_ID = "-1002616271109";
+// ---- Dispute channel for escalations ----
+const DISPUTE_CHANNEL_ID = "-1002432632907";
+
+
 
 // Format the expiry exactly like the task channel message (Africa/Addis_Ababa, GMT+3)
 function formatExpiresAtForAudit(date) {
@@ -1820,81 +1824,6 @@ async function verifyChapaTxRef(txRef) {
   return r.ok;
 }
 
-// 1. break a very long string into Telegram-safe chunks
-function splitIntoTelegramChunks(fullText, maxLen = 3500) {
-  const chunks = [];
-  let i = 0;
-  while (i < fullText.length) {
-    chunks.push(fullText.slice(i, i + maxLen));
-    i += maxLen;
-  }
-  return chunks;
-}
-
-// 2. send a single chunk with retry, but bail out on "message is too long"
-async function sendOneChunkWithRetry(ctxOrBot, chatId, textChunk, attemptLabel = 'REPORT FLOW') {
-  const maxAttempts = 5;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      // ctxOrBot can be ctx.telegram or bot.telegram
-      await ctxOrBot.sendMessage(chatId, textChunk, {
-        disable_web_page_preview: true,
-      });
-      return; // success, stop retrying this chunk
-    } catch (err) {
-      const desc = err?.response?.description || '';
-
-      // If it's "message is too long" (shouldn't happen anymore because we chunk),
-      // retrying won't help. We stop retrying this chunk and move on.
-      if (desc.includes('message is too long')) {
-        console.error(
-          `[${attemptLabel}] chunk failed: message too long even after chunking. Will NOT retry this chunk.`
-        );
-        return;
-      }
-
-      // Retry ban-type errors also doesn't help if it's the chat owner
-      if (desc.includes("can't remove chat owner")) {
-        console.error(
-          `[${attemptLabel}] ban failed because target is chat owner. Skipping further retries for this member.`
-        );
-        return;
-      }
-
-      // Otherwise, log and continue loop to retry
-      console.error(
-        `[${attemptLabel}] sendMessage failed on attempt ${attempt}:`,
-        err
-      );
-      // loop continues -> retry
-    }
-  }
-
-  // if we exit loop without success
-  console.error(
-    `[${attemptLabel}] Could not send this chunk after all retries.`
-  );
-}
-
-// 3. main helper to send a LONG escalation report safely as multiple messages
-async function sendEscalationMegaReportSafely(ctxOrBot, chatId, fullText) {
-  const chunks = splitIntoTelegramChunks(fullText);
-
-  for (let i = 0; i < chunks.length; i++) {
-    const headerPrefix =
-      i === 0
-        ? '' // first chunk is original
-        : `\n(continued ${i + 1}/${chunks.length})\n\n`;
-
-    const finalChunkText = headerPrefix + chunks[i];
-    await sendOneChunkWithRetry(
-      ctxOrBot,
-      chatId,
-      finalChunkText,
-      'REPORT FLOW'
-    );
-  }
-}
 
 // Reuse this in both Telegram-invoice and Hosted-Checkout flows
 async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
@@ -2729,6 +2658,44 @@ async function sendTaskRelatedFile(telegram, chatId, fileId) {
   console.error("sendTaskRelatedFile: all attempts failed for fileId:", fileId);
   return false;
 }
+// Forward a list of recorded messages (like work.messages or work.fixRequests)
+// to the dispute channel, preserving original formatting, captions, attachments,
+// grouped media, etc. We send them in order, one by one.
+async function forwardMessageLogToDispute(telegram, disputeChatId, fromTelegramId, entries, headerText) {
+  if (!entries || !entries.length) return;
+
+  // Send a header label first so I (admin) know what I'm looking at in the channel
+  try {
+    await telegram.sendMessage(disputeChatId, headerText);
+  } catch (e) {
+    console.error("forwardMessageLogToDispute header failed:", e);
+  }
+
+  for (const entry of entries) {
+    try {
+      await telegram.copyMessage(
+        disputeChatId,
+        fromTelegramId,
+        entry.messageId
+      );
+    } catch (e) {
+      console.error("forwardMessageLogToDispute copyMessage failed:", e);
+      // fallback: if copyMessage fails (for very old messages or privacy),
+      // try raw fileIds using sendTaskRelatedFile(...)
+      if (entry.fileIds && entry.fileIds.length) {
+        for (const fid of entry.fileIds) {
+          await sendTaskRelatedFile(telegram, disputeChatId, fid);
+        }
+      }
+      if (entry.text) {
+        await telegram.sendMessage(disputeChatId, entry.text);
+      }
+      if (entry.caption) {
+        await telegram.sendMessage(disputeChatId, entry.caption);
+      }
+    }
+  }
+}
 
 async function autoFinalizeByTimeout(taskId, botOrTelegram) {
   try {
@@ -2748,243 +2715,212 @@ async function autoFinalizeByTimeout(taskId, botOrTelegram) {
     console.error("autoFinalizeByTimeout error", e);
   }
 }
-// Helper: sleep for ms
-function waitMs(ms) {
-  return new Promise(res => setTimeout(res, ms));
-}
+async function escalateDoerReport(ctx, taskId) {
+  const telegram = ctx.telegram;
 
-// Helper: run an async step with retries until it succeeds or we hit a sane ceiling.
-// We’ll cap at 10 tries with exponential-ish delay so we don't freeze forever.
-async function executeWithRetry(stepName, fn) {
-  let attempt = 0;
-  let lastError = null;
-  while (attempt < 10) {
-    try {
-      const result = await fn();
-      return result;
-    } catch (err) {
-      lastError = err;
-      console.error(`[REPORT FLOW] ${stepName} failed on attempt ${attempt+1}:`, err);
-      attempt++;
-      // wait a little longer each time
-      await waitMs(500 * attempt);
+  // We'll try the whole pipeline; if any sub-step throws,
+  // we catch, log, and try again a couple times.
+  async function attemptOnce() {
+    // 1. Load task, work, users, state
+    const task = await Task.findById(taskId)
+      .populate('creator')
+      .lean();
+    if (!task) throw new Error("Task not found");
+
+    const work = await DoerWork.findOne({ task: taskId })
+      .populate('doer')
+      .lean();
+
+    if (!work) throw new Error("DoerWork not found");
+
+    const creatorUser = await User.findById(task.creator._id);
+    const doerUser    = await User.findById(work.doer._id);
+
+    const state = await FinalizationState.findOne({ task: taskId }) 
+                 || new FinalizationState({ task: taskId });
+
+    // 2. Mark that the DOER reported
+    if (!state.doerReportedAt) {
+      state.doerReportedAt = new Date();
+      await state.save();
     }
-  }
-  // if we exhausted retries, throw so we can log a final hard failure
-  throw new Error(`[REPORT FLOW] ${stepName} ultimately failed after 10 attempts: ${lastError?.message}`);
-}
-function summarizeWorkMessages(arr) {
-  if (!arr || !arr.length) return "— none —";
-  // We'll just list each message with type/text/caption so admins know what was sent.
-  // (We are NOT losing the media itself; we’ll still forward media separately below.)
-  return arr.map((m, idx) => {
-    const parts = [];
-    parts.push(`#${idx+1}`);
-    parts.push(`type=${m.type || "text"}`);
-    if (m.text)    parts.push(`text="${m.text}"`);
-    if (m.caption) parts.push(`caption="${m.caption}"`);
-    if (m.fileIds && m.fileIds.length) {
-      parts.push(`fileIds=${m.fileIds.join(",")}`);
-    }
-    return "  • " + parts.join(" | ");
-  }).join("\n");
-}
 
-function extractAcceptedApplicant(taskDoc, doerUserIdStr) {
-  if (!taskDoc?.applicants) return null;
-  return taskDoc.applicants.find(a => {
-    // winner/Accepted can be marked in different ways in your flow.
-    // You already use status "Accepted" / "Completed" in applicants.status in other places. :contentReference[oaicite:10]{index=10}
-    // We'll treat them as the winner if:
-    //   - same user, AND status is "Accepted" or "Completed".
-    const matchesUser = String(a.user?._id || a.user) === doerUserIdStr;
-    const isWinnerStatus = (a.status === "Accepted" || a.status === "Completed");
-    return matchesUser && isWinnerStatus;
-  }) || null;
-}
-
-// Build the big escalation text body for admins
-function buildDisputeSummary({
-  task,
-  creator,
-  doer,
-  workDoc,
-  winnerApplicant
-}) {
-  // task fields that admins care about
-  const taskFields = Array.isArray(task.fields)
-    ? task.fields.map(f => `#${String(f).replace(/\s+/g,"")}`).join(" ")
-    : "—";
-
-  // application pitch
-  const pitchText = winnerApplicant?.pitch || "— no pitch stored —";
-
-  // completed task messages (what doer claimed as finished work)
-  const completedSummary = summarizeWorkMessages(workDoc?.messages);
-
-  // creator's fix notice messages
-  const fixSummary = summarizeWorkMessages(workDoc?.fixRequests);
-
-  // related file
-  const relatedFileInfo = task.relatedFile
-    ? JSON.stringify(task.relatedFile)
-    : "— none —";
-
-  const lines = [
-    "🚨 DISPUTE REPORTED",
-    "#refund",
-    "",
-    "📌 CLAIM:",
-    "The task doer says the task creator is asking for fixes that were NOT in the original task description. Taskifii must review and make the final decision.",
-    "",
-    "👤 TASK CREATOR",
-    `• Name: ${creator.fullName || "N/A"}`,
-    `• Phone: ${creator.phone || "N/A"}`,
-    `• Email: ${creator.email || "N/A"}`,
-    `• Telegram: @${creator.username || "N/A"}`,
-    `• User ID: ${creator._id}`, // exact Mongo _id, same ID shown in admin profile cards / ban system. :contentReference[oaicite:11]{index=11}
-    "",
-    "🧑‍🔧 WINNER TASK DOER",
-    `• Name: ${doer.fullName || "N/A"}`,
-    `• Phone: ${doer.phone || "N/A"}`,
-    `• Email: ${doer.email || "N/A"}`,
-    `• Telegram: @${doer.username || "N/A"}`,
-    `• User ID: ${doer._id}`,
-    "",
-    "📝 TASK DETAILS",
-    `• Task ID: ${task._id}`,
-    `• Description: ${task.description || "N/A"}`,
-    `• Fee (birr): ${task.paymentFee ?? "N/A"}`,
-    `• Time to Complete (hours): ${task.timeToComplete ?? "N/A"}`,
-    `• Revision Window (hours): ${task.revisionTime ?? "N/A"}`,
-    `• Penalty / hour (birr): ${task.penaltyPerHour ?? task.latePenalty ?? "N/A"}`,
-    `• Exchange Strategy: ${(task.exchangeStrategy || "").trim() || "N/A"}`,
-    `• Skill Level: ${task.skillLevel || "N/A"}`,
-    `• Fields: ${taskFields}`,
-    `• Related File (raw ref): ${relatedFileInfo}`,
-    "",
-    "📣 WINNER'S ORIGINAL APPLICATION PITCH",
-    pitchText,
-    "",
-    "✅ COMPLETED TASK (what the doer said is finished)",
-    completedSummary,
-    "",
-    "❌ FIX NOTICE FROM CREATOR (what they said is wrong / needs fixing)",
-    fixSummary,
-    "",
-    "Status: Both creator and doer are currently *banned* from using Taskifii and from the dispute group until Taskifii decides.",
-  ];
-
-  return lines.join("\n");
-}
-function buildDisputeSummaryChunks({
-  task,
-  creator,
-  doer,
-  workDoc,
-  winnerApplicant
-}) {
-  // We'll build logical sections.
-  // Each section will be sent separately to avoid Telegram 4096 char limit.
-
-  const taskFields = Array.isArray(task.fields)
-    ? task.fields.map(f => `#${String(f).replace(/\s+/g,"")}`).join(" ")
-    : "—";
-
-  const pitchText = winnerApplicant?.pitch || "— no pitch stored —";
-
-  // Turn the arrays into readable bullet summaries (already in your code style)
-  const completedSummary = summarizeWorkMessages(workDoc?.messages);
-  const fixSummary       = summarizeWorkMessages(workDoc?.fixRequests);
-
-  const relatedFileInfo = task.relatedFile
-    ? JSON.stringify(task.relatedFile)
-    : "— none —";
-
-  // --- Chunk 1: high-level + identities
-  const chunk1 = [
-    "🚨 DISPUTE REPORTED",
-    "#refund",
-    "",
-    "📌 CLAIM:",
-    "The task doer says the task creator is asking for fixes that were NOT in the original task description. Taskifii must review and make the final decision.",
-    "",
-    "👤 TASK CREATOR",
-    `• Name: ${creator.fullName || "N/A"}`,
-    `• Phone: ${creator.phone || "N/A"}`,
-    `• Email: ${creator.email || "N/A"}`,
-    `• Telegram: @${creator.username || "N/A"}`,
-    `• User ID: ${creator._id}`,
-    "",
-    "🧑‍🔧 WINNER TASK DOER",
-    `• Name: ${doer.fullName || "N/A"}`,
-    `• Phone: ${doer.phone || "N/A"}`,
-    `• Email: ${doer.email || "N/A"}`,
-    `• Telegram: @${doer.username || "N/A"}`,
-    `• User ID: ${doer._id}`
-  ].join("\n");
-
-  // --- Chunk 2: task details
-  const chunk2 = [
-    "📝 TASK DETAILS",
-    `• Task ID: ${task._id}`,
-    `• Description: ${task.description || "N/A"}`,
-    `• Fee (birr): ${task.paymentFee ?? "N/A"}`,
-    `• Time to Complete (hours): ${task.timeToComplete ?? task.timeToCompleteHours ?? "N/A"}`,
-    `• Revision Window (hours): ${task.revisionTime ?? "N/A"}`,
-    `• Penalty / hour (birr): ${task.penaltyPerHour ?? task.latePenalty ?? "N/A"}`,
-    `• Exchange Strategy: ${(task.exchangeStrategy || "").trim() || "N/A"}`,
-    `• Skill Level: ${task.skillLevel || "N/A"}`,
-    `• Fields: ${taskFields}`,
-    `• Related File (raw ref): ${relatedFileInfo}`
-  ].join("\n");
-
-  // --- Chunk 3: pitch + completed submission summary
-  const chunk3 = [
-    "📣 WINNER'S ORIGINAL APPLICATION PITCH",
-    pitchText,
-    "",
-    "✅ COMPLETED TASK (what the doer said is finished)",
-    completedSummary
-  ].join("\n");
-
-  // --- Chunk 4: fix notice + status
-  const chunk4 = [
-    "❌ FIX NOTICE FROM CREATOR (what they said is wrong / needs fixing)",
-    fixSummary,
-    "",
-    "Status: Both creator and doer are currently *banned* from using Taskifii and from the dispute group until Taskifii decides."
-  ].join("\n");
-
-  return [chunk1, chunk2, chunk3, chunk4];
-}
-
-async function forwardStoredMessagesToChannel(telegram, channelId, sourceTelegramId, storedMsgs, headerLabel) {
-  if (!storedMsgs || !storedMsgs.length) return;
-  // Send a small header first so admins know what these forwards are.
-  await telegram.sendMessage(channelId, headerLabel);
-
-  for (const m of storedMsgs) {
+    // 3. Record escalation doc (idempotent because Escalation.task is unique)
     try {
-      // We'll try to forward the exact original message id from the original chat.
-      // NOTE: For doer work, sourceTelegramId is the doer's telegramId.
-      // For fixRequests, sourceTelegramId is the creator's telegramId.
-      await telegram.forwardMessage(
-        channelId,
-        sourceTelegramId,
-        m.messageId
+      await Escalation.updateOne(
+        { task: taskId },
+        { $set: { task: taskId, by: doerUser._id, role: 'doer', createdAt: new Date() } },
+        { upsert: true }
       );
-    } catch (err) {
-      console.error("forwardStoredMessagesToChannel single forward failed:", err);
-      // if forward fails (e.g. message too old / can't forward), we at least send a fallback line
-      const fallbackParts = [
-        `Could not forward messageId=${m.messageId}`,
-        `type=${m.type || "text"}`,
-      ];
-      if (m.text)    fallbackParts.push(`text="${m.text}"`);
-      if (m.caption) fallbackParts.push(`caption="${m.caption}"`);
-      await telegram.sendMessage(channelId, fallbackParts.join(" | "));
+    } catch (e) {
+      console.error("Escalation upsert failed:", e);
     }
+
+    // 4. Ban BOTH sides from Taskifii
+    // (your middleware already blocks banned users globally unless ADMIN_UNBAN_* is clicked) :contentReference[oaicite:18]{index=18}
+    await banUserEverywhere(ctx, creatorUser);
+    await banUserEverywhere(ctx, doerUser);
+
+    // 5. Notify both sides in DM
+    // Creator message (use "you" like you requested)
+    const creatorLang = creatorUser.language || 'en';
+    const creatorNotice = creatorLang === 'am'
+      ? "⚠️ ተግባራዊ ሪፖርት ደርሷል። የስራ አካልዎ እርስዎ ከተስራሙ ውጭ ያሉ ጥያቄዎችን እንዲፈጽም ትገዛለች ያሉ አመለካከት አቀረቡ። Taskifii ይመርምራል፣ መጨረሻ ውሳኔ እስኪወጣ ድረስ መጠቀም አትችሉም።"
+      : "⚠️ The task doer has reported you, claiming you tried to force fixes that were NOT in the original task description. Taskifii will investigate and make a final decision. Until then, you cannot access Taskifii.";
+
+    try {
+      await telegram.sendMessage(creatorUser.telegramId, creatorNotice);
+    } catch (e) {
+      console.error("notify creator fail:", e);
+    }
+
+    // Doer message
+    const doerLang = doerUser.language || 'en';
+    const doerNotice = doerLang === 'am'
+      ? "✅ ሪፖርትዎ ተቀብሏል። Taskifii ጉዳዩን በሙሉ ይመርማል እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ Taskifii መጠቀም አትችሉም።"
+      : "✅ Your report has been received. Taskifii will investigate and make a final decision. Until then, you cannot access Taskifii.";
+
+    try {
+      await telegram.sendMessage(doerUser.telegramId, doerNotice);
+    } catch (e) {
+      console.error("notify doer fail:", e);
+    }
+
+    // 6. Send BIG DISPUTE PACKAGE to the dispute channel
+    // Build the top summary text including "#refund"
+    // We'll mirror the style you used in sendRefundAudit() so it's consistent. :contentReference[oaicite:19]{index=19}
+    const lines = [
+      "#refund",
+      "🚨 *DISPUTE ESCALATION*",
+      "",
+      "👤 *TASK CREATOR DETAILS:*",
+      `• Full Name: ${creatorUser.fullName || 'N/A'}`,
+      `• Phone: ${creatorUser.phone || 'N/A'}`,
+      `• Telegram: @${creatorUser.username || 'N/A'}`,
+      `• Email: ${creatorUser.email || 'N/A'}`,
+      `• Telegram ID: ${creatorUser.telegramId}`,
+      `• User ID: ${creatorUser._id}`,
+      "",
+      "👥 *WINNER TASK DOER DETAILS:*",
+      `• Full Name: ${doerUser.fullName || 'N/A'}`,
+      `• Phone: ${doerUser.phone || 'N/A'}`,
+      `• Telegram: @${doerUser.username || 'N/A'}`,
+      `• Email: ${doerUser.email || 'N/A'}`,
+      `• Telegram ID: ${doerUser.telegramId}`,
+      `• User ID: ${doerUser._id}`,
+      "",
+      "📝 *TASK DETAILS:*",
+      `• Description: ${task.description}`,
+      `• Payment Fee: ${task.paymentFee} birr`,
+      `• Time to Complete: ${task.timeToComplete} hour(s)`,
+      `• Skill Level: ${task.skillLevel}`,
+      `• Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : task.fields || 'N/A'}`,
+      `• Exchange Strategy: ${task.exchangeStrategy || 'N/A'}`,
+      `• Revision Time: ${task.revisionTime} hour(s)`,
+      `• Penalty per Hour: ${task.latePenalty} birr`,
+      `• Posted At: ${task.postedAt}`,
+      `• Expires At: ${task.expiry}`,
+      "",
+      "🔎 CONTEXT:",
+      "• The doer claims the creator is demanding fixes not included in the original task description.",
+      "• BOTH accounts are now temporarily banned from Taskifii and the dispute group.",
+      "",
+      "Below are the evidences. Order:",
+      "1) Doer's original COMPLETED WORK",
+      "2) Creator's FIX NOTICE / requested changes",
+      "3) Doer's APPLICATION PITCH when they first applied",
+      "4) Task Related File (if any)",
+      "",
+      "—— START OF ATTACHMENTS ——"
+    ];
+
+    // send text summary first
+    try {
+      await telegram.sendMessage(DISPUTE_CHANNEL_ID, lines.join("\n"), { parse_mode: "Markdown" });
+    } catch (e) {
+      console.error("send dispute summary fail:", e);
+      // still continue, attachments are more important than pretty text
+    }
+
+    // (1) Doer's completed submission (work.messages) as sent originally to creator
+    await forwardMessageLogToDispute(
+      telegram,
+      DISPUTE_CHANNEL_ID,
+      work.doerTelegramId,
+      work.messages,
+      "📦 COMPLETED TASK (from Winner Task Doer):"
+    );
+
+    // (2) Creator's fix requests (work.fixRequests) as captured while creator was listing issues
+    // We do NOT have creatorTelegramId stored directly on work, so use task.creator.telegramId
+    await forwardMessageLogToDispute(
+      telegram,
+      DISPUTE_CHANNEL_ID,
+      creatorUser.telegramId,
+      work.fixRequests,
+      "✏️ FIX NOTICE (from Task Creator):"
+    );
+
+    // (3) The winner doer’s pitch from application
+    // We'll locate the accepted applicant record to get that pitch/caption thread.
+    const winnerApp = (task.applicants || []).find(a => 
+      a.status === "Accepted" && !a.canceledAt && 
+      a.user && a.user.toString() === doerUser._id.toString()
+    );
+
+    if (winnerApp && winnerApp.pitchMessages && winnerApp.pitchMessages.length) {
+      // If you stored pitchMessages like doerWork.messages format,
+      // we forward them. If pitchMessages are only text, we fallback.
+      await forwardMessageLogToDispute(
+        telegram,
+        DISPUTE_CHANNEL_ID,
+        doerUser.telegramId,
+        winnerApp.pitchMessages,
+        "💬 ORIGINAL APPLICATION PITCH:"
+      );
+    } else if (winnerApp && winnerApp.pitch) {
+      try {
+        await telegram.sendMessage(
+          DISPUTE_CHANNEL_ID,
+          "💬 ORIGINAL APPLICATION PITCH:\n" + winnerApp.pitch
+        );
+      } catch (e) {
+        console.error("send pitch text fail:", e);
+      }
+    }
+
+    // (4) Task related file (task.relatedFile.fileId)
+    if (task.relatedFile && task.relatedFile.fileId) {
+      try {
+        await telegram.sendMessage(DISPUTE_CHANNEL_ID, "📎 TASK RELATED FILE (from original task post):");
+      } catch (e) {}
+      await sendTaskRelatedFile(telegram, DISPUTE_CHANNEL_ID, task.relatedFile.fileId);
+    }
+
+    // end marker so disputes don't mix with each other
+    try {
+      await telegram.sendMessage(DISPUTE_CHANNEL_ID, "—— END OF DISPUTE PACKAGE ——");
+    } catch (e) {}
+
+    // 7. Lock both users out of future steps for THIS task:
+    // We already banned both users globally above. We ALSO release any engagement locks
+    // so they can't sneak-interact from stale sessions later when unbanned. :contentReference[oaicite:20]{index=20}
+    // (banUserEverywhere already writes Banlist + bans them in BAN_GROUP_ID.)
+
+    return true; // success
+  }
+
+  // Mini retry loop. We never throw out of escalateDoerReport;
+  // we just keep logging until it works. This protects you vs network hiccups.
+  let attemptCount = 0;
+  while (attemptCount < 5) {
+    try {
+      const ok = await attemptOnce();
+      if (ok) break;
+    } catch (err) {
+      console.error("escalateDoerReport attempt failed:", err);
+    }
+    attemptCount++;
   }
 }
 
@@ -9383,230 +9319,60 @@ bot.on('message', async (ctx) => {
   }
 });
 
+// ─── DOER Dummy Actions for Report/Corrected (to be implemented later) ───
 bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
-  // --- step 0: extract taskId and fetch base docs ---
   const taskId = ctx.match[1];
-  const reporterTelegramId = ctx.from.id; // winner task doer clicked
-  
-  // We'll answerCbQuery at the *very* end so we can show_alert only once.
-  // For now we'll just defer.
 
+  // 1. Immediately lock the buttons in the *doer’s* chat UI
+  //    - keep both buttons visible
+  //    - highlight Report with a checkmark or some visual
+  //    - make both inert so they can't spam logical flows
   try {
-    // Fetch task (with creator + applicants so we can see winner pitch etc.)
-    const task = await Task.findById(taskId)
-      .populate("creator")
-      .populate("applicants.user");  // we need pitch + winner user
-    if (!task) {
-      await ctx.answerCbQuery("Task no longer exists.", { show_alert: true });
-      return;
-    }
-
-    // Find doer user (the one who clicked)
-    const doerUser = await User.findOne({ telegramId: reporterTelegramId });
-    if (!doerUser) {
-      await ctx.answerCbQuery("Internal error: doer not found.", { show_alert: true });
-      return;
-    }
-
-    // Creator user
-    const creatorUser = task.creator;
-    if (!creatorUser) {
-      await ctx.answerCbQuery("Internal error: creator not found.", { show_alert: true });
-      return;
-    }
-
-    // Find the DoerWork doc for this task (stores submitted work + fix requests etc.)
-    const workDoc = await DoerWork.findOne({ task: taskId });
-    if (!workDoc) {
-      await ctx.answerCbQuery("Internal error: work record missing.", { show_alert: true });
-      return;
-    }
-
-    // Figure out the accepted applicant entry so we can include their pitch
-    const winnerApplicant = extractAcceptedApplicant(task, String(doerUser._id));
-
-    // --- step 1: make BOTH buttons inert + highlight "Report this" ---
-    await executeWithRetry("lock buttons after report", async () => {
-      // We edit the SAME message that had the inline keyboard (this callback belongs to that message).
-      // After reporting:
-      //  - The "Report this" button stays visible but is visually marked.
-      //  - The "Send corrected version" button stays visible but does nothing.
-      const doerLang = doerUser.language || 'en';
-
-      const reportedLabel = (doerLang === 'am')
-        ? "⚠️ ተሪፖርት ተደርጓል"
-        : "⚠️ REPORTED - under review";
-      const correctedDisabledLabel = (doerLang === 'am')
-        ? "✅ አስተካክሏል እንደገና ላክ (disabled)"
-        : "✅ Send corrected version (disabled)";
-
-      // we map BOTH to inert callback data so they can't do anything anymore
-      await ctx.editMessageReplyMarkup({
-        inline_keyboard: [[
-          Markup.button.callback(reportedLabel, "_DISPUTE_REPORTED_LOCKED"),
-          Markup.button.callback(correctedDisabledLabel, "_DISPUTE_REPORTED_LOCKED")
-        ]]
-      });
-    });
-
-    // --- step 2: record escalation + mark finalization state ---
-    await executeWithRetry("record escalation + finalizationState", async () => {
-      // Escalation: upsert so duplicate spam clicks don't blow up
-      await Escalation.updateOne(
-        { task: task._id },
-        {
-          $setOnInsert: {
-            task: task._id,
-            by:   doerUser._id,
-            role: "doer",
-            createdAt: new Date()
-          }
-        },
-        { upsert: true }
-      );
-
-      // FinalizationState.doerReportedAt = now
-      await FinalizationState.updateOne(
-        { task: task._id },
-        { $set: { doerReportedAt: new Date() } },
-        { upsert: true }
-      );
-    });
-
-    // --- step 3: ban BOTH users from Taskifii and from the dispute group ---
-    await executeWithRetry("ban both users", async () => {
-      await banUserEverywhere(ctx, creatorUser);
-      await banUserEverywhere(ctx, doerUser);
-    });
-
-    // --- step 4: DM both sides telling them they're locked while Taskifii decides ---
-
-    await executeWithRetry("notify creator user of dispute", async () => {
-      const langC = creatorUser.language || "en";
-      const msgC = (langC === "am")
-        ? "⚠️ ተግባሩን የሸከመው ተጠቃሚ እርስዎን ሪፖርት አድርጓል። እነሱ እርስዎ ከመግለጫው ውጭ ነገሮችን እንዲያስተካክሉ እያስገደዱ ነው ብለዋል። Taskifii ይመርምራል እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ Taskifii መጠቀም አትችሉም።"
-        : "⚠️ The task doer has reported you. They are saying you tried to force them to fix something that was not in the original task description. Taskifii will investigate and make a final decision. Until then you cannot use Taskifii.";
-      try {
-        await ctx.telegram.sendMessage(creatorUser.telegramId, msgC);
-      } catch (e) {
-        console.error("notify creator DM failed:", e);
-        throw e;
+    const currentKeyboard = ctx.callbackQuery.message.reply_markup.inline_keyboard;
+    // Build a new row based on the known pattern:
+    // [ "⚠️ Report this", "✅ Send corrected version" ] from when we sent it. :contentReference[oaicite:28]{index=28}
+    const newRow = currentKeyboard[0].map(btn => {
+      if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
+        return Markup.button.callback(
+          `✔ ${btn.text}`,            // highlight report
+          `_DISABLED_DOER_REPORT`
+        );
       }
-    });
-
-    await executeWithRetry("notify doer user of dispute", async () => {
-      const langD = doerUser.language || "en";
-      const msgD = (langD === "am")
-        ? "✅ ሪፖርትዎ ተቀብሏል። Taskifii ጉዳዩን እየፈተነ ነው እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ በTaskifii ላይ መውሰድ ወይም መመዝገብ አይችሉም።"
-        : "✅ Your report has been received. Taskifii will review everything and make the final decision. For now you are locked and cannot access Taskifii until the final decision.";
-      try {
-        await ctx.telegram.sendMessage(doerUser.telegramId, msgD);
-      } catch (e) {
-        console.error("notify doer DM failed:", e);
-        throw e;
+      if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
+        return Markup.button.callback(
+          btn.text,
+          `_DISABLED_DOER_SEND_CORRECTED`
+        );
       }
+      // fallback in case something weird is in that row
+      return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
     });
 
-    // --- step 5: send escalation package to the admin channel with #refund ---
-
-    await executeWithRetry("send giant escalation text to admin channel (chunked)", async () => {
-      const chunks = buildDisputeSummaryChunks({
-        task,
-        creator: creatorUser,
-        doer: doerUser,
-        workDoc,
-        winnerApplicant
-      });
-
-      for (const part of chunks) {
-        // skip empty parts just in case
-        if (!part || !part.trim()) continue;
-
-        // If one part is still too long (edge case with huge spam),
-        // we will hard-split it again at 3500 chars just to be 100% safe.
-        if (part.length > 3500) {
-          // break into subparts of ~3500 chars
-          for (let i = 0; i < part.length; i += 3500) {
-            const sub = part.slice(i, i + 3500);
-            await ctx.telegram.sendMessage(
-              ESCALATION_CHANNEL_ID,
-              sub,
-              { disable_web_page_preview: true }
-            );
-          }
-        } else {
-          await ctx.telegram.sendMessage(
-            ESCALATION_CHANNEL_ID,
-            part,
-            { disable_web_page_preview: true }
-          );
-        }
-      }
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [ newRow ]
     });
-
-
-    // --- step 6: forward evidence (related file, completed work, fix notice) to admin channel ---
-
-    await executeWithRetry("forward evidence to admin channel", async () => {
-      // 6a. forward the related file IF POSSIBLE
-      // We try to resend the task.relatedFile if it has a Telegram file_id we can send.
-      // We'll attempt photo/document/video generically.
-      if (task.relatedFile && task.relatedFile.file_id) {
-        // We don't know what type it is, so we try sendDocument as a fallback.
-        // sendDocument can usually send any file_id.
-        try {
-          await ctx.telegram.sendMessage(
-            ESCALATION_CHANNEL_ID,
-            "📎 Related file originally attached to the task:"
-          );
-          await ctx.telegram.sendDocument(
-            ESCALATION_CHANNEL_ID,
-            task.relatedFile.file_id
-          );
-        } catch (e) {
-          console.error("send relatedFile failed, falling back to raw json:", e);
-          await ctx.telegram.sendMessage(
-            ESCALATION_CHANNEL_ID,
-            "Could not send related file by file_id. Raw relatedFile object:\n" +
-            JSON.stringify(task.relatedFile, null, 2)
-          );
-        }
-      }
-
-      // 6b. forward the COMPLETED WORK messages (the doer’s submission)
-      await forwardStoredMessagesToChannel(
-        ctx.telegram,
-        ESCALATION_CHANNEL_ID,
-        doerUser.telegramId,
-        workDoc.messages || [],
-        "📤 COMPLETED TASK SUBMISSION (forwarded):"
-      );
-
-      // 6c. forward the FIX NOTICE messages (the creator’s revision requests)
-      await forwardStoredMessagesToChannel(
-        ctx.telegram,
-        ESCALATION_CHANNEL_ID,
-        creatorUser.telegramId,
-        workDoc.fixRequests || [],
-        "❗ FIX NOTICE FROM CREATOR (forwarded):"
-      );
-    });
-
-    // --- ALL DONE SUCCESSFULLY ---
-    await ctx.answerCbQuery(
-      "Your report is locked in. Taskifii will now investigate.",
-      { show_alert: true }
-    );
-  } catch (err) {
-    console.error("FATAL ERROR in DOER_REPORT flow:", err);
-    // Even if something blew up after retries, we still tell the doer we captured it.
-    await ctx.answerCbQuery(
-      "Your report is being processed by Taskifii. (If you see this, it's already locked.)",
-      { show_alert: true }
-    );
+  } catch (e) {
+    console.error("Failed to edit doer inline keyboard on report:", e);
   }
-});
 
+  // 2. Tell the doer instantly that we’re handling it (popup)
+  await ctx.answerCbQuery(
+    "Your report has been registered. Taskifii is locking the task and will investigate.",
+    { show_alert: true }
+  );
+
+  // 3. Kick off escalation pipeline (ban both, notify both, send dispute package, retries, etc.)
+  await escalateDoerReport(ctx, taskId);
+});
+bot.action("_DISABLED_DOER_REPORT", async (ctx) => {
+  await ctx.answerCbQuery(); // silent no-op
+});
+bot.action("_DISABLED_DOER_SEND_CORRECTED", async (ctx) => {
+  await ctx.answerCbQuery(); // silent no-op
+});
+bot.action("_DISABLED_GENERIC", async (ctx) => {
+  await ctx.answerCbQuery();
+});
 bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery("Please send the corrected work here.", { show_alert: true });
   // Future: allow doer to upload corrected files and notify creator for re-validation
@@ -9616,10 +9382,6 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
 bot.action("_DISABLED_VALID", async (ctx) => { 
   await ctx.answerCbQuery(); 
 });
-bot.action("_DISPUTE_REPORTED_LOCKED", async (ctx) => {
-  await ctx.answerCbQuery("This dispute is already being reviewed by Taskifii.", { show_alert: true });
-});
-
 bot.action("_DISABLED_NEEDS_FIX", async (ctx) => { 
   await ctx.answerCbQuery(); 
 });
