@@ -1698,6 +1698,27 @@ function emailForChapa(user) {
   return `tg${suffix}@example.com`;
 }
 
+function sleep(ms) {
+  return new Promise(res => setTimeout(res, ms));
+}
+
+async function safeTelegramCall(fn, ...args) {
+  while (true) {
+    try {
+      return await fn(...args);
+    } catch (err) {
+      // rate limited?
+      if (err.response && err.response.error_code === 429) {
+        const retryAfterSec = err.response.parameters?.retry_after || 1;
+        console.error("Rate limited, sleeping for", retryAfterSec, "seconds");
+        await sleep(retryAfterSec * 1000);
+        continue; // retry same call
+      }
+      // other error: give up on THIS message, but don't kill the whole escalation
+      throw err;
+    }
+  }
+}
 
 
 
@@ -2634,29 +2655,87 @@ async function maybeTriggerAutoFinalize(taskId, reason, botOrTelegram) {
 }
 // Tries several Telegram send methods so we don't need to know the original file type.
 // We keep errors internal so nothing else in your flow is disrupted.
+// ===== UPDATED sendTaskRelatedFile =====
+// This tries to send any kind of file to a chat (photo, document, video, etc)
+// using the file_id we stored. It now uses safeTelegramCall so that
+// Telegram rate limit won't kill the dispute upload.
 async function sendTaskRelatedFile(telegram, chatId, fileId) {
-  const attempts = [
-    () => telegram.sendDocument(chatId, fileId),
-    () => telegram.sendPhoto(chatId, fileId),
-    () => telegram.sendVideo(chatId, fileId),
-    () => telegram.sendAudio(chatId, fileId),
-  ];
+  if (!fileId) return;
 
-  for (const trySend of attempts) {
-    try {
-      await trySend();
-      return true; // sent successfully
-    } catch (e) {
-      // Common 'wrong file identifier' / type mismatch — try next method
-      const desc = String(e?.description || e || "");
-      if (desc.includes("Bad Request") || desc.includes("wrong file identifier") || desc.includes("failed to get HTTP URL content")) {
-        continue;
-      }
-      console.error("sendTaskRelatedFile unexpected error:", e);
-    }
+  // We don't *know* what kind of file it is, so we try formats in order.
+  // The first one that succeeds, we stop.
+  // Each attempt is wrapped in safeTelegramCall so it auto-retries on 429.
+
+  // Try sending as a document
+  try {
+    await safeTelegramCall(
+      telegram.sendDocument.bind(telegram),
+      chatId,
+      fileId
+    );
+    return;
+  } catch (eDoc) {
+    // We'll try other types below.
+    console.error("sendTaskRelatedFile: sendDocument failed, will try other types:", eDoc);
   }
-  console.error("sendTaskRelatedFile: all attempts failed for fileId:", fileId);
-  return false;
+
+  // Try as a photo
+  try {
+    await safeTelegramCall(
+      telegram.sendPhoto.bind(telegram),
+      chatId,
+      fileId
+    );
+    return;
+  } catch (ePhoto) {
+    console.error("sendTaskRelatedFile: sendPhoto failed, will try video/audio/etc:", ePhoto);
+  }
+
+  // Try as a video
+  try {
+    await safeTelegramCall(
+      telegram.sendVideo.bind(telegram),
+      chatId,
+      fileId
+    );
+    return;
+  } catch (eVideo) {
+    console.error("sendTaskRelatedFile: sendVideo failed:", eVideo);
+  }
+
+  // Try as an audio/voice
+  try {
+    await safeTelegramCall(
+      telegram.sendAudio.bind(telegram),
+      chatId,
+      fileId
+    );
+    return;
+  } catch (eAudio) {
+    console.error("sendTaskRelatedFile: sendAudio failed:", eAudio);
+  }
+
+  try {
+    await safeTelegramCall(
+      telegram.sendVoice.bind(telegram),
+      chatId,
+      fileId
+    );
+    return;
+  } catch (eVoice) {
+    console.error("sendTaskRelatedFile: sendVoice failed:", eVoice);
+  }
+
+  // If all fail, just send the raw fileId as text so you at least see it
+  try {
+    await safeTelegramCall(
+      telegram.sendMessage.bind(telegram),
+      chatId,
+      `⚠️ Could not auto-send this file. file_id:\n${fileId}`
+    );
+  } catch (eMsg) {
+    console.error("sendTaskRelatedFile: even sendMessage failed:", eMsg);
+  }
 }
 // Forward a list of recorded messages (like work.messages or work.fixRequests)
 // to the dispute channel, preserving original formatting, captions, attachments,
@@ -2664,38 +2743,74 @@ async function sendTaskRelatedFile(telegram, chatId, fileId) {
 async function forwardMessageLogToDispute(telegram, disputeChatId, fromTelegramId, entries, headerText) {
   if (!entries || !entries.length) return;
 
-  // Send a header label first so I (admin) know what I'm looking at in the channel
+  // Send header label for this block
   try {
-    await telegram.sendMessage(disputeChatId, headerText);
+    await safeTelegramCall(
+      telegram.sendMessage.bind(telegram),
+      disputeChatId,
+      headerText
+    );
   } catch (e) {
     console.error("forwardMessageLogToDispute header failed:", e);
   }
 
   for (const entry of entries) {
+    // 1) Try to copy the exact original message
     try {
-      await telegram.copyMessage(
+      await safeTelegramCall(
+        telegram.copyMessage.bind(telegram),
         disputeChatId,
         fromTelegramId,
         entry.messageId
       );
+      continue; // success, move to next entry
     } catch (e) {
       console.error("forwardMessageLogToDispute copyMessage failed:", e);
-      // fallback: if copyMessage fails (for very old messages or privacy),
-      // try raw fileIds using sendTaskRelatedFile(...)
-      if (entry.fileIds && entry.fileIds.length) {
-        for (const fid of entry.fileIds) {
-          await sendTaskRelatedFile(telegram, disputeChatId, fid);
+    }
+
+    // 2) Fallback: send fileIds manually if copyMessage can't (e.g. too old / privacy)
+    if (entry.fileIds && entry.fileIds.length) {
+      for (const fid of entry.fileIds) {
+        try {
+          await safeTelegramCall(
+            sendTaskRelatedFile, // we'll also wrap that to respect 429
+            telegram,
+            disputeChatId,
+            fid
+          );
+        } catch (e2) {
+          console.error("sendTaskRelatedFile fallback failed:", e2);
         }
       }
-      if (entry.text) {
-        await telegram.sendMessage(disputeChatId, entry.text);
+    }
+
+    // 3) Fallback text/caption if available
+    if (entry.text) {
+      try {
+        await safeTelegramCall(
+          telegram.sendMessage.bind(telegram),
+          disputeChatId,
+          entry.text
+        );
+      } catch (e3) {
+        console.error("forwardMessageLogToDispute text fallback failed:", e3);
       }
-      if (entry.caption) {
-        await telegram.sendMessage(disputeChatId, entry.caption);
+    }
+    if (entry.caption) {
+      try {
+        await safeTelegramCall(
+          telegram.sendMessage.bind(telegram),
+          disputeChatId,
+          entry.caption
+        );
+      } catch (e4) {
+        console.error("forwardMessageLogToDispute caption fallback failed:", e4);
       }
     }
   }
 }
+
+
 
 async function autoFinalizeByTimeout(taskId, botOrTelegram) {
   try {
@@ -2718,211 +2833,134 @@ async function autoFinalizeByTimeout(taskId, botOrTelegram) {
 async function escalateDoerReport(ctx, taskId) {
   const telegram = ctx.telegram;
 
-  // We'll try the whole pipeline; if any sub-step throws,
-  // we catch, log, and try again a couple times.
-  async function attemptOnce() {
-    // 1. Load task, work, users, state
-    const task = await Task.findById(taskId)
-      .populate('creator')
-      .lean();
-    if (!task) throw new Error("Task not found");
+  // ----- PHASE A: one-time critical actions -----
+  // Load task, work, users, state
+  const task = await Task.findById(taskId).populate('creator').lean();
+  const work = await DoerWork.findOne({ task: taskId }).populate('doer').lean();
+  const creatorUser = await User.findById(task.creator._id);
+  const doerUser    = await User.findById(work.doer._id);
 
-    const work = await DoerWork.findOne({ task: taskId })
-      .populate('doer')
-      .lean();
+  // FinalizationState ensure
+  let state = await FinalizationState.findOne({ task: taskId });
+  if (!state) {
+    state = new FinalizationState({ task: taskId });
+  }
 
-    if (!work) throw new Error("DoerWork not found");
+  // if already marked, we stop here to avoid duplicate bans + spam
+  if (!state.doerReportedAt) {
+    state.doerReportedAt = new Date();
+    await state.save();
 
-    const creatorUser = await User.findById(task.creator._id);
-    const doerUser    = await User.findById(work.doer._id);
+    // record Escalation (upsert)
+    await Escalation.updateOne(
+      { task: taskId },
+      { $set: { task: taskId, by: doerUser._id, role: 'doer', createdAt: new Date() } },
+      { upsert: true }
+    );
 
-    const state = await FinalizationState.findOne({ task: taskId }) 
-                 || new FinalizationState({ task: taskId });
-
-    // 2. Mark that the DOER reported
-    if (!state.doerReportedAt) {
-      state.doerReportedAt = new Date();
-      await state.save();
-    }
-
-    // 3. Record escalation doc (idempotent because Escalation.task is unique)
-    try {
-      await Escalation.updateOne(
-        { task: taskId },
-        { $set: { task: taskId, by: doerUser._id, role: 'doer', createdAt: new Date() } },
-        { upsert: true }
-      );
-    } catch (e) {
-      console.error("Escalation upsert failed:", e);
-    }
-
-    // 4. Ban BOTH sides from Taskifii
-    // (your middleware already blocks banned users globally unless ADMIN_UNBAN_* is clicked) :contentReference[oaicite:18]{index=18}
+    // ban both users once
     await banUserEverywhere(ctx, creatorUser);
     await banUserEverywhere(ctx, doerUser);
 
-    // 5. Notify both sides in DM
-    // Creator message (use "you" like you requested)
-    const creatorLang = creatorUser.language || 'en';
-    const creatorNotice = creatorLang === 'am'
-      ? "⚠️ ተግባራዊ ሪፖርት ደርሷል። የስራ አካልዎ እርስዎ ከተስራሙ ውጭ ያሉ ጥያቄዎችን እንዲፈጽም ትገዛለች ያሉ አመለካከት አቀረቡ። Taskifii ይመርምራል፣ መጨረሻ ውሳኔ እስኪወጣ ድረስ መጠቀም አትችሉም።"
-      : "⚠️ The task doer has reported you, claiming you tried to force fixes that were NOT in the original task description. Taskifii will investigate and make a final decision. Until then, you cannot access Taskifii.";
-
+    // notify creator once
     try {
-      await telegram.sendMessage(creatorUser.telegramId, creatorNotice);
+      await telegram.sendMessage(
+        creatorUser.telegramId,
+        "⚠️ The task doer has reported you, claiming you tried to force fixes that were NOT in the original task description. Taskifii will investigate and make a final decision. Until then, you cannot access Taskifii."
+      );
     } catch (e) {
       console.error("notify creator fail:", e);
     }
 
-    // Doer message
-    const doerLang = doerUser.language || 'en';
-    const doerNotice = doerLang === 'am'
-      ? "✅ ሪፖርትዎ ተቀብሏል። Taskifii ጉዳዩን በሙሉ ይመርማል እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ Taskifii መጠቀም አትችሉም።"
-      : "✅ Your report has been received. Taskifii will investigate and make a final decision. Until then, you cannot access Taskifii.";
-
+    // notify doer once
     try {
-      await telegram.sendMessage(doerUser.telegramId, doerNotice);
+      await telegram.sendMessage(
+        doerUser.telegramId,
+        "✅ ሪፖርትዎ ተቀብሏል። Taskifii ጉዳዩን በሙሉ ይመርማል እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ Taskifii መጠቀም አትችሉም።"
+      );
     } catch (e) {
       console.error("notify doer fail:", e);
     }
 
-    // 6. Send BIG DISPUTE PACKAGE to the dispute channel
-    // Build the top summary text including "#refund"
-    // We'll mirror the style you used in sendRefundAudit() so it's consistent. :contentReference[oaicite:19]{index=19}
-    const lines = [
-      "#refund",
-      "🚨 *DISPUTE ESCALATION*",
-      "",
-      "👤 *TASK CREATOR DETAILS:*",
-      `• Full Name: ${creatorUser.fullName || 'N/A'}`,
-      `• Phone: ${creatorUser.phone || 'N/A'}`,
-      `• Telegram: @${creatorUser.username || 'N/A'}`,
-      `• Email: ${creatorUser.email || 'N/A'}`,
-      `• Telegram ID: ${creatorUser.telegramId}`,
-      `• User ID: ${creatorUser._id}`,
-      "",
-      "👥 *WINNER TASK DOER DETAILS:*",
-      `• Full Name: ${doerUser.fullName || 'N/A'}`,
-      `• Phone: ${doerUser.phone || 'N/A'}`,
-      `• Telegram: @${doerUser.username || 'N/A'}`,
-      `• Email: ${doerUser.email || 'N/A'}`,
-      `• Telegram ID: ${doerUser.telegramId}`,
-      `• User ID: ${doerUser._id}`,
-      "",
-      "📝 *TASK DETAILS:*",
-      `• Description: ${task.description}`,
-      `• Payment Fee: ${task.paymentFee} birr`,
-      `• Time to Complete: ${task.timeToComplete} hour(s)`,
-      `• Skill Level: ${task.skillLevel}`,
-      `• Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : task.fields || 'N/A'}`,
-      `• Exchange Strategy: ${task.exchangeStrategy || 'N/A'}`,
-      `• Revision Time: ${task.revisionTime} hour(s)`,
-      `• Penalty per Hour: ${task.latePenalty} birr`,
-      `• Posted At: ${task.postedAt}`,
-      `• Expires At: ${task.expiry}`,
-      "",
-      "🔎 CONTEXT:",
-      "• The doer claims the creator is demanding fixes not included in the original task description.",
-      "• BOTH accounts are now temporarily banned from Taskifii and the dispute group.",
-      "",
-      "Below are the evidences. Order:",
-      "1) Doer's original COMPLETED WORK",
-      "2) Creator's FIX NOTICE / requested changes",
-      "3) Doer's APPLICATION PITCH when they first applied",
-      "4) Task Related File (if any)",
-      "",
-      "—— START OF ATTACHMENTS ——"
-    ];
-
-    // send text summary first
+    // send top summary block ONCE to dispute channel (with #refund, task info, etc.)
     try {
-      await telegram.sendMessage(DISPUTE_CHANNEL_ID, lines.join("\n"), { parse_mode: "Markdown" });
+      await safeTelegramCall(
+        telegram.sendMessage.bind(telegram),
+        DISPUTE_CHANNEL_ID,
+        buildDisputeSummaryText({ task, creatorUser, doerUser }), // same lines[] you already had
+        { parse_mode: "Markdown" }
+      );
     } catch (e) {
       console.error("send dispute summary fail:", e);
-      // still continue, attachments are more important than pretty text
     }
+  }
 
-    // (1) Doer's completed submission (work.messages) as sent originally to creator
+  // ----- PHASE B: evidence streaming with per-message rate limit -----
+  // Completed work (work.messages) from doer
+  await forwardMessageLogToDispute(
+    telegram,
+    DISPUTE_CHANNEL_ID,
+    work.doerTelegramId,
+    work.messages,
+    "📦 COMPLETED TASK (from Winner Task Doer):"
+  );
+
+  // Fix notice from creator (work.fixRequests)
+  await forwardMessageLogToDispute(
+    telegram,
+    DISPUTE_CHANNEL_ID,
+    creatorUser.telegramId,
+    work.fixRequests,
+    "✏️ FIX NOTICE (from Task Creator):"
+  );
+
+  // Application pitch
+  const winnerApp = (task.applicants || []).find(a =>
+    a.status === "Accepted" &&
+    !a.canceledAt &&
+    a.user &&
+    a.user.toString() === doerUser._id.toString()
+  );
+
+  if (winnerApp && winnerApp.pitchMessages && winnerApp.pitchMessages.length) {
     await forwardMessageLogToDispute(
       telegram,
       DISPUTE_CHANNEL_ID,
-      work.doerTelegramId,
-      work.messages,
-      "📦 COMPLETED TASK (from Winner Task Doer):"
+      doerUser.telegramId,
+      winnerApp.pitchMessages,
+      "💬 ORIGINAL APPLICATION PITCH:"
     );
+  } else if (winnerApp && winnerApp.pitch) {
+    await safeTelegramCall(
+      telegram.sendMessage.bind(telegram),
+      DISPUTE_CHANNEL_ID,
+      "💬 ORIGINAL APPLICATION PITCH:\n" + winnerApp.pitch
+    );
+  }
 
-    // (2) Creator's fix requests (work.fixRequests) as captured while creator was listing issues
-    // We do NOT have creatorTelegramId stored directly on work, so use task.creator.telegramId
-    await forwardMessageLogToDispute(
+  // Task related file
+  if (task.relatedFile && task.relatedFile.fileId) {
+    await safeTelegramCall(
+      telegram.sendMessage.bind(telegram),
+      DISPUTE_CHANNEL_ID,
+      "📎 TASK RELATED FILE (from original task post):"
+    );
+    await safeTelegramCall(
+      sendTaskRelatedFile,
       telegram,
       DISPUTE_CHANNEL_ID,
-      creatorUser.telegramId,
-      work.fixRequests,
-      "✏️ FIX NOTICE (from Task Creator):"
+      task.relatedFile.fileId
     );
-
-    // (3) The winner doer’s pitch from application
-    // We'll locate the accepted applicant record to get that pitch/caption thread.
-    const winnerApp = (task.applicants || []).find(a => 
-      a.status === "Accepted" && !a.canceledAt && 
-      a.user && a.user.toString() === doerUser._id.toString()
-    );
-
-    if (winnerApp && winnerApp.pitchMessages && winnerApp.pitchMessages.length) {
-      // If you stored pitchMessages like doerWork.messages format,
-      // we forward them. If pitchMessages are only text, we fallback.
-      await forwardMessageLogToDispute(
-        telegram,
-        DISPUTE_CHANNEL_ID,
-        doerUser.telegramId,
-        winnerApp.pitchMessages,
-        "💬 ORIGINAL APPLICATION PITCH:"
-      );
-    } else if (winnerApp && winnerApp.pitch) {
-      try {
-        await telegram.sendMessage(
-          DISPUTE_CHANNEL_ID,
-          "💬 ORIGINAL APPLICATION PITCH:\n" + winnerApp.pitch
-        );
-      } catch (e) {
-        console.error("send pitch text fail:", e);
-      }
-    }
-
-    // (4) Task related file (task.relatedFile.fileId)
-    if (task.relatedFile && task.relatedFile.fileId) {
-      try {
-        await telegram.sendMessage(DISPUTE_CHANNEL_ID, "📎 TASK RELATED FILE (from original task post):");
-      } catch (e) {}
-      await sendTaskRelatedFile(telegram, DISPUTE_CHANNEL_ID, task.relatedFile.fileId);
-    }
-
-    // end marker so disputes don't mix with each other
-    try {
-      await telegram.sendMessage(DISPUTE_CHANNEL_ID, "—— END OF DISPUTE PACKAGE ——");
-    } catch (e) {}
-
-    // 7. Lock both users out of future steps for THIS task:
-    // We already banned both users globally above. We ALSO release any engagement locks
-    // so they can't sneak-interact from stale sessions later when unbanned. :contentReference[oaicite:20]{index=20}
-    // (banUserEverywhere already writes Banlist + bans them in BAN_GROUP_ID.)
-
-    return true; // success
   }
 
-  // Mini retry loop. We never throw out of escalateDoerReport;
-  // we just keep logging until it works. This protects you vs network hiccups.
-  let attemptCount = 0;
-  while (attemptCount < 5) {
-    try {
-      const ok = await attemptOnce();
-      if (ok) break;
-    } catch (err) {
-      console.error("escalateDoerReport attempt failed:", err);
-    }
-    attemptCount++;
-  }
+  // end marker
+  await safeTelegramCall(
+    telegram.sendMessage.bind(telegram),
+    DISPUTE_CHANNEL_ID,
+    "—— END OF DISPUTE PACKAGE ——"
+  );
 }
+
 
 async function banUserEverywhere(ctx, userDoc) {
   try { await Banlist.updateOne(
@@ -9323,28 +9361,26 @@ bot.on('message', async (ctx) => {
 bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
 
-  // 1. Immediately lock the buttons in the *doer’s* chat UI
-  //    - keep both buttons visible
-  //    - highlight Report with a checkmark or some visual
-  //    - make both inert so they can't spam logical flows
+  // 1. Freeze the buttons in the message they clicked
   try {
     const currentKeyboard = ctx.callbackQuery.message.reply_markup.inline_keyboard;
-    // Build a new row based on the known pattern:
-    // [ "⚠️ Report this", "✅ Send corrected version" ] from when we sent it. :contentReference[oaicite:28]{index=28}
+
     const newRow = currentKeyboard[0].map(btn => {
       if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
+        // highlight the report button to show it was chosen
         return Markup.button.callback(
-          `✔ ${btn.text}`,            // highlight report
-          `_DISABLED_DOER_REPORT`
+          "✔ " + btn.text,
+          "_DISABLED_DOER_REPORT"
         );
       }
       if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
+        // keep the other button visible but dead
         return Markup.button.callback(
           btn.text,
-          `_DISABLED_DOER_SEND_CORRECTED`
+          "_DISABLED_DOER_SEND_CORRECTED"
         );
       }
-      // fallback in case something weird is in that row
+      // safety fallback
       return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
     });
 
@@ -9352,16 +9388,23 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
       inline_keyboard: [ newRow ]
     });
   } catch (e) {
-    console.error("Failed to edit doer inline keyboard on report:", e);
+    console.error("Failed to edit inline keyboard on report:", e);
   }
 
-  // 2. Tell the doer instantly that we’re handling it (popup)
+  // 2. Popup immediate feedback to the doer
   await ctx.answerCbQuery(
     "Your report has been registered. Taskifii is locking the task and will investigate.",
     { show_alert: true }
   );
 
-  // 3. Kick off escalation pipeline (ban both, notify both, send dispute package, retries, etc.)
+  // 3. Check if we've already escalated this task
+  //    If yes, STOP HERE to prevent double ban / 5x DM spam.
+  let state = await FinalizationState.findOne({ task: taskId }).lean();
+  if (state && state.doerReportedAt) {
+    return;
+  }
+
+  // 4. If not escalated yet, run the escalation pipeline
   await escalateDoerReport(ctx, taskId);
 });
 bot.action("_DISABLED_DOER_REPORT", async (ctx) => {
