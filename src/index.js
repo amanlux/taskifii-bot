@@ -1820,6 +1820,81 @@ async function verifyChapaTxRef(txRef) {
   return r.ok;
 }
 
+// 1. break a very long string into Telegram-safe chunks
+function splitIntoTelegramChunks(fullText, maxLen = 3500) {
+  const chunks = [];
+  let i = 0;
+  while (i < fullText.length) {
+    chunks.push(fullText.slice(i, i + maxLen));
+    i += maxLen;
+  }
+  return chunks;
+}
+
+// 2. send a single chunk with retry, but bail out on "message is too long"
+async function sendOneChunkWithRetry(ctxOrBot, chatId, textChunk, attemptLabel = 'REPORT FLOW') {
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // ctxOrBot can be ctx.telegram or bot.telegram
+      await ctxOrBot.sendMessage(chatId, textChunk, {
+        disable_web_page_preview: true,
+      });
+      return; // success, stop retrying this chunk
+    } catch (err) {
+      const desc = err?.response?.description || '';
+
+      // If it's "message is too long" (shouldn't happen anymore because we chunk),
+      // retrying won't help. We stop retrying this chunk and move on.
+      if (desc.includes('message is too long')) {
+        console.error(
+          `[${attemptLabel}] chunk failed: message too long even after chunking. Will NOT retry this chunk.`
+        );
+        return;
+      }
+
+      // Retry ban-type errors also doesn't help if it's the chat owner
+      if (desc.includes("can't remove chat owner")) {
+        console.error(
+          `[${attemptLabel}] ban failed because target is chat owner. Skipping further retries for this member.`
+        );
+        return;
+      }
+
+      // Otherwise, log and continue loop to retry
+      console.error(
+        `[${attemptLabel}] sendMessage failed on attempt ${attempt}:`,
+        err
+      );
+      // loop continues -> retry
+    }
+  }
+
+  // if we exit loop without success
+  console.error(
+    `[${attemptLabel}] Could not send this chunk after all retries.`
+  );
+}
+
+// 3. main helper to send a LONG escalation report safely as multiple messages
+async function sendEscalationMegaReportSafely(ctxOrBot, chatId, fullText) {
+  const chunks = splitIntoTelegramChunks(fullText);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const headerPrefix =
+      i === 0
+        ? '' // first chunk is original
+        : `\n(continued ${i + 1}/${chunks.length})\n\n`;
+
+    const finalChunkText = headerPrefix + chunks[i];
+    await sendOneChunkWithRetry(
+      ctxOrBot,
+      chatId,
+      finalChunkText,
+      'REPORT FLOW'
+    );
+  }
+}
 
 // Reuse this in both Telegram-invoice and Hosted-Checkout flows
 async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
@@ -2802,6 +2877,88 @@ function buildDisputeSummary({
 
   return lines.join("\n");
 }
+function buildDisputeSummaryChunks({
+  task,
+  creator,
+  doer,
+  workDoc,
+  winnerApplicant
+}) {
+  // We'll build logical sections.
+  // Each section will be sent separately to avoid Telegram 4096 char limit.
+
+  const taskFields = Array.isArray(task.fields)
+    ? task.fields.map(f => `#${String(f).replace(/\s+/g,"")}`).join(" ")
+    : "—";
+
+  const pitchText = winnerApplicant?.pitch || "— no pitch stored —";
+
+  // Turn the arrays into readable bullet summaries (already in your code style)
+  const completedSummary = summarizeWorkMessages(workDoc?.messages);
+  const fixSummary       = summarizeWorkMessages(workDoc?.fixRequests);
+
+  const relatedFileInfo = task.relatedFile
+    ? JSON.stringify(task.relatedFile)
+    : "— none —";
+
+  // --- Chunk 1: high-level + identities
+  const chunk1 = [
+    "🚨 DISPUTE REPORTED",
+    "#refund",
+    "",
+    "📌 CLAIM:",
+    "The task doer says the task creator is asking for fixes that were NOT in the original task description. Taskifii must review and make the final decision.",
+    "",
+    "👤 TASK CREATOR",
+    `• Name: ${creator.fullName || "N/A"}`,
+    `• Phone: ${creator.phone || "N/A"}`,
+    `• Email: ${creator.email || "N/A"}`,
+    `• Telegram: @${creator.username || "N/A"}`,
+    `• User ID: ${creator._id}`,
+    "",
+    "🧑‍🔧 WINNER TASK DOER",
+    `• Name: ${doer.fullName || "N/A"}`,
+    `• Phone: ${doer.phone || "N/A"}`,
+    `• Email: ${doer.email || "N/A"}`,
+    `• Telegram: @${doer.username || "N/A"}`,
+    `• User ID: ${doer._id}`
+  ].join("\n");
+
+  // --- Chunk 2: task details
+  const chunk2 = [
+    "📝 TASK DETAILS",
+    `• Task ID: ${task._id}`,
+    `• Description: ${task.description || "N/A"}`,
+    `• Fee (birr): ${task.paymentFee ?? "N/A"}`,
+    `• Time to Complete (hours): ${task.timeToComplete ?? task.timeToCompleteHours ?? "N/A"}`,
+    `• Revision Window (hours): ${task.revisionTime ?? "N/A"}`,
+    `• Penalty / hour (birr): ${task.penaltyPerHour ?? task.latePenalty ?? "N/A"}`,
+    `• Exchange Strategy: ${(task.exchangeStrategy || "").trim() || "N/A"}`,
+    `• Skill Level: ${task.skillLevel || "N/A"}`,
+    `• Fields: ${taskFields}`,
+    `• Related File (raw ref): ${relatedFileInfo}`
+  ].join("\n");
+
+  // --- Chunk 3: pitch + completed submission summary
+  const chunk3 = [
+    "📣 WINNER'S ORIGINAL APPLICATION PITCH",
+    pitchText,
+    "",
+    "✅ COMPLETED TASK (what the doer said is finished)",
+    completedSummary
+  ].join("\n");
+
+  // --- Chunk 4: fix notice + status
+  const chunk4 = [
+    "❌ FIX NOTICE FROM CREATOR (what they said is wrong / needs fixing)",
+    fixSummary,
+    "",
+    "Status: Both creator and doer are currently *banned* from using Taskifii and from the dispute group until Taskifii decides."
+  ].join("\n");
+
+  return [chunk1, chunk2, chunk3, chunk4];
+}
+
 async function forwardStoredMessagesToChannel(telegram, channelId, sourceTelegramId, storedMsgs, headerLabel) {
   if (!storedMsgs || !storedMsgs.length) return;
   // Send a small header first so admins know what these forwards are.
@@ -9352,8 +9509,8 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
 
     // --- step 5: send escalation package to the admin channel with #refund ---
 
-    await executeWithRetry("send giant escalation text to admin channel", async () => {
-      const giantText = buildDisputeSummary({
+    await executeWithRetry("send giant escalation text to admin channel (chunked)", async () => {
+      const chunks = buildDisputeSummaryChunks({
         task,
         creator: creatorUser,
         doer: doerUser,
@@ -9361,12 +9518,32 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
         winnerApplicant
       });
 
-      await ctx.telegram.sendMessage(
-        ESCALATION_CHANNEL_ID,
-        giantText,
-        { disable_web_page_preview: true }
-      );
+      for (const part of chunks) {
+        // skip empty parts just in case
+        if (!part || !part.trim()) continue;
+
+        // If one part is still too long (edge case with huge spam),
+        // we will hard-split it again at 3500 chars just to be 100% safe.
+        if (part.length > 3500) {
+          // break into subparts of ~3500 chars
+          for (let i = 0; i < part.length; i += 3500) {
+            const sub = part.slice(i, i + 3500);
+            await ctx.telegram.sendMessage(
+              ESCALATION_CHANNEL_ID,
+              sub,
+              { disable_web_page_preview: true }
+            );
+          }
+        } else {
+          await ctx.telegram.sendMessage(
+            ESCALATION_CHANNEL_ID,
+            part,
+            { disable_web_page_preview: true }
+          );
+        }
+      }
     });
+
 
     // --- step 6: forward evidence (related file, completed work, fix notice) to admin channel ---
 
