@@ -9605,7 +9605,14 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
   }
 });
 
-
+// Creator taps Reject
+bot.action(/^CREATOR_REJECT_(.+)$/, async (ctx) => {
+  const taskId = ctx.match[1];
+  // For now dummy:
+  try {
+    await ctx.answerCbQuery("You rejected the corrected work. Taskifii will intervene. (Handler TBD)", { show_alert: true });
+  } catch(e){}
+});
 
 bot.action("_DISABLED_DOER_REPORT", async (ctx) => {
   await ctx.answerCbQuery(); // silent no-op
@@ -9835,14 +9842,7 @@ bot.action(/^CREATOR_APPROVE_(.+)$/, async (ctx) => {
   } catch(e){}
 });
 
-// Creator taps Reject
-bot.action(/^CREATOR_REJECT_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
-  // For now dummy:
-  try {
-    await ctx.answerCbQuery("You rejected the corrected work. Taskifii will intervene. (Handler TBD)", { show_alert: true });
-  } catch(e){}
-});
+
 
 
 // ─── Disabled Button Handlers (prevent clicks on inert buttons) ─────────
