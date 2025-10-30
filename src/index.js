@@ -9522,67 +9522,9 @@ bot.on('message', async (ctx) => {
 
 
 });
-// ─── Collect Doer's Corrected Submissions (after Fix Notice) ──────────────
-bot.on('message', async (ctx) => {
-  try {
-    const tgId = ctx.from?.id;
-    if (!tgId) return;
 
-    // Fast path: ignore commands and /start triggers outright
-    const msg = ctx.message;
-    if (!msg) return;
-    const text = msg.text || msg.caption || "";
 
-    if (text?.startsWith('/')) return; // includes /start and any other command
-
-    // Ignore the lock warning messages (both languages) – these are bot messages, not doer submissions
-    const LOCK_EN = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
-    const LOCK_AM = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
-    if (text === LOCK_EN || text === LOCK_AM) return; // just to be extra safe
-
-    // Find the active revision task (awaiting_fix) for this doer
-    const work = await DoerWork.findOne({
-      doerTelegramId: tgId,
-      currentRevisionStatus: 'awaiting_fix'
-    });
-
-    if (!work) return; // user is not currently fixing anything
-
-    // Build a normalized entry describing *exactly* what the doer sent
-    const entry = {
-      messageId: msg.message_id,
-      date: new Date(msg.date * 1000),
-      type: msg.sticker ? 'sticker'
-           : msg.photo ? 'photo'
-           : msg.document ? 'document'
-           : msg.video ? 'video'
-           : msg.audio ? 'audio'
-           : msg.voice ? 'voice'
-           : msg.video_note ? 'video_note'
-           : 'text'
-    };
-    if (msg.text) entry.text = msg.text;
-    if (msg.caption) entry.caption = msg.caption;
-    if (msg.media_group_id) entry.mediaGroupId = msg.media_group_id;
-
-    if (msg.photo) entry.fileIds = msg.photo.map(p => p.file_id);
-    else if (msg.document) entry.fileIds = [ msg.document.file_id ];
-    else if (msg.video) entry.fileIds = [ msg.video.file_id ];
-    else if (msg.audio) entry.fileIds = [ msg.audio.file_id ];
-    else if (msg.voice) entry.fileIds = [ msg.voice.file_id ];
-    else if (msg.sticker) entry.fileIds = [ msg.sticker.file_id ];
-    else if (msg.video_note) entry.fileIds = [ msg.video_note.file_id ];
-
-    // Append to correctedBuffer
-    work.correctedBuffer = work.correctedBuffer || [];
-    work.correctedBuffer.push(entry);
-    await work.save();
-  } catch (e) {
-    console.error("Collect corrected submissions error:", e);
-  }
-});
-
-// ─── DOER Dummy Actions for Report/Corrected (to be implemented later) ───
+// ─── DOER Dummy Actions for Report(to be implemented later) ───
 bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
 
