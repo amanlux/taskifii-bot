@@ -283,6 +283,32 @@ const DoerWorkSchema = new mongoose.Schema({
     videoNoteFileId: String,
     isForwarded: { type: Boolean, default: false }
   }],
+  correctedMessages: [{
+    messageId: Number,
+    date: Date,
+    type: { type: String },
+    mediaGroupId: String,
+    text: String,
+    caption: String,
+    fileIds: [String],
+    stickerFileId: String,
+    voiceFileId: String,
+    audioFileId: String,
+    videoFileId: String,
+    documentFileId: String,
+    photoBestFileId: String,
+    animationFileId: String,
+    videoNoteFileId: String,
+    isForwarded: { type: Boolean, default: false }
+  }],
+  correctionDispatch: {
+    startedAt: Date,
+    completedAt: Date,
+    attempts: { type: Number, default: 0 },
+    lastError: String
+  },
+
+  
   fixNoticeSentAt: { type: Date },
   
   // NEW: Revision tracking
