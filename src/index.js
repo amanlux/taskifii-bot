@@ -1771,6 +1771,26 @@ async function safeTelegramCall(fn, ...args) {
     }
   }
 }
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function withRetry(fn, { attempts = 6, baseDelayMs = 500 } = {}) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      // Handle Telegram rate limits and network hiccups
+      const is429 = (e && (e.code === 429 || /Too Many Requests/i.test(String(e))));
+      const retryAfter = Number(e?.parameters?.retry_after || 0);
+      const delay = is429 && retryAfter > 0
+        ? (retryAfter + 1) * 1000
+        : baseDelayMs * Math.pow(2, i); // exponential backoff
+      await sleep(delay);
+    }
+  }
+  throw lastErr;
+}
 
 
 
@@ -9049,6 +9069,93 @@ bot.on('message', async (ctx, next) => {
     return next();
   }
 });
+bot.on('message', async (ctx, next) => {
+  try {
+    const fromTid = ctx.message?.from?.id;
+    if (!fromTid) return next();
+
+    // Find any active revision for this doer
+    const work = await DoerWork.findOne({
+      doerTelegramId: fromTid,
+      currentRevisionStatus: 'awaiting_fix',
+    }).lean();
+
+    if (!work) return next();
+
+    const msg = ctx.message;
+
+    // Ignore /start and non-user content
+    if (!msg || (msg.text && msg.text.trim().startsWith('/start'))) {
+      return next();
+    }
+
+    // Ignore the engagement-lock error text (both languages)
+    const LOCK_EN = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+    const LOCK_AM = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
+    if (msg.text && (msg.text.trim() === LOCK_EN || msg.text.trim() === LOCK_AM)) {
+      return next();
+    }
+
+    // Build snapshot (same style as your existing collectors)
+    const base = {
+      messageId: msg.message_id,
+      date: new Date(msg.date * 1000),
+      type: 'text',
+      isForwarded: !!msg.forward_from || !!msg.forward_from_chat
+    };
+
+    if (msg.media_group_id) base.mediaGroupId = msg.media_group_id;
+    if (msg.text) base.text = msg.text;
+    if (msg.caption) base.caption = msg.caption;
+
+    if (msg.photo) {
+      base.type = 'photo';
+      base.fileIds = msg.photo.map(p => p.file_id);
+      base.photoBestFileId = base.fileIds[base.fileIds.length - 1];
+    } else if (msg.document) {
+      base.type = 'document';
+      base.documentFileId = msg.document.file_id;
+      base.fileIds = [ msg.document.file_id ];
+    } else if (msg.video) {
+      base.type = 'video';
+      base.videoFileId = msg.video.file_id;
+      base.fileIds = [ msg.video.file_id ];
+    } else if (msg.audio) {
+      base.type = 'audio';
+      base.audioFileId = msg.audio.file_id;
+      base.fileIds = [ msg.audio.file_id ];
+    } else if (msg.voice) {
+      base.type = 'voice';
+      base.voiceFileId = msg.voice.file_id;
+      base.fileIds = [ msg.voice.file_id ];
+    } else if (msg.animation) {
+      base.type = 'animation';
+      base.animationFileId = msg.animation.file_id;
+      base.fileIds = [ msg.animation.file_id ];
+    } else if (msg.video_note) {
+      base.type = 'video_note';
+      base.videoNoteFileId = msg.video_note.file_id;
+      base.fileIds = [ msg.video_note.file_id ];
+    } else if (msg.sticker) {
+      base.type = 'sticker';
+      base.stickerFileId = msg.sticker.file_id;
+      base.fileIds = [ msg.sticker.file_id ];
+    } else if (!msg.text && (msg.caption || msg.media_group_id)) {
+      base.type = 'unknown';
+    }
+
+    await DoerWork.updateOne(
+      { _id: work._id },
+      { $push: { correctedMessages: base } }
+    );
+
+    return next();
+  } catch (e) {
+    console.error("capture doer corrected message error:", e);
+    return next();
+  }
+});
+
 // Handle pagination for bank list
 bot.action(/^PAYOUT_PAGE_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -9378,6 +9485,11 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
       ) ]]
     });
   } catch {}
+  work.currentRevisionStatus = 'awaiting_fix';
+  work.revisionStartedAt = new Date();
+  work.revisionCount = (work.revisionCount || 0) + 1;
+  await work.save();
+
   // Clear the creator's session fix mode
   ctx.session.fixingTaskId = null;
 });
@@ -9498,8 +9610,158 @@ bot.action("_DISABLED_GENERIC", async (ctx) => {
   await ctx.answerCbQuery();
 });
 bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery("Please send the corrected work here.", { show_alert: true });
-  // Future: allow doer to upload corrected files and notify creator for re-validation
+  const taskId = ctx.match[1];
+  const doerTid = ctx.from.id;
+
+  // 0) If user already clicked "Report", keep buttons inert (your report handler already does this)
+  await ctx.answerCbQuery(); // ack press
+
+  // 1) Load work
+  const work = await DoerWork.findOne({ task: taskId, doerTelegramId: doerTid });
+  if (!work) return;
+
+  // 2) Enforce "send at least one corrected message before clicking"
+  const hasAnyCorrected = Array.isArray(work.correctedMessages) && work.correctedMessages.length > 0;
+  if (!hasAnyCorrected) {
+    const doerUser = await User.findById(work.doer);
+    const doerLang = doerUser?.language || 'en';
+    const msg = (doerLang === 'am')
+      ? "እባክዎ ቢያንስ አንድ የተስተካከለ ስራ መልእክት/ፋይል ከመላክዎ በፊት \"✅ አስተካክሏል እንደገና ላክ\" ይጫኑ።"
+      : "Please send at least one corrected message/file first, then tap “✅ Send corrected version”.";
+    return ctx.answerCbQuery(msg, { show_alert: true });
+  }
+
+  // 3) Atomic lock to prevent double-dispatch under heavy concurrency
+  const locked = await DoerWork.findOneAndUpdate(
+    {
+      _id: work._id,
+      currentRevisionStatus: 'awaiting_fix',
+      'correctionDispatch.startedAt': { $exists: false }
+    },
+    {
+      $set: { 'correctionDispatch.startedAt': new Date() }
+    },
+    { new: true }
+  );
+
+  if (!locked) {
+    // Already dispatched (or not in awaiting_fix anymore) — make UI inert and exit
+    try {
+      const currentKeyboard = ctx.callbackQuery.message.reply_markup?.inline_keyboard;
+      if (currentKeyboard && currentKeyboard[0]) {
+        const newRow = currentKeyboard[0].map(btn => {
+          if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
+            return Markup.button.callback("✔ " + btn.text, "_DISABLED_DOER_SEND_CORRECTED");
+          }
+          if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
+            return Markup.button.callback(btn.text, "_DISABLED_DOER_REPORT");
+          }
+          return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
+        });
+        await ctx.editMessageReplyMarkup({ inline_keyboard: [newRow] });
+      }
+    } catch {}
+    return;
+  }
+
+  // 4) Visually lock both buttons + highlight the Send Corrected button
+  try {
+    const kb = ctx.callbackQuery.message.reply_markup?.inline_keyboard;
+    if (kb && kb[0]) {
+      const row = kb[0].map(btn => {
+        if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
+          return Markup.button.callback("✔ " + btn.text, "_DISABLED_DOER_SEND_CORRECTED");
+        }
+        if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
+          return Markup.button.callback(btn.text, "_DISABLED_DOER_REPORT");
+        }
+        return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
+      });
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [row] });
+    }
+  } catch (e) {
+    console.error("Failed to highlight/lock corrected/report buttons:", e);
+  }
+
+  // 5) Confirm to the doer
+  try {
+    const doerUser = await User.findById(locked.doer);
+    const doerLang = doerUser?.language || 'en';
+    const confirmText = (doerLang === 'am')
+      ? "✅ የተስተካከለው ስራ ተልኳል። እባክዎ የተግዳሮቱ ፈጣሪ እንዲመርመር ይጠብቁ።"
+      : "✅ Your corrected work has been sent to the task creator. Please wait while they review it.";
+    await withRetry(() => ctx.reply(confirmText));
+  } catch (e) {
+    console.error("Failed to send doer confirmation:", e);
+  }
+
+  // 6) Forward every corrected message EXACTLY as sent using copyMessage
+  const creatorUser = await User.findById((await Task.findById(taskId))?.creator);
+  if (!creatorUser) {
+    await DoerWork.updateOne(
+      { _id: locked._id },
+      { $set: { 'correctionDispatch.lastError': 'creator not found' } }
+    );
+    return;
+  }
+
+  const sorted = [...(locked.correctedMessages || [])].sort((a,b) => (a.date||0) - (b.date||0) || (a.messageId||0) - (b.messageId||0));
+
+  for (const m of sorted) {
+    await withRetry(() => ctx.telegram.copyMessage(
+      creatorUser.telegramId,
+      doerTid,
+      m.messageId
+    ));
+  }
+
+  // 7) Ask creator to Approve / Reject (dummy handlers for now)
+  const creatorLang = creatorUser.language || 'en';
+  const promptText = (creatorLang === 'am')
+    ? "የተስተካከለው ስራ መጣ። እባክዎ ይገመግሙ፤ ተቀበሉ ወይም ውድቅ አድርጉ።"
+    : "The corrected work has arrived. Please review and choose Approve or Reject.";
+  await withRetry(() => ctx.telegram.sendMessage(
+    creatorUser.telegramId,
+    promptText,
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback(creatorLang === 'am' ? "✔ አጽድቅ" : "Approve", `CREATOR_APPROVE_${taskId}`),
+        Markup.button.callback(creatorLang === 'am' ? "✖ አውጣ" : "Reject", `CREATOR_REJECT_${taskId}`)
+      ]
+    ])
+  ));
+
+  // 8) Mark status and dispatch completion
+  await DoerWork.updateOne(
+    { _id: locked._id },
+    {
+      $set: {
+        currentRevisionStatus: 'fix_received',
+        'correctionDispatch.completedAt': new Date()
+      },
+      $inc: { 'correctionDispatch.attempts': 1 }
+    }
+  );
+});
+
+bot.action(/^CREATOR_APPROVE_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  // TODO: real approve flow later
+  try {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [[Markup.button.callback("✔ Approved", "_DISABLED_VALID")]] });
+  } catch {}
+  await ctx.reply("✅ Approved. (This is a dummy handler; we’ll implement the real flow next.)");
+});
+
+bot.action(/^CREATOR_REJECT_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const taskId = ctx.match[1];
+  // TODO: real reject flow later
+  try {
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [[Markup.button.callback("✖ Rejected", "_DISABLED_NEEDS_FIX")]] });
+  } catch {}
+  await ctx.reply("⚠️ Rejected. Taskifay will take matters into their own hands and the doer may be banned until Taskifay resolves the problem. (Dummy handler for now.)");
 });
 
 
