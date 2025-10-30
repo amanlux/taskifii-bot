@@ -262,28 +262,7 @@ const DoerWorkSchema = new mongoose.Schema({
     videoNoteFileId: { type: String }
   }],
 
-    // NEW: corrected submissions from the doer after fix notice
-  correctedSubmissions: [{
-    messageId: Number,
-    date: Date,
-    type: { type: String },          // same structure as messages[]
-    mediaGroupId: String,
-    text: String,
-    caption: String,
-    fileIds: [String],
-    stickerFileId: String,
-    voiceFileId: String,
-    audioFileId: String,
-    videoFileId: String,
-    documentFileId: String,
-    photoBestFileId: String,
-    animationFileId: String,
-    videoNoteFileId: String,
-    isForwarded: { type: Boolean, default: false }
-  }],
-
-  // NEW: has this corrected batch already been forwarded to creator?
-  correctedBatchSent: { type: Boolean, default: false },
+    
 
   // NEW: Fields for revision requests from the task creator
   fixRequests: [{
@@ -9386,19 +9365,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
       Markup.button.callback(doerLang === 'am' ? "✅ አስተካክሏል እንደገና ላክ" : "✅ Send corrected version", `DOER_SEND_CORRECTED_${taskId}`)
     ]
   ]));
-  // mark that this doer is now in "send corrections" mode for this task
-  // We'll set this on the doer via bot.telegram.sendMessage so we don't have their ctx directly,
-  // but in the same function where you're building/sending the notice (you have doerTid and taskId)
-  try {
-    const doerUserObj = await User.findOne({ telegramId: doerTid });
-    if (doerUserObj) {
-      // we'll store this in-memory with session via a helper later (see (C))
-      // conceptually: session[doerTid].doerFixTaskId = taskId
-      // we will implement that in the message handler logic below
-    }
-  } catch(e) {
-    console.error("Failed to set doerFixTaskId session seed:", e);
-  }
+  
 
   // Mark the fix notice as sent and disable the creator's button
   work.fixNoticeSentAt = new Date();
@@ -9464,94 +9431,8 @@ bot.on('message', async (ctx) => {
   } catch (err) {
     console.error("Error recording fix request message:", err);
   }
-  // =========================
-  // DOER corrected submissions capture
-  // =========================
+ 
 
-  try {
-    const fromTelegramId = ctx.message.from.id;
-    const doerUser = await User.findOne({ telegramId: fromTelegramId });
-    if (!doerUser) {
-      // not a known user, ignore
-      return;
-    }
-
-    // Find if this user is currently an active doer on some task
-    // where creator asked for fixes and we're awaiting their correction.
-    // We look up a DoerWork doc where:
-    //   - doerTelegramId matches them
-    //   - currentRevisionStatus === "awaiting_fix"
-    //   - status is still 'active' or 'completed' (completed but under revision)
-    const activeWork = await DoerWork.findOne({
-      doerTelegramId: fromTelegramId,
-      currentRevisionStatus: 'awaiting_fix'
-    });
-
-    if (!activeWork) {
-      // doer is not in a correction phase, ignore for this feature
-      return;
-    }
-
-    // Filter out messages that are NOT valid corrected work:
-    // 1. ignore commands like /start
-    // 2. ignore the lock warning text ("You're actively involved..." and Amharic version)
-    const msg = ctx.message;
-    const txt = msg.text || msg.caption || "";
-
-    const LOCK_MSG_EN = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
-    const LOCK_MSG_AM = "አሁን በአንድ ተግዳሮት ላይ በተግባር ተሳትፈዋል ስለዚህ ምናልባት ሌሎችን ስራዎች መፈለግ ወይም ማቅረብ አይችሉ እስከሚፈታ ድረስ."; // <-- use your exact Amharic text
-
-    if (txt.startsWith('/start') ||
-        txt === LOCK_MSG_EN ||
-        txt === LOCK_MSG_AM) {
-      // don't record these as corrected submissions
-      return;
-    }
-
-    // Build entry just like you already do for fixRequests/messages
-    const entry = {
-      messageId: msg.message_id,
-      date: new Date(msg.date * 1000),
-      type: msg.sticker ? 'sticker'
-          : msg.photo ? 'photo'
-          : msg.document ? 'document'
-          : msg.video ? 'video'
-          : msg.audio ? 'audio'
-          : msg.voice ? 'voice'
-          : 'text',
-    };
-
-    if (msg.text) entry.text = msg.text;
-    if (msg.caption) entry.caption = msg.caption;
-    if (msg.media_group_id) entry.mediaGroupId = msg.media_group_id;
-
-    // grab file_ids same way you already do
-    if (msg.photo) {
-      entry.fileIds = msg.photo.map(p => p.file_id);
-    } else if (msg.document) {
-      entry.fileIds = [ msg.document.file_id ];
-    } else if (msg.video) {
-      entry.fileIds = [ msg.video.file_id ];
-    } else if (msg.audio) {
-      entry.fileIds = [ msg.audio.file_id ];
-    } else if (msg.voice) {
-      entry.fileIds = [ msg.voice.file_id ];
-    } else if (msg.sticker) {
-      entry.fileIds = [ msg.sticker.file_id ];
-    }
-
-    // Append to correctedSubmissions[]
-    activeWork.correctedSubmissions = activeWork.correctedSubmissions || [];
-    activeWork.correctedSubmissions.push(entry);
-
-    // We haven't sent the batch yet, so keep correctedBatchSent = false
-    activeWork.correctedBatchSent = activeWork.correctedBatchSent || false;
-
-    await activeWork.save();
-
-  } catch (err) {
-    console.error("Error recording corrected submission message:", err);
-  }
 
 });
 
@@ -9605,14 +9486,7 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
   }
 });
 
-// Creator taps Reject
-bot.action(/^CREATOR_REJECT_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
-  // For now dummy:
-  try {
-    await ctx.answerCbQuery("You rejected the corrected work. Taskifii will intervene. (Handler TBD)", { show_alert: true });
-  } catch(e){}
-});
+
 
 bot.action("_DISABLED_DOER_REPORT", async (ctx) => {
   await ctx.answerCbQuery(); // silent no-op
@@ -9624,223 +9498,11 @@ bot.action("_DISABLED_GENERIC", async (ctx) => {
   await ctx.answerCbQuery();
 });
 bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
-
-  // Step 0: optimistic pop-up so Telegram doesn't show "loading..."
-  // We'll override with real alerts below when needed.
-  try { await ctx.answerCbQuery(); } catch(e) {}
-
-  // Load the work doc fresh from DB (so we don't use stale memory)
-  let work = null;
-  try {
-    work = await DoerWork.findOne({ task: taskId }).populate(['doer','task']);
-  } catch (e) {
-    console.error("Failed to load DoerWork in DOER_SEND_CORRECTED:", e);
-  }
-  if (!work) {
-    // We can't proceed. Tell user something broke but *don't* crash.
-    try {
-      await ctx.answerCbQuery("Something went wrong. Please try again in a moment.", { show_alert: true });
-    } catch(e){}
-    return;
-  }
-
-  // Safety: Only allow if we're still awaiting_fix and haven't already sent a batch
-  if (work.currentRevisionStatus !== 'awaiting_fix') {
-    try {
-      await ctx.answerCbQuery("You already sent your corrected work or the task moved on.", { show_alert: true });
-    } catch(e){}
-    return;
-  }
-  if (work.correctedBatchSent) {
-    try {
-      await ctx.answerCbQuery("You've already submitted your corrected version.", { show_alert: true });
-    } catch(e){}
-    return;
-  }
-
-  // Check correctedSubmissions >=1
-  if (!work.correctedSubmissions || work.correctedSubmissions.length === 0) {
-    // popup alert telling them they must send at least one corrected version first
-    try {
-      await ctx.answerCbQuery(
-        "You must send at least one corrected version of your work before tapping this button.",
-        { show_alert: true }
-      );
-    } catch(e){}
-    return;
-  }
-
-  // Step 1: visually freeze the doer's buttons:
-  try {
-    const currentKeyboard = ctx.callbackQuery.message.reply_markup.inline_keyboard;
-    const newRow = currentKeyboard[0].map(btn => {
-      if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
-        // highlight THIS button
-        return Markup.button.callback("✔ " + btn.text, "_DISABLED_DOER_SEND_CORRECTED");
-      }
-      if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
-        // disable report
-        return Markup.button.callback(btn.text, "_DISABLED_DOER_REPORT");
-      }
-      return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
-    });
-
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [ newRow ]
-    });
-  } catch (e) {
-    console.error("Failed to edit inline keyboard on corrected submit:", e);
-    // not fatal — we keep going
-  }
-
-  // Step 2: tell the doer "we sent it, now wait"
-  try {
-    const lang = work.doer?.language || 'en';
-    const noticeText = (lang === 'am')
-      ? "የተስተካከለውን ስራ ለተጠይቀው ደንበኛ ልከናል። እባክዎ እስከሚገመገም ድረስ ይጠብቁ።"
-      : "Your corrected work has been sent to the client. Please wait while they review it.";
-    await ctx.reply(noticeText);
-  } catch(e) {
-    console.error("Failed to notify doer after corrected submit:", e);
-  }
-
-  // Step 3: deliver everything to the creator WITH RETRIES.
-  // We'll wrap sending in a helper that retries a few times in case Telegram/network hiccups.
-  async function safeSendToCreator(fn, maxRetries=5) {
-    let lastErr = null;
-    for (let i=0; i<maxRetries; i++) {
-      try {
-        await fn();
-        return true;
-      } catch (err) {
-        lastErr = err;
-        console.error("Retry sending to creator failed attempt", i+1, err);
-      }
-    }
-    console.error("Giving up sending to creator:", lastErr);
-    return false;
-  }
-
-  // Figure out who the creator is and their telegramId
-  const taskDoc = work.task;
-  if (!taskDoc) {
-    console.error("Work has no populated task in DOER_SEND_CORRECTED");
-    return;
-  }
-
-  // taskDoc probably has applicants[], paymentFee, etc. We assume it also has creator ref / creatorTelegramId.
-  // If you store creator Telegram id elsewhere, grab it here. I'll call it creatorTid:
-  const creatorTid = taskDoc.creatorTelegramId || taskDoc.creator?.telegramId;
-  // If your Task model stores the creator differently, just adapt that line.
-  // The important thing is: creatorTid must be a Telegram chat ID we can send to.
-
-  // Now forward/copy each corrected submission exactly.
-  // We are NOT transforming content, just resending same file_ids.
-  if (creatorTid) {
-    for (const item of work.correctedSubmissions) {
-      await safeSendToCreator(async () => {
-        switch(item.type) {
-          case 'text':
-            await ctx.telegram.sendMessage(creatorTid, item.text || "(empty)");
-            break;
-          case 'photo':
-            // send the best photo (last in array is usually highest res)
-            await ctx.telegram.sendPhoto(
-              creatorTid,
-              item.fileIds[item.fileIds.length - 1],
-              item.caption ? { caption: item.caption } : {}
-            );
-            break;
-          case 'document':
-            await ctx.telegram.sendDocument(
-              creatorTid,
-              item.fileIds[0],
-              item.caption ? { caption: item.caption } : {}
-            );
-            break;
-          case 'video':
-            await ctx.telegram.sendVideo(
-              creatorTid,
-              item.fileIds[0],
-              item.caption ? { caption: item.caption } : {}
-            );
-            break;
-          case 'audio':
-            await ctx.telegram.sendAudio(
-              creatorTid,
-              item.fileIds[0],
-              item.caption ? { caption: item.caption } : {}
-            );
-            break;
-          case 'voice':
-            await ctx.telegram.sendVoice(
-              creatorTid,
-              item.fileIds[0],
-              item.caption ? { caption: item.caption } : {}
-            );
-            break;
-          case 'sticker':
-            await ctx.telegram.sendSticker(
-              creatorTid,
-              item.fileIds[0]
-            );
-            break;
-          default:
-            // fallback: treat as text if unknown
-            await ctx.telegram.sendMessage(
-              creatorTid,
-              item.text || item.caption || "[unsupported media type]"
-            );
-        }
-      });
-    }
-
-    // After all corrected items are sent, send the creator the control message:
-    const controlText =
-      "The Task Doer has submitted a corrected version of the work.\n" +
-      "If everything now looks acceptable, click Approve.\n" +
-      "If it's still not acceptable, click Reject and Taskifii will intervene, which may lead to a ban.";
-
-    const approveBtn = Markup.button.callback("Approve", `CREATOR_APPROVE_${taskId}`);
-    const rejectBtn  = Markup.button.callback("Reject",  `CREATOR_REJECT_${taskId}`);
-
-    await safeSendToCreator(async () => {
-      await ctx.telegram.sendMessage(
-        creatorTid,
-        controlText,
-        Markup.inlineKeyboard([[ approveBtn, rejectBtn ]])
-      );
-    });
-  } else {
-    console.error("No creatorTid found for task", taskId);
-  }
-
-  // Step 4: Update DB status and mark batch sent.
-  try {
-    await DoerWork.updateOne(
-      { task: taskId },
-      {
-        $set: {
-          currentRevisionStatus: 'fix_received',
-          correctedBatchSent: true
-        },
-        $inc: { revisionCount: 1 }
-      }
-    );
-  } catch(e) {
-    console.error("Failed to update DoerWork after corrected submit:", e);
-  }
-
+  await ctx.answerCbQuery("Please send the corrected work here.", { show_alert: true });
+  // Future: allow doer to upload corrected files and notify creator for re-validation
 });
-// Creator taps Approve
-bot.action(/^CREATOR_APPROVE_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
-  // For now dummy:
-  try {
-    await ctx.answerCbQuery("You approved the corrected work. (Handler TBD)", { show_alert: true });
-  } catch(e){}
-});
+
+
 
 
 
