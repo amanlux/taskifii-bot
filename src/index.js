@@ -9387,9 +9387,14 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   ]));
   
 
-  // Mark the fix notice as sent and disable the creator's button
+  
+  // Mark the fix notice as sent and move work into 'awaiting_fix'
   work.fixNoticeSentAt = new Date();
+  work.currentRevisionStatus = 'awaiting_fix'; // <-- important
+  // optional: ensure the array exists
+  if (!Array.isArray(work.correctedSubmissions)) work.correctedSubmissions = [];
   await work.save();
+
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[ Markup.button.callback(
@@ -9468,9 +9473,10 @@ bot.on('message', async (ctx) => {
     // Find an active DoerWork where THIS telegram user is the doer and awaiting fix
     const work = await DoerWork.findOne({
       doerTelegramId: ctx.from.id,
-      currentRevisionStatus: 'awaiting_fix',
-      fixNoticeSentAt: { $exists: true }
+      fixNoticeSentAt: { $exists: true },
+      currentRevisionStatus: { $in: ['awaiting_fix', 'fix_received'] }
     }).sort({ updatedAt: -1 }).exec();
+
 
     if (!work) return; // not a doer sending corrected submission (or no active revision)
 
