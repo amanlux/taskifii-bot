@@ -284,11 +284,23 @@ const DoerWorkSchema = new mongoose.Schema({
     isForwarded: { type: Boolean, default: false }
   }],
   fixNoticeSentAt: { type: Date },
-  // NEW: stores doer's corrected submissions (exact message metadata & file ids)
-  correctedSubmissions: [{
+  
+  
+  // NEW: Revision tracking
+  revisionStartedAt: { type: Date },
+  revisionDeadlineAt: { type: Date },
+  revisionCount: { type: Number, default: 0 },
+  currentRevisionStatus: { 
+    type: String, 
+    enum: ['none', 'awaiting_fix', 'fix_received', 'accepted'], 
+    default: 'none' 
+  },
+    // NEW: Doer’s corrected submissions collected after a Fix Notice,
+  // before they press "Send corrected version"
+  correctedBuffer: [{
     messageId: Number,
     date: Date,
-    type: { type: String },      // 'text','photo','document','video','audio','voice','sticker','video_note'
+    type: { type: String },         // 'text','photo','document','video','audio','voice','sticker','video_note'
     mediaGroupId: String,
     text: String,
     caption: String,
@@ -304,16 +316,6 @@ const DoerWorkSchema = new mongoose.Schema({
     isForwarded: { type: Boolean, default: false }
   }],
 
-  
-  // NEW: Revision tracking
-  revisionStartedAt: { type: Date },
-  revisionDeadlineAt: { type: Date },
-  revisionCount: { type: Number, default: 0 },
-  currentRevisionStatus: { 
-    type: String, 
-    enum: ['none', 'awaiting_fix', 'fix_received', 'accepted'], 
-    default: 'none' 
-  }
 
 }, { versionKey: false, timestamps: true });
 
@@ -9387,12 +9389,13 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   ]));
   
 
-  
-  // Mark the fix notice as sent and move work into 'awaiting_fix'
+  // Mark the fix notice as sent and disable the creator's button
   work.fixNoticeSentAt = new Date();
-  work.currentRevisionStatus = 'awaiting_fix'; // <-- important
-  // optional: ensure the array exists
-  if (!Array.isArray(work.correctedSubmissions)) work.correctedSubmissions = [];
+  await work.save();
+    work.currentRevisionStatus = 'awaiting_fix';
+  work.revisionStartedAt = new Date();
+  // Optional: set a deadline if you want a hard stop; you already track half-window elsewhere
+  // work.revisionDeadlineAt = new Date(Date.now() + ...);
   await work.save();
 
   try {
@@ -9461,76 +9464,65 @@ bot.on('message', async (ctx) => {
 
 
 });
-// --- Record doer's corrected submissions when a revision is active ---
+// ─── Collect Doer's Corrected Submissions (after Fix Notice) ──────────────
 bot.on('message', async (ctx) => {
-  const msg = ctx.message;
-  if (!msg) return;
-
-  // Ignore commands and /start
-  if (msg.text && msg.text.startsWith('/')) return;
-
   try {
-    // Find an active DoerWork where THIS telegram user is the doer and awaiting fix
+    const tgId = ctx.from?.id;
+    if (!tgId) return;
+
+    // Fast path: ignore commands and /start triggers outright
+    const msg = ctx.message;
+    if (!msg) return;
+    const text = msg.text || msg.caption || "";
+
+    if (text?.startsWith('/')) return; // includes /start and any other command
+
+    // Ignore the lock warning messages (both languages) – these are bot messages, not doer submissions
+    const LOCK_EN = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
+    const LOCK_AM = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
+    if (text === LOCK_EN || text === LOCK_AM) return; // just to be extra safe
+
+    // Find the active revision task (awaiting_fix) for this doer
     const work = await DoerWork.findOne({
-      doerTelegramId: ctx.from.id,
-      fixNoticeSentAt: { $exists: true },
-      currentRevisionStatus: { $in: ['awaiting_fix', 'fix_received'] }
-    }).sort({ updatedAt: -1 }).exec();
+      doerTelegramId: tgId,
+      currentRevisionStatus: 'awaiting_fix'
+    });
 
+    if (!work) return; // user is not currently fixing anything
 
-    if (!work) return; // not a doer sending corrected submission (or no active revision)
-
-    // Ignore the bot's known error messages (English + Amharic) — do NOT record them:
-    const forbiddenTexts = [
-      "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.",
-      "ሕ/አ: አሁን በተግዳሮት ውስጥ እየተሳተፉ ነዎት፣ ስለዚህ ምንም ማውጫ አይከፈትም፣ ተግዳሮት ልጥፍ ወይም ሌሎች ላይ መተግበር አይችሉም።"
-    ];
-    if (msg.text && forbiddenTexts.includes(msg.text.trim())) return;
-
-    // Build the record identical to how we store other messages
+    // Build a normalized entry describing *exactly* what the doer sent
     const entry = {
       messageId: msg.message_id,
-      date: new Date((msg.date || Math.floor(Date.now()/1000)) * 1000),
+      date: new Date(msg.date * 1000),
       type: msg.sticker ? 'sticker'
            : msg.photo ? 'photo'
            : msg.document ? 'document'
            : msg.video ? 'video'
            : msg.audio ? 'audio'
            : msg.voice ? 'voice'
+           : msg.video_note ? 'video_note'
            : 'text'
     };
     if (msg.text) entry.text = msg.text;
     if (msg.caption) entry.caption = msg.caption;
     if (msg.media_group_id) entry.mediaGroupId = msg.media_group_id;
 
-    if (msg.photo) {
-      entry.fileIds = msg.photo.map(p => p.file_id);
-    } else if (msg.document) {
-      entry.fileIds = [ msg.document.file_id ];
-    } else if (msg.video) {
-      entry.fileIds = [ msg.video.file_id ];
-    } else if (msg.audio) {
-      entry.fileIds = [ msg.audio.file_id ];
-    } else if (msg.voice) {
-      entry.fileIds = [ msg.voice.file_id ];
-    } else if (msg.sticker) {
-      entry.fileIds = [ msg.sticker.file_id ];
-    }
+    if (msg.photo) entry.fileIds = msg.photo.map(p => p.file_id);
+    else if (msg.document) entry.fileIds = [ msg.document.file_id ];
+    else if (msg.video) entry.fileIds = [ msg.video.file_id ];
+    else if (msg.audio) entry.fileIds = [ msg.audio.file_id ];
+    else if (msg.voice) entry.fileIds = [ msg.voice.file_id ];
+    else if (msg.sticker) entry.fileIds = [ msg.sticker.file_id ];
+    else if (msg.video_note) entry.fileIds = [ msg.video_note.file_id ];
 
-    // Append to correctedSubmissions and save
-    work.correctedSubmissions = work.correctedSubmissions || [];
-    work.correctedSubmissions.push(entry);
+    // Append to correctedBuffer
+    work.correctedBuffer = work.correctedBuffer || [];
+    work.correctedBuffer.push(entry);
     await work.save();
-
-    // Optionally notify doer that the bot recorded their corrected file (silent reply)
-    try {
-      await ctx.answerCbQuery?.(); // no-op if not a callback
-    } catch (e) {}
-  } catch (err) {
-    console.error("Error recording corrected submission from doer:", err);
+  } catch (e) {
+    console.error("Collect corrected submissions error:", e);
   }
 });
-
 
 // ─── DOER Dummy Actions for Report/Corrected (to be implemented later) ───
 bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
@@ -9593,33 +9585,33 @@ bot.action("_DISABLED_DOER_SEND_CORRECTED", async (ctx) => {
 bot.action("_DISABLED_GENERIC", async (ctx) => {
   await ctx.answerCbQuery();
 });
+// ─── DOER clicks "Send corrected version" ────────────────────────────────
 bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
-  const doerTid = ctx.from.id;
-
   try {
-    const work = await DoerWork.findOne({ task: taskId }).exec();
-    if (!work) {
-      return ctx.answerCbQuery("Internal error: task not found.", { show_alert: true });
-    }
-    if (work.doerTelegramId !== doerTid) {
-      return ctx.answerCbQuery("Only the assigned doer can send corrected versions.", { show_alert: true });
+    const taskId = ctx.match[1];
+    const doerTid = ctx.from.id;
+
+    // Load the work + task + creator
+    const work = await DoerWork.findOne({ task: taskId, doerTelegramId: doerTid }).lean();
+    if (!work || work.currentRevisionStatus !== 'awaiting_fix') {
+      await ctx.answerCbQuery("No active fix is pending.", { show_alert: true });
+      return;
     }
 
-    // Ensure there is at least one corrected submission recorded
-    const subs = Array.isArray(work.correctedSubmissions) ? work.correctedSubmissions : [];
-    if (subs.length === 0) {
-      return ctx.answerCbQuery(
-        "You must send at least one corrected completed task (file or message) before clicking 'Send corrected version'.",
+    // Validate at least one valid corrected submission exists
+    const buf = Array.isArray(work.correctedBuffer) ? work.correctedBuffer.slice() : [];
+    if (buf.length === 0) {
+      await ctx.answerCbQuery(
+        "Please send at least one corrected file/text *before* tapping “Send corrected version”.",
         { show_alert: true }
       );
+      return;
     }
 
-    // Make both buttons inert but show Send as "checked/highlighted"
+    // 1) On the doer’s button message: make both buttons inert, highlight the corrected one
     try {
-      const currentKeyboard = ctx.callbackQuery.message.reply_markup?.inline_keyboard || [];
-      const newRow = (currentKeyboard[0] || []).map(btn => {
-        // Keep labels but replace callbacks with disabled handlers
+      const currentKeyboard = ctx.callbackQuery.message.reply_markup.inline_keyboard;
+      const newRow = currentKeyboard[0].map(btn => {
         if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
           return Markup.button.callback("✔ " + btn.text, "_DISABLED_DOER_SEND_CORRECTED");
         }
@@ -9630,111 +9622,122 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
       });
       await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
     } catch (e) {
-      console.error("Failed to edit doer inline keyboard after send:", e);
+      console.error("Failed to edit inline keyboard on corrected:", e);
     }
 
-    // Update DB status
-    work.currentRevisionStatus = 'fix_received';
-    work.revisionCount = (work.revisionCount || 0) + 1;
-    await work.save();
-
-    // Notify the doer in chat that the corrected version(s) were sent
+    // 2) Tell the doer we sent it
     try {
-      await ctx.reply("✅ Corrected version sent to the task creator. Please wait for their review.");
-    } catch (e) {}
+      await ctx.answerCbQuery(
+        "Your corrected work has been sent to the task creator. Please wait while they review it.",
+        { show_alert: true }
+      );
+    } catch {}
 
-    // Forward/send all corrected submissions to the creator exactly as the doer sent them
-    // find the task & creator
-    const task = await Task.findById(taskId).lean().exec();
-    if (!task) {
-      console.error("Task not found for corrected send:", taskId);
-      return;
-    }
-    const creatorUser = await User.findById(task.creator).exec();
-    if (!creatorUser) {
-      console.error("Creator user not found for task:", taskId);
-      return;
-    }
+    // 3) Forward/copy the doer’s corrected submissions to the creator, exactly as-is
+    const task = await Task.findById(taskId).populate('creator');
+    const creatorUser = await User.findById(task.creator);
     const creatorTid = creatorUser.telegramId;
 
-    // Send each submission preserving type and caption/text
-    for (const s of subs) {
+    // Sort by original order (date then messageId)
+    buf.sort((a, b) => (a.date?.getTime() || 0) - (b.date?.getTime() || 0) || (a.messageId - b.messageId));
+
+    for (const m of buf) {
       try {
-        if (s.type === 'text') {
-          await ctx.telegram.sendMessage(creatorTid, s.text || s.caption || "(no text)", { parse_mode: "Markdown" });
-        } else if (s.type === 'photo') {
-          // photo: fileIds is an array of sizes - choose largest (first or last depending)
-          const fid = Array.isArray(s.fileIds) && s.fileIds.length ? s.fileIds[0] : null;
-          if (fid) await ctx.telegram.sendPhoto(creatorTid, fid, { caption: s.caption });
-        } else if (s.type === 'document') {
-          const fid = Array.isArray(s.fileIds) && s.fileIds.length ? s.fileIds[0] : null;
-          if (fid) await ctx.telegram.sendDocument(creatorTid, fid, { caption: s.caption });
-        } else if (s.type === 'video') {
-          const fid = Array.isArray(s.fileIds) && s.fileIds.length ? s.fileIds[0] : null;
-          if (fid) await ctx.telegram.sendVideo(creatorTid, fid, { caption: s.caption });
-        } else if (s.type === 'audio') {
-          const fid = Array.isArray(s.fileIds) && s.fileIds.length ? s.fileIds[0] : null;
-          if (fid) await ctx.telegram.sendAudio(creatorTid, fid, { caption: s.caption });
-        } else if (s.type === 'voice') {
-          const fid = Array.isArray(s.fileIds) && s.fileIds.length ? s.fileIds[0] : null;
-          if (fid) await ctx.telegram.sendVoice(creatorTid, fid, { caption: s.caption });
-        } else if (s.type === 'sticker') {
-          const fid = Array.isArray(s.fileIds) && s.fileIds.length ? s.fileIds[0] : null;
-          if (fid) await ctx.telegram.sendSticker(creatorTid, fid);
-        } else {
-          // fallback: try sending text
-          await ctx.telegram.sendMessage(creatorTid, s.text || s.caption || "(submitted file)");
-        }
-      } catch (err) {
-        console.error("Failed to forward corrected submission to creator:", err);
+        await ctx.telegram.copyMessage(
+          creatorTid,
+          doerTid,
+          m.messageId
+        );
+      } catch (e) {
+        console.error("copyMessage failed for corrected item:", e);
       }
     }
 
-    // After sending all corrected submissions, send the creator the Approve/Reject message
-    const approveRejectKeyboard = Markup.inlineKeyboard([
-      [
-        Markup.button.callback("Approve", `CREATOR_APPROVE_${taskId}`),
-        Markup.button.callback("Reject", `CREATOR_REJECT_${taskId}`)
-      ]
-    ]);
-    try {
-      await ctx.telegram.sendMessage(
-        creatorTid,
-        "The doer has sent corrected work for your review. If acceptable, click Approve. If not acceptable, click Reject (Taskifay will take further action if you reject).",
-        approveRejectKeyboard.reply_markup
-      );
-    } catch (err) {
-      console.error("Failed to send Approve/Reject to creator:", err);
-    }
+    // 4) Ask creator to Approve/Reject this corrected batch (dummy handlers for now)
+    const notice =
+      "The task doer has sent a *corrected* version of the completed task.\n\n" +
+      "• If everything looks acceptable, tap **Approve**.\n" +
+      "• If it is still not acceptable, tap **Reject** — Taskifay will take matters into their own hands and the doer will be banned until the issue is resolved.";
+
+    await ctx.telegram.sendMessage(
+      creatorTid,
+      notice,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback("Approve", `CREATOR_APPROVE_CORRECTED_${taskId}`),
+            Markup.button.callback("Reject",  `CREATOR_REJECT_CORRECTED_${taskId}`)
+          ]
+        ])
+      }
+    );
+
+    // 5) Flip state to mark that a corrected batch was sent
+    await DoerWork.updateOne(
+      { _id: work._id },
+      { $set: { currentRevisionStatus: 'fix_received' }, $unset: { correctedBuffer: "" } }
+    );
 
   } catch (err) {
-    console.error("Error in DOER_SEND_CORRECTED handler:", err);
-    try { await ctx.answerCbQuery("An error occurred. Try again later.", { show_alert: true }); } catch(e){}
+    console.error("DOER_SEND_CORRECTED handler error:", err);
+    await ctx.answerCbQuery("Something went wrong. Please try again.", { show_alert: true });
   }
 });
-bot.action(/^CREATOR_APPROVE_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
+// ─── Creator Approve/Reject corrected version (dummy) ─────────────────────
+bot.action(/^CREATOR_APPROVE_CORRECTED_(.+)$/, async (ctx) => {
   try {
-    await ctx.answerCbQuery("You clicked Approve. (Handler is a dummy for now.)", { show_alert: true });
-    // Dummy: mark work accepted in DB (optional)
-    await DoerWork.findOneAndUpdate({ task: taskId }, { currentRevisionStatus: 'accepted' }).exec();
-    await ctx.reply("Thank you. The corrected work has been approved (dummy handler).");
+    const taskId = ctx.match[1];
+    // Inert + highlight Approve
+    try {
+      const kb = ctx.callbackQuery.message.reply_markup.inline_keyboard[0];
+      const newRow = kb.map(btn => {
+        const data = btn.callback_data || "";
+        if (data.startsWith("CREATOR_APPROVE_CORRECTED_")) {
+          return Markup.button.callback("✔ " + btn.text, "_DISABLED_CREATOR_APPROVE_CORRECTED");
+        }
+        if (data.startsWith("CREATOR_REJECT_CORRECTED_")) {
+          return Markup.button.callback(btn.text, "_DISABLED_CREATOR_REJECT_CORRECTED");
+        }
+        return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
+      });
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
+    } catch {}
+    await ctx.answerCbQuery("Approved (dummy).");
   } catch (e) {
-    console.error("CREATOR_APPROVE error:", e);
+    console.error("approve corrected error:", e);
+    await ctx.answerCbQuery("Error.", { show_alert: true });
   }
 });
 
-bot.action(/^CREATOR_REJECT_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
+bot.action(/^CREATOR_REJECT_CORRECTED_(.+)$/, async (ctx) => {
   try {
-    await ctx.answerCbQuery("You clicked Reject. (Handler is a dummy for now.)", { show_alert: true });
-    // Dummy: escalate / ban placeholder
-    await ctx.reply("You have rejected the corrected work. Taskifay will take further steps (dummy handler).");
+    const taskId = ctx.match[1];
+    // Inert + highlight Reject
+    try {
+      const kb = ctx.callbackQuery.message.reply_markup.inline_keyboard[0];
+      const newRow = kb.map(btn => {
+        const data = btn.callback_data || "";
+        if (data.startsWith("CREATOR_REJECT_CORRECTED_")) {
+          return Markup.button.callback("✔ " + btn.text, "_DISABLED_CREATOR_REJECT_CORRECTED");
+        }
+        if (data.startsWith("CREATOR_APPROVE_CORRECTED_")) {
+          return Markup.button.callback(btn.text, "_DISABLED_CREATOR_APPROVE_CORRECTED");
+        }
+        return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
+      });
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
+    } catch {}
+    await ctx.answerCbQuery("Rejected (dummy).");
   } catch (e) {
-    console.error("CREATOR_REJECT error:", e);
+    console.error("reject corrected error:", e);
+    await ctx.answerCbQuery("Error.", { show_alert: true });
   }
 });
 
+// Prevent clicks on inert variants
+bot.action("_DISABLED_CREATOR_APPROVE_CORRECTED", async (ctx) => { await ctx.answerCbQuery(); });
+bot.action("_DISABLED_CREATOR_REJECT_CORRECTED",  async (ctx) => { await ctx.answerCbQuery(); });
 
 
 
