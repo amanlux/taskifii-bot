@@ -283,29 +283,12 @@ const DoerWorkSchema = new mongoose.Schema({
     videoNoteFileId: String,
     isForwarded: { type: Boolean, default: false }
   }],
-  
-  fixNoticeSentAt: { type: Date },
-  
-  
-  // NEW: Revision tracking
-  revisionStartedAt: { type: Date },
-  revisionDeadlineAt: { type: Date },
-  revisionCount: { type: Number, default: 0 },
-  currentRevisionStatus: { 
-    type: String, 
-    enum: ['none', 'awaiting_fix', 'fix_received', 'accepted'], 
-    default: 'none' 
-  },
-  // After currentRevisionStatus:
- 
-
-  // NEW: Messages the doer sends after receiving a fix notice.
-  // We store these separately so they can be forwarded as the corrected version
-  // without mixing them with the original submission.
+  // NEW: Responses from the doer after a fix notice
+  // These store the corrected work submissions during the revision window.
   fixResponses: [{
     messageId: Number,
     date: Date,
-    type: { type: String },  // e.g. 'text','photo','document', etc.
+    type: { type: String },     // 'text','photo','document', etc.
     mediaGroupId: String,
     text: String,
     caption: String,
@@ -319,8 +302,21 @@ const DoerWorkSchema = new mongoose.Schema({
     animationFileId: String,
     videoNoteFileId: String,
     isForwarded: { type: Boolean, default: false }
-  }]
-
+  }],
+  
+  fixNoticeSentAt: { type: Date },
+  
+  
+  // NEW: Revision tracking
+  revisionStartedAt: { type: Date },
+  revisionDeadlineAt: { type: Date },
+  revisionCount: { type: Number, default: 0 },
+  currentRevisionStatus: { 
+    type: String, 
+    enum: ['none', 'awaiting_fix', 'fix_received', 'accepted'], 
+    default: 'none' 
+  }
+  
 
 
 }, { versionKey: false, timestamps: true });
@@ -8944,10 +8940,19 @@ bot.on('message', async (ctx, next) => {
 
     // Is this user an active doer on some task?
     // Find the latest active task work for this user
-    const work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' })
-                                .sort({ startedAt: -1 })
-                                .lean();
-
+    let work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' })
+                          .sort({ startedAt: -1 });
+    let isRevision = false;
+    if (!work) {
+      // Find a completed task with a fix notice waiting for a corrected submission
+      work = await DoerWork.findOne({
+        doerTelegramId: fromId,
+        status: 'completed',
+        fixNoticeSentAt: { $exists: true },
+        currentRevisionStatus: { $in: ['none','awaiting_fix'] }
+      }).sort({ fixNoticeSentAt: -1 });
+      if (work) isRevision = true;
+    }
     if (!work) return next();
 
     // Filter out the two system prompts you explicitely do NOT want included
@@ -9065,18 +9070,11 @@ bot.on('message', async (ctx, next) => {
       if (m.caption) base.caption = m.caption;
     }
 
-    // Determine whether this message is part of a revision fix or an original submission.
-    let targetArray = 'messages';
-    if (work.currentRevisionStatus && work.currentRevisionStatus === 'awaiting_fix') {
-      targetArray = 'fixResponses';
-    }
-    const pushObj = {};
-    pushObj[targetArray] = base;
+    const pushField = isRevision ? 'fixResponses' : 'messages';
     await DoerWork.updateOne(
       { _id: work._id },
-      { $push: pushObj }
+      { $push: { [pushField]: base } }
     );
-
 
 
     return next();
@@ -9404,22 +9402,13 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   
 
   // Mark the fix notice as sent and disable the creator's button
-  // Mark the fix notice as sent, record revision start and mark awaiting state
-  const nowTs = new Date();
-  work.fixNoticeSentAt = nowTs;
-  try {
-    const taskDoc = await Task.findById(taskId);
-    const revisionHours = (taskDoc && taskDoc.revisionTime) ? taskDoc.revisionTime : 0;
-    work.revisionStartedAt = nowTs;
-    work.revisionDeadlineAt = new Date(nowTs.getTime() + revisionHours * 60 * 60 * 1000);
-    work.revisionCount = (work.revisionCount || 0) + 1;
-    work.currentRevisionStatus = 'awaiting_fix';
-  } catch (err) {
-    // If task lookup fails, still mark awaiting_fix without a deadline
-    work.currentRevisionStatus = 'awaiting_fix';
-  }
+  const nowStamp = new Date();
+  work.fixNoticeSentAt  = nowStamp;
+  work.revisionStartedAt = nowStamp;
+  work.revisionDeadlineAt = halfDeadline;    // halfDeadline is already computed in this function
+  work.revisionCount   = (work.revisionCount || 0) + 1;
+  work.currentRevisionStatus = 'awaiting_fix';
   await work.save();
-
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[ Markup.button.callback(
@@ -9548,95 +9537,101 @@ bot.action("_DISABLED_DOER_SEND_CORRECTED", async (ctx) => {
 bot.action("_DISABLED_GENERIC", async (ctx) => {
   await ctx.answerCbQuery();
 });
+// When a winner task doer believes they have addressed all requested fixes and
+// presses the "Send corrected version" button, we forward their corrected
+// submissions to the task creator and present the creator with approve/reject options.
 bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
-  const taskId = ctx.match[1];
+  const taskId   = ctx.match[1];
   const doerTgId = ctx.from.id;
 
-  // Load the work record
-  const work = await DoerWork.findOne({ task: taskId, doerTelegramId: doerTgId });
-  if (!work) {
-    return ctx.answerCbQuery('Unable to find this task.', { show_alert: true });
-  }
-
-  // Ensure there are corrected messages
-  const responses = Array.isArray(work.fixResponses) ? work.fixResponses : [];
-  if (responses.length === 0) {
-    const lang = (await User.findOne({ telegramId: doerTgId }))?.language || 'en';
-    const errMsg = (lang === 'am')
-      ? 'እባክዎ አስተካክሏል የተስተካከለውን ስራ በመጀመሪያ ይላኩ፤ ከዚያ ቁልፉን ይጫኑ።'
-      : 'Please send the corrected work first, then tap the corrected version button.';
-    return ctx.answerCbQuery(errMsg, { show_alert: true });
-  }
-
-  // Highlight the Send Corrected button and disable the Report button
+  // 1. Highlight the clicked button and disable both options
   try {
-    const currentKeyboard = ctx.callbackQuery.message.reply_markup.inline_keyboard;
-    const newRow = currentKeyboard[0].map(btn => {
-      if (btn.callback_data && btn.callback_data.startsWith('DOER_SEND_CORRECTED_')) {
-        return Markup.button.callback('✔ ' + btn.text, '_DISABLED_DOER_SEND_CORRECTED');
-      }
-      if (btn.callback_data && btn.callback_data.startsWith('DOER_REPORT_')) {
-        return Markup.button.callback(btn.text, '_DISABLED_DOER_REPORT');
-      }
-      return Markup.button.callback(btn.text, '_DISABLED_GENERIC');
-    });
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
-  } catch (e) {
-    console.error('Failed to edit inline keyboard on send corrected:', e);
-  }
-
-  // Mark that a revision has been submitted
-  work.currentRevisionStatus = 'fix_received';
-  await work.save();
-
-  // Forward each corrected message to the task creator
-  try {
-    const task = await Task.findById(taskId);
-    if (task) {
-      const creator = await User.findById(task.creator);
-      if (creator) {
-        for (const entry of responses) {
-          try {
-            await ctx.telegram.copyMessage(
-              creator.telegramId,
-              doerTgId,
-              entry.messageId
-            );
-          } catch (err) {
-            console.error('Failed to forward corrected message:', err);
-          }
+    const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
+    if (currentKeyboard && currentKeyboard[0]) {
+      const newRow = currentKeyboard[0].map(btn => {
+        if (btn.callback_data && btn.callback_data.startsWith('DOER_SEND_CORRECTED_')) {
+          return Markup.button.callback('✔ ' + btn.text, '_DISABLED_DOER_SEND_CORRECTED');
         }
-        // After forwarding, prompt the creator to approve or reject
-        const decisionMsg = 'The revised work has been submitted. Please approve or reject below.';
-        await ctx.telegram.sendMessage(
-          creator.telegramId,
-          decisionMsg,
-          Markup.inlineKeyboard([
-            [
-              Markup.button.callback('Approve', `CREATOR_APPROVE_${taskId}`),
-              Markup.button.callback('Reject', `CREATOR_REJECT_${taskId}`)
-            ]
-          ])
-        );
-      }
+        if (btn.callback_data && btn.callback_data.startsWith('DOER_REPORT_')) {
+          return Markup.button.callback(btn.text, '_DISABLED_DOER_REPORT');
+        }
+        return Markup.button.callback(btn.text, '_DISABLED_GENERIC');
+      });
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
     }
-  } catch (e) {
-    console.error('Error forwarding corrected messages to creator:', e);
+  } catch (e) { /* ignoring keyboard edit failure */ }
+
+  // Acknowledge the tap silently
+  try { await ctx.answerCbQuery(); } catch {}
+
+  // 2. Load the doer’s work and ensure there are corrected messages
+  const work = await DoerWork.findOne({ task: taskId, doerTelegramId: doerTgId });
+  if (!work) return;
+  if (!work.fixResponses || work.fixResponses.length === 0) {
+    await ctx.reply('Please send the corrected work before tapping the button.');
+    return;
   }
-});
-// ─── CREATOR Approve/Reject corrected work (dummy handlers) ──────────
-bot.action(/^CREATOR_APPROVE_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  // Placeholder: future logic will handle approval here
-  await ctx.reply('✔ You approved the corrected work. Further actions will be implemented later.');
+
+  // 3. Forward each corrected message exactly as the doer sent it
+  const task   = await Task.findById(taskId);
+  const creatorUser = await User.findById(task.creator);
+  for (const entry of work.fixResponses) {
+    await ctx.telegram.copyMessage(
+      creatorUser.telegramId,
+      doerTgId,
+      entry.messageId
+    );
+  }
+
+  // 4. Ask the creator to approve or reject the revised work
+  const lang   = creatorUser.language || 'en';
+  const prompt = (lang === 'am')
+    ? 'ይህ የተቀየረ ስራ ስለሆነ እባክዎ በታች ያሉትን አማራጮች ይምረጡ።'
+    : 'Here is the revised work submission. Please choose below:';
+  const decisionKeyboard = Markup.inlineKeyboard([
+    [
+      Markup.button.callback('Approve', `CREATOR_APPROVE_FIX_${taskId}`),
+      Markup.button.callback('Reject',  `CREATOR_REJECT_FIX_${taskId}`)
+    ]
+  ]);
+  const sentMsg = await ctx.telegram.sendMessage(
+    creatorUser.telegramId,
+    prompt,
+    decisionKeyboard
+  );
+
+  // 5. Update revision status and remember this message id
+  work.currentRevisionStatus      = 'fix_received';
+  work.revisionDecisionMessageId = sentMsg.message_id;
+  await work.save();
 });
 
-bot.action(/^CREATOR_REJECT_(.+)$/, async (ctx) => {
+// Dummy handlers for creator decision on revised work
+bot.action(/^CREATOR_APPROVE_FIX_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
-  // Placeholder: future logic will handle rejection here
-  await ctx.reply('⚠️ You rejected the corrected work. Taskifii will handle this situation.');
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [[
+      Markup.button.callback('✔ Approve', '_DISABLED_APPROVE_FIX'),
+      Markup.button.callback('Reject',  '_DISABLED_REJECT_FIX')
+    ]]
+  });
+  // TODO: finalize revision as accepted
 });
 
+bot.action(/^CREATOR_REJECT_FIX_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.editMessageReplyMarkup({
+    inline_keyboard: [[
+      Markup.button.callback('Approve', '_DISABLED_APPROVE_FIX'),
+      Markup.button.callback('✔ Reject',  '_DISABLED_REJECT_FIX')
+    ]]
+  });
+  // TODO: handle rejection (e.g. escalation, banning, etc.)
+});
+
+// Disabled handlers for inert approve/reject buttons
+bot.action('_DISABLED_APPROVE_FIX', async (ctx) => { await ctx.answerCbQuery(); });
+bot.action('_DISABLED_REJECT_FIX', async (ctx) => { await ctx.answerCbQuery(); });
 
 
 
