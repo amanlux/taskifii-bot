@@ -9391,8 +9391,8 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
 
   // Mark the fix notice as sent and disable the creator's button
   work.fixNoticeSentAt = new Date();
-  await work.save();
-    work.currentRevisionStatus = 'awaiting_fix';
+  
+  work.currentRevisionStatus = 'awaiting_fix';
   work.revisionStartedAt = new Date();
   // Optional: set a deadline if you want a hard stop; you already track half-window elsewhere
   // work.revisionDeadlineAt = new Date(Date.now() + ...);
