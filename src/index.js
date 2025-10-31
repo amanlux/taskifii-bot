@@ -8920,10 +8920,18 @@ bot.on('message', async (ctx, next) => {
     if (!fromId) return next();
 
     // Is this user an active doer on some task?
-    // Find the latest active task work for this user
-    const work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' })
-                                .sort({ startedAt: -1 })
-                                .lean();
+    // We also capture messages during the revision window when a fix notice
+    // has been sent but the work is not yet fully accepted.  The `$or` clause
+    // finds tasks in either the active work window or awaiting corrections.
+    const work = await DoerWork.findOne({
+      doerTelegramId: fromId,
+      $or: [
+        { status: 'active' },
+        { status: 'completed', fixNoticeSentAt: { $exists: true }, currentRevisionStatus: { $ne: 'accepted' } }
+      ]
+    })
+    .sort({ startedAt: -1 })
+    .lean();
 
     if (!work) return next();
 
@@ -9372,8 +9380,9 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   ]));
   
 
-  // Mark the fix notice as sent and disable the creator's button
+  // Mark the fix notice as sent and record that we are now awaiting a fix
   work.fixNoticeSentAt = new Date();
+  work.currentRevisionStatus = 'awaiting_fix';
   await work.save();
   try {
     await ctx.editMessageReplyMarkup({
