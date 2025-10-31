@@ -8949,7 +8949,11 @@ bot.on('message', async (ctx, next) => {
         doerTelegramId: fromId,
         status: 'completed',
         fixNoticeSentAt: { $exists: true },
-        revisionDecisionMessageId: { $exists: false } // no corrected submission sent yet
+        // NEW: only match work in an active revision phase
+          $or: [
+            { currentRevisionStatus: { $exists: false } },     // legacy tasks without the field
+            { currentRevisionStatus: 'awaiting_fix' }          // actively waiting for the doer to fix
+          ]
       }).sort({ fixNoticeSentAt: -1 });
       if (work) isRevision = true;
     }
