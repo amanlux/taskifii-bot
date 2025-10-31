@@ -9572,30 +9572,49 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   // Acknowledge the tap silently
   try { await ctx.answerCbQuery(); } catch {}
 
-  // 2. Load the doer’s work and ensure there are corrected messages
-  // Fetch the latest version (non-lean) so fixResponses is up to date
-  const work = await DoerWork.findOne({
-    task: taskId,
-    doerTelegramId: doerTgId
-  }); // no .lean() — ensures fixResponses is populated
+    // 2. Load the doer’s work
+  const work = await DoerWork.findOne({ task: taskId, doerTelegramId: doerTgId });
   if (!work) return;
-  if (!work.fixResponses || work.fixResponses.length === 0) {
+
+  // 3. Determine which messages constitute the corrected submission.
+  let corrected = Array.isArray(work.fixResponses) && work.fixResponses.length > 0
+    ? work.fixResponses
+    : [];
+
+  // If fixResponses is empty, fall back to all doer messages sent after the fix notice.
+  if (corrected.length === 0) {
+    const started = work.fixNoticeSentAt;
+    if (started) {
+      corrected = (work.messages || []).filter(entry => {
+        const sentDate = entry.date instanceof Date ? entry.date : new Date(entry.date);
+        return sentDate >= started;
+      });
+    }
+  }
+
+  if (!corrected || corrected.length === 0) {
     await ctx.reply('Please send the corrected work before tapping the button.');
     return;
   }
 
-  // 3. Forward each corrected message exactly as the doer sent it
+  // 4. Load the Task and creator info before forwarding
   const task   = await Task.findById(taskId);
   const creatorUser = await User.findById(task.creator);
-  for (const entry of work.fixResponses) {
-    await ctx.telegram.copyMessage(
-      creatorUser.telegramId,
-      doerTgId,
-      entry.messageId
-    );
+
+  // 5. Forward each corrected message exactly as the doer sent it
+  for (const entry of corrected) {
+    try {
+      await ctx.telegram.copyMessage(
+        creatorUser.telegramId,
+        doerTgId,
+        entry.messageId
+      );
+    } catch (err) {
+      console.error("Failed to forward corrected message:", err);
+    }
   }
 
-  // 4. Ask the creator to approve or reject the revised work
+  // 6. Ask the creator to approve or reject the revised work
   const lang   = creatorUser.language || 'en';
   const prompt = (lang === 'am')
     ? 'ይህ የተቀየረ ስራ ስለሆነ እባክዎ በታች ያሉትን አማራጮች ይምረጡ።'
@@ -9612,9 +9631,12 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     decisionKeyboard
   );
 
-  // 5. Update revision status and remember this message id
+  // 7. Mark the revision as received and optionally persist the fallback
   work.currentRevisionStatus      = 'fix_received';
   work.revisionDecisionMessageId = sentMsg.message_id;
+  if ((!work.fixResponses || work.fixResponses.length === 0) && corrected) {
+    work.fixResponses = corrected;
+  }
   await work.save();
 });
 
