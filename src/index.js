@@ -8953,7 +8953,9 @@ bot.on('message', async (ctx, next) => {
       if (work) isRevision = true;
     }
     if (!work) return next();
-
+    
+    // === DEBUG: see which work was matched and whether we consider it a revision
+    console.log(`doer ${fromId} -> matched DoerWork ${work._id}, isRevision = ${isRevision}`);
     // Filter out the two system prompts you explicitely do NOT want included
     const txt = ctx.message?.text || ctx.message?.caption || "";
     const blockedEn = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
@@ -9592,6 +9594,13 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     }
   }
 
+  // === DEBUG: see how many messages we found in each path
+  console.log(
+    'fixResponses length',
+    work.fixResponses ? work.fixResponses.length : 'undefined',
+    'messages after notice',
+    corrected.length
+  );
   if (!corrected || corrected.length === 0) {
     await ctx.reply('Please send the corrected work before tapping the button.');
     return;
