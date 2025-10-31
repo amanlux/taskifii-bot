@@ -8938,20 +8938,23 @@ bot.on('message', async (ctx, next) => {
     const fromId = ctx.from?.id;
     if (!fromId) return next();
 
-    // Is this user an active doer on some task?
-    // Find the latest active task work for this user
-    let work = await DoerWork.findOne({ doerTelegramId: fromId, status: 'active' })
-                          .sort({ startedAt: -1 });
+    // 1) First look for a revision record: currentRevisionStatus = 'awaiting_fix'
+    let work = await DoerWork.findOne({
+      doerTelegramId: fromId,
+      currentRevisionStatus: 'awaiting_fix'
+    }).sort({ fixNoticeSentAt: -1 });
+
     let isRevision = false;
-    if (!work) {
-      // Simplified: only tasks that are explicitly awaiting a fix
+    if (work) {
+      isRevision = true;
+    } else {
+      // 2) If no revision, fall back to the latest active work
       work = await DoerWork.findOne({
         doerTelegramId: fromId,
-        currentRevisionStatus: 'awaiting_fix'
-      }).sort({ fixNoticeSentAt: -1 });
-      if (work) isRevision = true;
+        status: 'active'
+      }).sort({ startedAt: -1 });
+      if (!work) return next();
     }
-    if (!work) return next();
     
     // === DEBUG: see which work was matched and whether we consider it a revision
     console.log(`doer ${fromId} -> matched DoerWork ${work._id}, isRevision = ${isRevision}`);
