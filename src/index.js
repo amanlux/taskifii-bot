@@ -8949,7 +8949,7 @@ bot.on('message', async (ctx, next) => {
         doerTelegramId: fromId,
         status: 'completed',
         fixNoticeSentAt: { $exists: true },
-        currentRevisionStatus: { $in: ['none','awaiting_fix'] }
+        currentRevisionStatus: { $ne: 'fix_received' }  // match undefined, 'none', 'awaiting_fix'
       }).sort({ fixNoticeSentAt: -1 });
       if (work) isRevision = true;
     }
@@ -9565,7 +9565,11 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   try { await ctx.answerCbQuery(); } catch {}
 
   // 2. Load the doer’s work and ensure there are corrected messages
-  const work = await DoerWork.findOne({ task: taskId, doerTelegramId: doerTgId });
+  // Fetch the latest version (non-lean) so fixResponses is up to date
+  const work = await DoerWork.findOne({
+    task: taskId,
+    doerTelegramId: doerTgId
+  }); // no .lean() — ensures fixResponses is populated
   if (!work) return;
   if (!work.fixResponses || work.fixResponses.length === 0) {
     await ctx.reply('Please send the corrected work before tapping the button.');
