@@ -8947,7 +8947,6 @@ bot.on('message', async (ctx, next) => {
       // Simplified: only tasks that are explicitly awaiting a fix
       work = await DoerWork.findOne({
         doerTelegramId: fromId,
-        status: 'completed',
         currentRevisionStatus: 'awaiting_fix'
       }).sort({ fixNoticeSentAt: -1 });
       if (work) isRevision = true;
