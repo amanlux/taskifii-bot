@@ -8944,16 +8944,11 @@ bot.on('message', async (ctx, next) => {
                           .sort({ startedAt: -1 });
     let isRevision = false;
     if (!work) {
-      // Find a completed task with a fix notice waiting for a corrected submission
+      // Simplified: only tasks that are explicitly awaiting a fix
       work = await DoerWork.findOne({
         doerTelegramId: fromId,
         status: 'completed',
-        fixNoticeSentAt: { $exists: true },
-        // NEW: only match work in an active revision phase
-          $or: [
-            { currentRevisionStatus: { $exists: false } },     // legacy tasks without the field
-            { currentRevisionStatus: 'awaiting_fix' }          // actively waiting for the doer to fix
-          ]
+        currentRevisionStatus: 'awaiting_fix'
       }).sort({ fixNoticeSentAt: -1 });
       if (work) isRevision = true;
     }
