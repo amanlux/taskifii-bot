@@ -8949,7 +8949,7 @@ bot.on('message', async (ctx, next) => {
         doerTelegramId: fromId,
         status: 'completed',
         fixNoticeSentAt: { $exists: true },
-        currentRevisionStatus: { $ne: 'fix_received' }  // match undefined, 'none', 'awaiting_fix'
+        revisionDecisionMessageId: { $exists: false } // no corrected submission sent yet
       }).sort({ fixNoticeSentAt: -1 });
       if (work) isRevision = true;
     }
