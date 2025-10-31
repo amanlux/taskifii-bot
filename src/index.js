@@ -9333,6 +9333,7 @@ bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
   // Put the creator into "fix listing" mode to capture their messages
   ctx.session = ctx.session || {};
   ctx.session.fixingTaskId = taskId;
+  ctx.session.fixingCreatorId = ctx.from.id;
   // (Also mark in DB when revision was requested, if needed)
   // work.revisionRequestedAt = new Date();
   // await work.save();
@@ -9420,11 +9421,19 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   
   // Clear the creator's session fix mode
   ctx.session.fixingTaskId = null;
+  ctx.session.fixingCreatorId = null;
 });
 
 // ─── Handle Creator’s Fix Comments (Message Handler) ───────────────────
 bot.on('message', async (ctx) => {
   if (!ctx.session?.fixingTaskId) return;  // only handle if user is in fix-listing mode
+   // NEW: ensure the current user is the same one who started the fix flow
+  if (ctx.session.fixingCreatorId && ctx.from.id !== ctx.session.fixingCreatorId) {
+    // If another user somehow has this in session, clear it and allow normal handlers
+    ctx.session.fixingTaskId   = null;
+    ctx.session.fixingCreatorId = null;
+    return;
+  }
   const taskId = ctx.session.fixingTaskId;
   // Ignore system/command messages
   const msg = ctx.message;
