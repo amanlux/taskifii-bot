@@ -1453,7 +1453,9 @@ async function releasePaymentAndFinalize(taskId, reason) {
       reference: `task_payout_${task._id}`,
       banks: banksList,
       selectedBankId: null,
-      accountPromptMessageId: null
+      accountPromptMessageId: null,
+      // NEW: persist the user's language for localization in later steps
+      language: doer.language || "en"
     };
 
     // Prompt the doer to choose a bank from the fetched list
@@ -9062,61 +9064,62 @@ bot.on('message', async (ctx, next) => {
     return next();
   }
 });
+
 // Handle pagination for bank list
 bot.action(/^PAYOUT_PAGE_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
-  // acknowledge the callback
   await ctx.answerCbQuery();
-
   const taskId = ctx.match[1];
   const page = parseInt(ctx.match[2]);
   const userId = ctx.from.id;
-
-  // fetch the pending payout context
   const pending = global.pendingPayouts?.[userId];
+
+  // Ensure there is a valid pending payout session for this task
   if (!pending || String(pending.taskId) !== taskId) {
     return ctx.answerCbQuery("❌ Session expired. Please try again.");
   }
 
-  // build the keyboard for the requested page
-  const keyboardMarkup = buildBankKeyboard(taskId, pending.banks, page, pending.selectedBankId);
-
-  // determine the user’s language
-  let lang = 'en';
+  // Delete the old bank list message to avoid clutter
   try {
-    const user = await User.findOne({ telegramId: userId });
-    if (user?.language) lang = user.language;
-  } catch {}
+    await ctx.deleteMessage();
+  } catch (e) {
+    // Ignored if message cannot be deleted (e.g. already removed)
+  }
 
-  // compose the prompt based on selection and language
-  let prompt;
+  // Build the keyboard for the requested page
+  const keyboardMarkup = buildBankKeyboard(
+    taskId,
+    pending.banks,
+    page,
+    pending.selectedBankId
+  );
+
+  // Determine language and prompt text
+  const lang = pending.language || "en";
+  let promptText;
   if (pending.banks && pending.banks.length) {
     if (pending.selectedBankId) {
-      // a bank is already selected
-      prompt = (lang === 'am')
-        ? 'ለክፍያ ባንክ ይምረጡ (የተመረጠው ✔ በተጠርጠረለት)'
-        : 'Choose a bank for payout (current selection marked with ✔):';
+      // A bank has already been selected; show which one is marked
+      promptText =
+        lang === "am"
+          ? "እባክዎ የእርስዎን ባንክ ይምረጡ። (የተመረጠው በ ✔ ይታያል)"
+          : "Choose a bank for payout (current selection marked with ✔):";
     } else {
-      // no bank selected yet
-      prompt = (lang === 'am')
-        ? 'እባክዎ የእርስዎን ባንክ ይምረጡ።'
-        : 'Please choose your bank for payout:';
+      // No bank has been selected yet
+      promptText =
+        lang === "am"
+          ? "እባክዎ የእርስዎን ባንክ ይምረጡ።"
+          : "Please choose your bank for payout:";
     }
   } else {
-    // no banks available
-    prompt = (lang === 'am')
-      ? 'ምንም ባንኮች አልተገኙም።'
-      : 'No banks available.';
+    // There are no available banks to choose
+    promptText =
+      lang === "am"
+        ? "ባንኮች አልተገኙም።"
+        : "No banks available.";
   }
 
-  // edit the existing message in place so it doesn’t shift
-  try {
-    await ctx.editMessageText(prompt, {
-      reply_markup: keyboardMarkup.reply_markup
-    });
-  } catch (e) {
-    // if editing fails (e.g. message too old), fallback to sending a new message
-    await ctx.reply(prompt, keyboardMarkup);
-  }
+  // Send the localized prompt with the new keyboard
+  return ctx.reply(promptText, keyboardMarkup);
 });
 
 
@@ -9139,29 +9142,15 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
   // Update selected bank in session and highlight it
   pending.selectedBankId = bank.id;
   pending.selectedBankName = bank.name;
-  // Edit the bank list message to highlight the chosen bank and update the prompt
+  // Edit the bank list message to highlight the chosen bank
   try {
-    const pageIndex = Math.floor(pending.banks.findIndex(b => b.id === bankId) / 10);
-    const newMarkup = buildBankKeyboard(taskId, pending.banks, pageIndex, pending.selectedBankId);
-
-    // determine the user’s language
-    let lang = 'en';
-    try {
-      const user = await User.findOne({ telegramId: userId });
-      if (user?.language) lang = user.language;
-    } catch {}
-
-    const newPrompt = (lang === 'am')
-      ? 'ለክፍያ ባንክ ይምረጡ (የተመረጠው ✔ በተጠርጠረለት)'
-      : 'Choose a bank for payout (current selection marked with ✔):';
-
-    await ctx.editMessageText(newPrompt, {
-      reply_markup: newMarkup.reply_markup
-    });
+    const newMarkup = buildBankKeyboard(taskId, pending.banks, 
+                                        Math.floor(pending.banks.findIndex(b => b.id === bankId) / 10), 
+                                        pending.selectedBankId);
+    await ctx.editMessageReplyMarkup(newMarkup.reply_markup);
   } catch (e) {
-    console.error('Failed to update bank selection prompt:', e);
+    console.error("Failed to highlight selected bank:", e);
   }
-
 
   // Prompt user for the account number of the selected bank
   const lang = (await User.findOne({ telegramId: userId }))?.language || "en";
