@@ -80,6 +80,9 @@ userSchema.index({ phone:    1 }, { unique: true, sparse: true });
 
 const TaskDraft = require("./models/TaskDraft");
 const PaymentIntent = require("./models/PaymentIntent");  // NEW
+// Helper: track if the creator’s rating prompt was sent early.
+global.sentRatingPromptToCreator = global.sentRatingPromptToCreator || {};
+
 
 // ------------------------------------
 //  Engagement Lock Model & Utilities
@@ -2682,16 +2685,27 @@ async function finalizeAndRequestRatings(reason, taskId, botOrTelegram) {
     await sendGiantSummaryToChannel(botOrTelegram, task, creator, doer);
   }
 
-  // 2) Always send rating prompts to BOTH users if not already sent
+  // 2) Always set the ratingPromptsSentAt timestamp if not already set
   if (!state.ratingPromptsSentAt) {
     state.ratingPromptsSentAt = new Date();
     await state.save();
   }
 
-  // Ensure both prompts are delivered every time
+  // Always send the rating prompt to the doer (for rating the creator)
   await sendRatingPromptToUser(botOrTelegram, doer, creator, 'doerRatesCreator', task);
-  await sendRatingPromptToUser(botOrTelegram, creator, doer, 'creatorRatesDoer', task);
+
+  // Only send the creator's rating prompt if it hasn't already been sent
+  const tIdString = task._id.toString();
+  if (!global.sentRatingPromptToCreator || !global.sentRatingPromptToCreator[tIdString]) {
+    await sendRatingPromptToUser(botOrTelegram, creator, doer, 'creatorRatesDoer', task);
+  }
+
+  // Mark that the creator's prompt has been sent so it isn't sent again later
+  if (global.sentRatingPromptToCreator) {
+    global.sentRatingPromptToCreator[tIdString] = true;
+  }
 }
+
 
 
 // check if we should finalize now (C = both tapped Mission early) or at timeout (A/B/D)
@@ -9295,8 +9309,27 @@ bot.action(/^CREATOR_VALID_(.+)$/, async (ctx) => {
       ]]
     });
   } catch {}
-  // Immediately finalize: release escrow and send rating prompts
+  // Immediately send the rating prompt to the creator before finalizing.
+  try {
+    const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
+    if (task) {
+      const doer = acceptedDoerUser(task);
+      const creator = task.creator;
+      if (doer && creator) {
+        const tIdString = task._id.toString();
+        // Only send if not already sent for this task.
+        if (!global.sentRatingPromptToCreator[tIdString]) {
+          await sendRatingPromptToUser(ctx.telegram, creator, doer, 'creatorRatesDoer', task);
+          global.sentRatingPromptToCreator[tIdString] = true;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("Error sending early rating prompt:", e);
+  }
+  // Now proceed with the existing finalize call.
   await releasePaymentAndFinalize(taskId, 'accepted');
+
 });
 
 // ─── CREATOR “Needs Fixing” Action ───────────────────────────
