@@ -1411,10 +1411,19 @@ async function releasePaymentAndFinalize(taskId, reason) {
     const creator = task.creator;
     
     // Calculate payout amount (minus 5% commission)
+    // Fetch the intent (if any) and coerce the amount to a number; PaymentIntent.amount may be stored as a string.
     const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
-    const totalAmount = intent ? intent.amount : (task.paymentFee || 0);
-    const commission = Math.round(totalAmount * 5) / 100;  // 5% commission
-    const payoutAmount = totalAmount - commission;
+    const totalAmountRaw = intent ? intent.amount : (task.paymentFee || 0);
+    const totalAmount = Number(totalAmountRaw) || 0;
+
+    // Commission is 5% of the task fee. Multiply by 0.05 and round to two decimals
+    // to avoid floating‑point imprecision (e.g., 0.1 * 0.05 = 0.005000000000000001).
+    const commission = Math.round(totalAmount * 0.05 * 100) / 100;
+
+    // The doer should receive the remainder of the task fee after deducting the commission.
+    // Round to two decimals to ensure you never send fractional cents.
+    const payoutAmount = Math.round((totalAmount - commission) * 100) / 100;
+
 
     // Fetch supported banks from Chapa
     let banksList = [];
