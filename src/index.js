@@ -1410,19 +1410,24 @@ async function releasePaymentAndFinalize(taskId, reason) {
     const doer = doerApp.user;
     const creator = task.creator;
     
-    // Calculate payout amount (minus 5% commission)
-    // Fetch the intent (if any) and coerce the amount to a number; PaymentIntent.amount may be stored as a string.
+    
+    // ----- BEGIN: commission + payout calculation (replace your old block with this) -----
     const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
+
+    // We always base the commission on the full task fee (not net of any gateway fees).
+    // Use intent.amount if present (from the Chapa payment that funded escrow), else fall back to task.paymentFee.
     const totalAmountRaw = intent ? intent.amount : (task.paymentFee || 0);
     const totalAmount = Number(totalAmountRaw) || 0;
 
-    // Commission is 5% of the task fee. Multiply by 0.05 and round to two decimals
-    // to avoid floating‑point imprecision (e.g., 0.1 * 0.05 = 0.005000000000000001).
-    const commission = Math.round(totalAmount * 0.05 * 100) / 100;
+    // Platform commission: 5% of the task fee.
+    const commission = round2(totalAmount * 0.05);
 
-    // The doer should receive the remainder of the task fee after deducting the commission.
-    // Round to two decimals to ensure you never send fractional cents.
-    const payoutAmount = Math.round((totalAmount - commission) * 100) / 100;
+    // Amount to *send* to the doer (before Chapa recipient fee): task fee - platform commission
+    // You explicitly want the doer transfer to be this amount, and let Chapa charge the recipient from this amount.
+    const payoutAmount = round2(totalAmount - commission);
+
+    // (Keep using payoutAmount exactly as you already do later: store in global.pendingPayouts, etc.)
+
 
 
     // Fetch supported banks from Chapa
@@ -1562,6 +1567,11 @@ async function checkPendingRefunds() {
   } catch (e) {
     console.error("checkPendingRefunds error:", e);
   }
+}
+function round2(x) {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
 }
 
 // Normalizes ET mobile numbers to +2519xxxxxxxx / +2517xxxxxxxx; returns null if unknown.
