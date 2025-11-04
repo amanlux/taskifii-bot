@@ -113,6 +113,22 @@ const EscalationSchema = new mongoose.Schema({
 
 const Escalation = mongoose.models.Escalation
   || mongoose.model('Escalation', EscalationSchema);
+const DisputePackageSchema = new mongoose.Schema({
+  task:    { type: mongoose.Schema.Types.ObjectId, ref: 'Task', index: true, required: true, unique: true },
+  creator: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  doer:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+
+  // For visual grouping + reliability months later
+  headerMessageId: { type: Number },            // first message in channel (group header)
+  lastChunkMessageId: { type: Number },         // message that has the buttons
+  channelId: { type: String, default: String(DISPUTE_CHANNEL_ID) },
+
+  // Audit & resiliency
+  createdAt: { type: Date, default: Date.now }
+}, { versionKey: false });
+
+const DisputePackage = mongoose.models.DisputePackage
+  || mongoose.model('DisputePackage', DisputePackageSchema);
 
 const BanlistSchema = new mongoose.Schema({
   user:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
@@ -1662,6 +1678,55 @@ function buildDisputeSummaryText({ task, creatorUser, doerUser }) {
 
   return lines.join("\n");
 }
+function buildDisputeChunks({ task, creatorUser, doerUser, winnerApp }) {
+  // 9 task details outside related file — adapt from your existing summary builder
+  const details = [
+    "🚨 *DISPUTE ESCALATION*",
+    "",
+    "👤 *TASK CREATOR*",
+    `• Full Name: ${creatorUser.fullName || 'N/A'}`,
+    `• Telegram: @${creatorUser.username || 'N/A'}`,
+    `• Phone: ${creatorUser.phone || 'N/A'}`,
+    `• Email: ${creatorUser.email || 'N/A'}`,
+    `• Telegram ID: ${creatorUser.telegramId}`,
+    `• User ID: ${creatorUser._id}`,
+    "",
+    "👥 *WINNER TASK DOER*",
+    `• Full Name: ${doerUser.fullName || 'N/A'}`,
+    `• Telegram: @${doerUser.username || 'N/A'}`,
+    `• Phone: ${doerUser.phone || 'N/A'}`,
+    `• Email: ${doerUser.email || 'N/A'}`,
+    `• Telegram ID: ${doerUser.telegramId}`,
+    `• User ID: ${doerUser._id}`,
+    "",
+    "📝 *TASK DETAILS*",
+    `• Task ID: ${task._id}`,
+    `• Description: ${task.description}`,
+    `• Payment Fee: ${task.paymentFee} birr`,
+    `• Time to Complete: ${task.timeToComplete} hour(s)`,
+    `• Skill Level: ${task.skillLevel}`,
+    `• Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : (task.fields || 'N/A')}`,
+    `• Exchange Strategy: ${task.exchangeStrategy || 'N/A'}`,
+    `• Revision Time: ${task.revisionTime} hour(s)`,
+    `• Penalty per Hour: ${task.latePenalty} birr`,
+    `• Posted At: ${task.postedAt}`,
+    `• Expires At: ${task.expiry}`,
+    "",
+    "💬 *ORIGINAL APPLICATION PITCH*",
+  ].join("\n");
+
+  const pitchBlock = (() => {
+    if (winnerApp?.pitchMessages?.length) {
+      // We'll show a short pointer here; the actual originals send via button.
+      return "• This pitch includes media/messages. Tap the buttons below to load originals.";
+    }
+    if (winnerApp?.pitch) return winnerApp.pitch;
+    return "• (No pitch content recorded)";
+  })();
+
+  const full = [details, pitchBlock].join("\n");
+  return splitIntoChunks(full);
+}
 
 
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
@@ -1799,6 +1864,45 @@ async function safeTelegramCall(fn, ...args) {
       throw err;
     }
   }
+}
+async function sendWithUnlimitedRetry(notifyChannelId, telegramFn, ...args) {
+  let attempts = 0;
+  while (true) {
+    try {
+      return await telegramFn(...args);
+    } catch (err) {
+      attempts += 1;
+      // Telegram "retry_after" handling if present
+      if (err?.response?.error_code === 429) {
+        const s = err.response.parameters?.retry_after || 1;
+        await sleep(s * 1000);
+      } else {
+        // backoff anyway
+        await sleep(Math.min(30000, 500 * attempts));
+      }
+
+      // After 5 failed tries, notify your audit channel once per attempt
+      // (still keep retrying forever after the notify)
+      if (attempts === 5) {
+        try {
+          await (telegram.sendMessage
+            ? telegram.sendMessage(notifyChannelId,
+              `⚠️ Dispute delivery keeps failing after 5 attempts.\n(${(err?.description || err?.message || 'Unknown error')})`)
+            : Promise.resolve());
+        } catch (_e) { /* keep going */ }
+      }
+    }
+  }
+}
+
+function splitIntoChunks(text, maxLen = 3500) {
+  const out = [];
+  let i = 0;
+  while (i < text.length) {
+    out.push(text.slice(i, i + maxLen));
+    i += maxLen;
+  }
+  return out;
 }
 
 
@@ -3009,69 +3113,73 @@ async function escalateDoerReport(ctx, taskId) {
     }
   }
 
-  // ----- PHASE B: evidence streaming -----
-  await forwardMessageLogToDispute(
-    telegram,
-    DISPUTE_CHANNEL_ID,
-    work.doerTelegramId,
-    work.messages,
-    "📦 COMPLETED TASK (from Winner Task Doer):"
-  );
-
-  await forwardMessageLogToDispute(
-    telegram,
-    DISPUTE_CHANNEL_ID,
-    creatorUser.telegramId,
-    work.fixRequests,
-    "✏️ FIX NOTICE (from Task Creator):"
-  );
-
-  // PITCH
+  // ----- PHASE B: dispute summary in safe chunks + buttons -----
   const winnerApp = (task.applicants || []).find(a =>
-    a.status === "Accepted" &&
-    !a.canceledAt &&
-    a.user &&
-    a.user.toString() === doerUser._id.toString()
+    a.status === "Accepted" && !a.canceledAt && a.user && a.user.toString() === doerUser._id.toString()
   );
 
-  if (winnerApp && winnerApp.pitchMessages && winnerApp.pitchMessages.length) {
-    await forwardMessageLogToDispute(
-      telegram,
-      DISPUTE_CHANNEL_ID,
-      doerUser.telegramId,
-      winnerApp.pitchMessages,
-      "💬 ORIGINAL APPLICATION PITCH:"
-    );
-  } else if (winnerApp && winnerApp.pitch) {
-    await safeTelegramCall(
-      telegram.sendMessage.bind(telegram),
-      DISPUTE_CHANNEL_ID,
-      "💬 ORIGINAL APPLICATION PITCH:\n" + winnerApp.pitch
-    );
+  // Build chunks (9 task details + task id + both profiles + pitch pointer/content)
+  const chunks = buildDisputeChunks({ task, creatorUser, doerUser, winnerApp });
+
+  // 1) Create/ensure a DisputePackage (one per task)
+  let pkg = await DisputePackage.findOne({ task: task._id });
+  if (!pkg) {
+    pkg = await DisputePackage.create({
+      task: task._id,
+      creator: creatorUser._id,
+      doer: doerUser._id,
+      channelId: String(DISPUTE_CHANNEL_ID)
+    });
   }
 
-  // TASK RELATED FILE
-  if (task.relatedFile && task.relatedFile.fileId) {
-    await safeTelegramCall(
-      telegram.sendMessage.bind(telegram),
-      DISPUTE_CHANNEL_ID,
-      "📎 TASK RELATED FILE (from original task post):"
-    );
-
-    await safeTelegramCall(
-      sendTaskRelatedFile,
-      telegram,
-      DISPUTE_CHANNEL_ID,
-      task.relatedFile.fileId
-    );
-  }
-
-  // final marker
-  await safeTelegramCall(
-    telegram.sendMessage.bind(telegram),
+  // 2) Post a visible header to group everything via reply threads
+  const header = await sendWithUnlimitedRetry(
+    REFUND_AUDIT_CHANNEL_ID,
+    ctx.telegram.sendMessage.bind(ctx.telegram),
     DISPUTE_CHANNEL_ID,
-    "—— END OF DISPUTE PACKAGE ——"
+    `#dispute\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`,
   );
+  await DisputePackage.updateOne({ _id: pkg._id }, { $set: { headerMessageId: header.message_id } });
+
+  // 3) Send the chunks replying to the header, with [n/N] markers
+  let lastChunkMsg = null;
+  for (let i = 0; i < chunks.length; i++) {
+    const numbered = `(${i+1}/${chunks.length})\n` + chunks[i];
+    lastChunkMsg = await sendWithUnlimitedRetry(
+      REFUND_AUDIT_CHANNEL_ID,
+      ctx.telegram.sendMessage.bind(ctx.telegram),
+      DISPUTE_CHANNEL_ID,
+      numbered,
+      { parse_mode: "Markdown", reply_to_message_id: header.message_id, allow_sending_without_reply: true }
+    );
+  }
+
+  // 4) Attach the 3 persistent buttons under the final chunk
+  const buttons = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("Completed task", `DP_OPEN_${pkg._id}_completed`),
+      Markup.button.callback("Related file",   `DP_OPEN_${pkg._id}_related`),
+      Markup.button.callback("Fix notice",     `DP_OPEN_${pkg._id}_fix`),
+    ]
+  ]);
+  await sendWithUnlimitedRetry(
+    REFUND_AUDIT_CHANNEL_ID,
+    ctx.telegram.sendMessage.bind(ctx.telegram),
+    DISPUTE_CHANNEL_ID,
+    "Use the buttons below to load the originals on demand.",
+    { reply_to_message_id: header.message_id, allow_sending_without_reply: true, reply_markup: buttons.reply_markup }
+  );
+  await DisputePackage.updateOne({ _id: pkg._id }, { $set: { lastChunkMessageId: (lastChunkMsg?.message_id || null) } });
+
+  // 5) Footer, also a reply to header, so every package stays visually grouped
+  await sendWithUnlimitedRetry(
+    REFUND_AUDIT_CHANNEL_ID,
+    ctx.telegram.sendMessage.bind(ctx.telegram),
+    DISPUTE_CHANNEL_ID,
+    "—— END OF DISPUTE PACKAGE ——",
+    { reply_to_message_id: header.message_id, allow_sending_without_reply: true }
+  );
+
 }
 
 
@@ -9484,6 +9592,37 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   
   // Clear the creator's session fix mode
   ctx.session.fixingTaskId = null;
+});
+bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+  } catch {}
+
+  const [, pkgId, which] = ctx.match;
+  const pkg = await DisputePackage.findById(pkgId).lean();
+  if (!pkg) return;
+
+  const task = await Task.findById(pkg.task).populate('creator').lean();
+  const work = await DoerWork.findOne({ task: pkg.task }).populate('doer').lean();
+  const creatorUser = await User.findById(task.creator._id).lean();
+  const doerUser    = await User.findById(work.doer._id).lean();
+
+  // We always send to the same channel the package used
+  const channelId = pkg.channelId || DISPUTE_CHANNEL_ID;
+
+  if (which === 'completed') {
+    await forwardMessageLogToDispute(ctx.telegram, channelId, work.doerTelegramId, work.messages, "📦 COMPLETED TASK (from Winner Task Doer):");
+  } else if (which === 'related') {
+    // related file(s) from task post
+    if (task.relatedFile?.fileId) {
+      await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "📎 TASK RELATED FILE (from original task post):");
+      await safeTelegramCall(sendTaskRelatedFile, ctx.telegram, channelId, task.relatedFile.fileId);
+    } else {
+      await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "No related file was attached on the original task.");
+    }
+  } else if (which === 'fix') {
+    await forwardMessageLogToDispute(ctx.telegram, channelId, creatorUser.telegramId, work.fixRequests, "✏️ FIX NOTICE (from Task Creator):");
+  }
 });
 
 // ─── Handle Creator’s Fix Comments (Message Handler) ───────────────────
