@@ -1630,59 +1630,23 @@ function isValidEmail(email) {
   const tld = email.toLowerCase().split(".").pop();
   return ALLOWED_TLDS.has(tld);
 }
-// This builds the big summary block with #refund and all identities.
-// We send this ONCE per dispute.
-function buildDisputeSummaryText({ task, creatorUser, doerUser }) {
-  const lines = [
-    "#refund",
-    "🚨 *DISPUTE ESCALATION*",
-    "",
-    "👤 *TASK CREATOR DETAILS:*",
-    `• Full Name: ${creatorUser.fullName || 'N/A'}`,
-    `• Phone: ${creatorUser.phone || 'N/A'}`,
-    `• Telegram: @${creatorUser.username || 'N/A'}`,
-    `• Email: ${creatorUser.email || 'N/A'}`,
-    `• Telegram ID: ${creatorUser.telegramId}`,
-    `• User ID: ${creatorUser._id}`,
-    "",
-    "👥 *WINNER TASK DOER DETAILS:*",
-    `• Full Name: ${doerUser.fullName || 'N/A'}`,
-    `• Phone: ${doerUser.phone || 'N/A'}`,
-    `• Telegram: @${doerUser.username || 'N/A'}`,
-    `• Email: ${doerUser.email || 'N/A'}`,
-    `• Telegram ID: ${doerUser.telegramId}`,
-    `• User ID: ${doerUser._id}`,
-    "",
-    "📝 *TASK DETAILS:*",
-    `• Description: ${task.description}`,
-    `• Payment Fee: ${task.paymentFee} birr`,
-    `• Time to Complete: ${task.timeToComplete} hour(s)`,
-    `• Skill Level: ${task.skillLevel}`,
-    `• Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : (task.fields || 'N/A')}`,
-    `• Exchange Strategy: ${task.exchangeStrategy || 'N/A'}`,
-    `• Revision Time: ${task.revisionTime} hour(s)`,
-    `• Penalty per Hour: ${task.latePenalty} birr`,
-    `• Posted At: ${task.postedAt}`,
-    `• Expires At: ${task.expiry}`,
-    "",
-    "🔎 CONTEXT:",
-    "• The doer claims the creator is demanding fixes not included in the original task description.",
-    "• BOTH accounts are now temporarily banned from Taskifii and the dispute group.",
-    "",
-    "Below are the evidences. Order:",
-    "1) Doer's original COMPLETED WORK",
-    "2) Creator's FIX NOTICE / requested changes",
-    "3) Doer's APPLICATION PITCH when they first applied",
-    "4) Task Related File (if any)",
-    "",
-    "—— START OF ATTACHMENTS ——"
-  ];
 
-  return lines.join("\n");
+
+
+function formatGmt3(date) {
+  try {
+    const opts = { timeZone: "Africa/Addis_Ababa", year: "numeric", month: "short", day: "2-digit",
+                   hour: "2-digit", minute: "2-digit", hour12: false };
+    const s = new Intl.DateTimeFormat("en-GB", opts).format(date);
+    return `${s} (GMT+3)`;
+  } catch {
+    return new Date(date).toISOString();
+  }
 }
+
 function buildDisputeChunks({ task, creatorUser, doerUser, winnerApp }) {
-  // 9 task details outside related file — adapt from your existing summary builder
-  const details = [
+  // 1) identities + task meta (NO description here)
+  const meta = [
     "🚨 *DISPUTE ESCALATION*",
     "",
     "👤 *TASK CREATOR*",
@@ -1703,7 +1667,6 @@ function buildDisputeChunks({ task, creatorUser, doerUser, winnerApp }) {
     "",
     "📝 *TASK DETAILS*",
     `• Task ID: ${task._id}`,
-    `• Description: ${task.description}`,
     `• Payment Fee: ${task.paymentFee} birr`,
     `• Time to Complete: ${task.timeToComplete} hour(s)`,
     `• Skill Level: ${task.skillLevel}`,
@@ -1711,24 +1674,30 @@ function buildDisputeChunks({ task, creatorUser, doerUser, winnerApp }) {
     `• Exchange Strategy: ${task.exchangeStrategy || 'N/A'}`,
     `• Revision Time: ${task.revisionTime} hour(s)`,
     `• Penalty per Hour: ${task.latePenalty} birr`,
-    `• Posted At: ${task.postedAt}`,
-    `• Expires At: ${task.expiry}`,
-    "",
-    "💬 *ORIGINAL APPLICATION PITCH*",
+    `• Posted At: ${formatGmt3(task.postedAt)}`,
+    `• Expires At: ${formatGmt3(task.expiry)}`
   ].join("\n");
 
-  const pitchBlock = (() => {
-    if (winnerApp?.pitchMessages?.length) {
-      // We'll show a short pointer here; the actual originals send via button.
-      return "• This pitch includes media/messages. Tap the buttons below to load originals.";
-    }
-    if (winnerApp?.pitch) return winnerApp.pitch;
-    return "• (No pitch content recorded)";
-  })();
+  // 2) description on its own chunk (can be long)
+  const description = `🧾 *TASK DESCRIPTION*\n${task.description || '(No description provided)'}`;
 
-  const full = [details, pitchBlock].join("\n");
-  return splitIntoChunks(full);
+  // 3) winner’s original pitch (text form; media is fetched via buttons)
+  const pitchText = (winnerApp?.coverText && String(winnerApp.coverText).trim().length > 0)
+    ? winnerApp.coverText
+    : "• (No pitch content recorded)";
+  const pitchBlock = [
+    "💬 *ORIGINAL APPLICATION PITCH*",
+    pitchText
+  ].join("\n");
+
+  // Split each block safely and preserve their order
+  return [
+    ...splitIntoChunks(meta),
+    ...splitIntoChunks(description),
+    ...splitIntoChunks(pitchBlock)
+  ];
 }
+
 
 
 // ── Chapa Hosted Checkout: Initialize & return checkout_url + tx_ref ─────────
@@ -3102,17 +3071,7 @@ async function escalateDoerReport(ctx, taskId) {
       console.error("notify doer fail:", e);
     }
 
-    // send top summary block ONCE
-    try {
-      await safeTelegramCall(
-        telegram.sendMessage.bind(telegram),
-        DISPUTE_CHANNEL_ID,
-        buildDisputeSummaryText({ task, creatorUser, doerUser }),
-        { parse_mode: "Markdown" }
-      );
-    } catch (e) {
-      console.error("send dispute summary fail:", e);
-    }
+
   }
 
   // ----- PHASE B: dispute summary in safe chunks + buttons -----
@@ -9613,7 +9572,10 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
   const channelId = pkg.channelId || DISPUTE_CHANNEL_ID;
 
   if (which === 'completed') {
-    await forwardMessageLogToDispute(ctx.telegram, channelId, work.doerTelegramId, work.messages, "📦 COMPLETED TASK (from Winner Task Doer):");
+    await forwardMessageLogToDispute(
+      ctx.telegram, channelId, work.doerTelegramId, work.messages,
+      `📦 COMPLETED TASK (from Winner Task Doer) — TASK ${task._id}:`
+    );
   } else if (which === 'related') {
     // related file(s) from task post
     if (task.relatedFile?.fileId) {
@@ -9623,7 +9585,10 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
       await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "No related file was attached on the original task.");
     }
   } else if (which === 'fix') {
-    await forwardMessageLogToDispute(ctx.telegram, channelId, creatorUser.telegramId, work.fixRequests, "✏️ FIX NOTICE (from Task Creator):");
+    await forwardMessageLogToDispute(
+      ctx.telegram, channelId, creatorUser.telegramId, work.fixRequests,
+      `✏️ FIX NOTICE (from Task Creator) — TASK ${task._id}:`
+    );
   }
 });
 
