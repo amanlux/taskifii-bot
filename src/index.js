@@ -101,6 +101,13 @@ EngagementLockSchema.index({ user: 1, task: 1 }, { unique: true });
 const EngagementLock = mongoose.models.EngagementLock
   || mongoose.model('EngagementLock', EngagementLockSchema);
 
+// ---------------------------
+// Ratings / Finalization / Credits
+// ---------------------------
+const RATING_CHANNEL_ID = "-1002289847417";
+const REFUND_AUDIT_CHANNEL_ID = "-1002616271109";
+const DISPUTE_CHANNEL_ID = "-1002432632907";
+
 // ------------------------------------
 //  Escalation & Banlist (no schema churn to Task/User)
 // ------------------------------------
@@ -144,14 +151,9 @@ const Banlist = mongoose.models.Banlist
   || mongoose.model('Banlist', BanlistSchema);
 
 
-// ---------------------------
-// Ratings / Finalization / Credits
-// ---------------------------
-const RATING_CHANNEL_ID = "-1002289847417";
-// ---- Refund audit channel (private) ----
-const REFUND_AUDIT_CHANNEL_ID = "-1002616271109";
-// ---- Dispute channel for escalations ----
-const DISPUTE_CHANNEL_ID = "-1002432632907";
+
+
+
 
 
 
