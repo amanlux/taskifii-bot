@@ -259,6 +259,12 @@ const DoerWorkSchema = new mongoose.Schema({
   timeUpNotifiedAt: { type: Date },       // ensures the "time up" notice is sent once
   penaltyStartAt:   { type: Date },       // when the late-penalty window begins
   penaltyEndAt:     { type: Date },       // when fee would hit 35% (or below)
+    // --- Punishment / ban flow (add these) ---
+  punishmentRequiredAt: { type: Date },       // when fee dropped to <=35% and ban was applied
+  punishmentPaidAt:     { type: Date },       // when 50% punishment fee is paid
+  punishmentTxRef:      { type: String },     // current active tx_ref (invalidate older links)
+  punishmentBtnMessageId:{ type: Number },    // message id of the “Punishment fee” prompt (for inerting)
+
 
   // Exact original Telegram messages from the doer so we can copy them to the creator
   // preserving captions and types.
@@ -961,24 +967,21 @@ const TEXT = {
     en: (penaltyPerHour, hoursTo35) => [
       "⏰ Time’s up.",
       penaltyPerHour > 0
-        ? `From now on, ${penaltyPerHour} birr will be deducted every hour until you submit the completed task.`
+        ? `From now on, ${penaltyPerHour} birr/hour will be deducted until you submit the completed task.`
         : "From now on, late submission may affect your fee (penalty per hour was not set).",
-      penaltyPerHour > 0
-        ? `Approx. time until your fee would drop to 35%: ~${hoursTo35} hour(s).`
-        : null,
-      "Please submit to the bot, to @taskifay, and to the task creator as soon as possible."
+      penaltyPerHour > 0 ? `Approx. time until your fee reaches 35%: ~${hoursTo35} hour(s).` : null,
+      "IMPORTANT: If you don’t send valid completed work and tap “Completed task sent” *before your fee hits (or equals) 35% of the original amount*, you’ll be banned from Taskifii until you pay a punishment fee of 50% of the task fee."
     ].filter(Boolean).join("\n"),
     am: (penaltyPerHour, hoursTo35) => [
       "⏰ ጊዜው አልቋል።",
       penaltyPerHour > 0
-        ? `ከአሁን ጀምሮ በየሰአቱ ${penaltyPerHour} ብር ከክፍያዎ ይቀነሳል እስከስራውን ታስረክቱ ድረስ።`
-        : "ከአሁን ጀምሮ ዘግይተው ማቅረብ በክፍያዎ ላይ ተፅእኖ ሊኖረው ይችላል (የቅጣት መጠን አልተቀመጠም)።",
-      penaltyPerHour > 0
-        ? `ክፍያዎ እስከ 35% ድረስ ሊወርድበት የሚቆይ ጊዜ፦ በአንደኛው ግምት ~${hoursTo35} ሰአት።`
-        : null,
-      "እባክዎ ተሰራውን ስራ በቶሎ ለቦቱ፣ ለ@taskifay እና ለስራ ፈጣሪው ያስሩ።"
+        ? `ከአሁን ጀምሮ በየሰአቱ ${penaltyPerHour} ብር ከክፍያዎ ይቀነሳል እስከ ተጠናቀቀ ስራ እስኪላክ ድረስ።`
+        : "ከአሁን ጀምሮ ዘግይተ ማቅረብ በክፍያ ላይ ተፅእኖ ሊኖረው ይችላል (የቅጣት መጠን አልተቀመጠም)።",
+      penaltyPerHour > 0 ? `ክፍያው እስከ 35% ድረስ ሊወርድ የሚቆይ ጊዜ፡ ~${hoursTo35} ሰዓት(ዎች).` : null,
+      "አስፈላጊ፡ የተጠናቀቀ ስራ አልላኩ እና “ተግባሩ ተልኳል” አልጫኑ ከሆነ እስከ ክፍያው 35% ድረስ ወይም በትክክል 35% ሲሆን በፊት፣ ከTaskifii ታግደዋላችሁ እና ድጋሚ ለመጠቀም 50% የተግባሩን ክፍያ እንደ ቅጣት መክፈል ይኖርቦታል።"
     ].filter(Boolean).join("\n")
   },
+
 
   creatorTimeUp: {
     en: (penaltyPerHour) => [
@@ -996,6 +999,37 @@ const TEXT = {
       "ስለተፈጠረው እርምጃ በጣም ይቅርታ እናቀርባለን።"
     ].join("\n")
   },
+  punishmentBtn: {
+    en: "Punishment fee",
+    am: "የቅጣት ክፍያ"
+  },
+  punishmentNoticeToDoer: {
+    en: (fee50) => [
+      "⛔ You’ve been banned from Taskifii.",
+      "Reason: You failed to submit valid completed work within the set time boundaries.",
+      `To regain access, pay 50% of the task fee (ETB ${fee50}) using the button below.`,
+      "Note: After successful payment, you’ll be automatically unbanned and can use Taskifii again."
+    ].join("\n"),
+    am: (fee50) => [
+      "⛔ ከTaskifii ታግደዋል።",
+      "ምክንያት፡ በተወሰኑ ጊዜያት ውስጥ የተጠናቀቀ ስራ መላክ አልተፈፀመም።",
+      `እንደገና መጠቀም ለመጀመር የተግባሩን ክፍያ 50% (ETB ${fee50}) በከላይ ያለውን ቁልፍ በመጫን ይክፈሉ።`,
+      "ማስታወሻ፡ ክፍያው ከተሳካ በኋላ ራስስዎ ይፈታሉ እና መመለስ ይችላሉ።"
+    ].join("\n")
+  },
+  punishmentNoticeToCreator: {
+    en: "We’re sorry — the winner task doer did not submit within the time boundaries. They will be heavily punished for this. We sincerely apologize for the inconvenience. Your locked features are now restored.",
+    am: "እንግዲህ ይቅርታ — የተመረጠው ስራ አድራጊ በተወሰኑ ጊዜያት ውስጥ ስራ አላስረከበም። ለዚህ በከባድ ቅጣት ይገጥመዋል። ስለተፈጠረው ስህተት ይቅርታ እና የተቆለፉ ባህሪያትዎ አሁን ተከፍተዋል።"
+  },
+  punishmentPaidSuccess: {
+    en: "✅ Punishment fee paid. You are unbanned and can use Taskifii again.",
+    am: "✅ የቅጣት ክፍያ ተከፍሏል። ከታግደው ውጭ ሆነዋል፣ Taskifii ዳግም መጠቀም ትችላላችሁ።"
+  },
+  punishmentAlreadyPaid: {
+    en: "You already paid the punishment fee. If a previous checkout page is still open, it won’t work anymore.",
+    am: "የቅጣት ክፍያን አስቀድሞ ከፍለዋል። ቀድሞ የተከፈተ የክፍያ ገጽ ከተከፈተ ቢኖርም አይሰራም።"
+  },
+
 
 
 
@@ -1581,6 +1615,25 @@ async function releasePaymentAndFinalize(taskId, reason) {
     console.error("Error in releasePaymentAndFinalize:", err);
   }
 }
+async function banUserEverywhereWithBot(bot, userDoc) {
+  try { await Banlist.updateOne(
+    { $or: [{ user: userDoc._id }, { telegramId: userDoc.telegramId }] },
+    { $set: { user: userDoc._id, telegramId: userDoc.telegramId, bannedAt: new Date() } },
+    { upsert: true }
+  ); } catch(e) { console.error("banlist upsert failed", e); }
+
+  try { await bot.telegram.banChatMember(BAN_GROUP_ID, userDoc.telegramId); }
+  catch (e) { console.warn("banChatMember failed (ignore):", e?.description || e?.message); }
+}
+
+async function unbanUserEverywhereWithBot(bot, userDoc) {
+  try { await Banlist.deleteOne({ $or: [{ user: userDoc._id }, { telegramId: userDoc.telegramId }] }); }
+  catch(e) { console.error("banlist delete failed", e); }
+
+  try { await bot.telegram.unbanChatMember(BAN_GROUP_ID, userDoc.telegramId); }
+  catch (e) { console.warn("unbanChatMember failed (ignore):", e?.description || e?.message); }
+}
+
 // Helper to build inline keyboard for a given page of banks (10 per page)
 function buildBankKeyboard(taskId, banks, page, selectedBankId) {
   const FIELDS_PER_PAGE = 10;
@@ -3469,6 +3522,82 @@ async function runDoerWorkTimers(bot) {
       console.error("Time-up notify failed:", e);
     }
   }
+  // 3.3 — Penalty window ended: ban + punish flow (once)
+  const worksPenaltyEnded = await DoerWork.aggregate([
+    { $match: {
+        status: 'active',
+        completedAt: { $exists: false },
+        penaltyEndAt: { $exists: true, $ne: null },
+        punishmentRequiredAt: { $exists: false }
+    }},
+    { $lookup: { from: 'tasks', localField: 'task', foreignField: '_id', as: 'taskDoc' } },
+    { $unwind: '$taskDoc' }
+  ]);
+
+  for (const w of worksPenaltyEnded) {
+    if (new Date() < new Date(w.penaltyEndAt)) continue;  // not yet
+    const work = await DoerWork.findById(w._id);
+    if (!work || work.completedAt || work.punishmentRequiredAt) continue;
+
+    const task = w.taskDoc;
+    const fee = Number(task.paymentFee || 0);
+    const fee50 = Math.round(fee * 0.50);
+
+    const doer = await User.findById(work.doer);
+    const creator = await User.findById(task.creator);
+    const doerLang = (doer?.language) || 'en';
+    const creatorLang = (creator?.language) || 'en';
+
+    // 1) Inert the doer’s “Completed task sent” button (but keep it visible, not highlighted)
+    try {
+      if (work.doerControlMessageId) {
+        await bot.telegram.editMessageReplyMarkup(
+          doer.telegramId,
+          work.doerControlMessageId,
+          undefined,
+          {
+            inline_keyboard: [[
+              // keep text but make it inert (not highlighted)
+              Markup.button.callback(TEXT.completedSentBtn[doerLang], `_DISABLED_COMPLETED_SENT_${String(task._id)}`)
+            ]]
+          }
+        );
+      }
+    } catch (e) { console.error("failed to inert completed button", e); }
+
+    // 2) Ban the doer (bot + group)
+    await banUserEverywhereWithBot(bot, doer);
+
+    // 3) Notify the doer with a “Punishment fee” button
+    const btn = Markup.inlineKeyboard([[ Markup.button.callback(
+      TEXT.punishmentBtn[doerLang], `PUNISH_PAY_${String(work._id)}`
+    ) ]]);
+    const msg = await bot.telegram.sendMessage(
+      doer.telegramId,
+      TEXT.punishmentNoticeToDoer[doerLang](fee50),
+      { reply_markup: btn.reply_markup }
+    );
+
+    // 4) Notify the creator + unlock their features
+    try {
+      await bot.telegram.sendMessage(creator.telegramId, TEXT.punishmentNoticeToCreator[creatorLang]);
+    } catch {}
+    try { await releaseLocksForTask(task._id); } catch (e) { console.error("unlock creator failed:", e); }
+
+    // 5) Audit to private channel with required fields and tag
+    try {
+      const thirty = Math.round(fee * 0.30);
+      await bot.telegram.sendMessage(
+        "-1002616271109",
+        `#notoriousWTD\nTask: ${task._id}\nDoer User ID: ${doer._id}\nOriginal Fee: ${fee}\n30% of Fee: ${thirty}`
+      );
+    } catch (e) { console.error("audit send failed", e); }
+
+    // 6) Mark punishment required + keep the message id (for inerting after payment)
+    work.punishmentRequiredAt = new Date();
+    work.punishmentBtnMessageId = msg?.message_id || null;
+    await work.save();
+  }
 
   // sweep again in ~1 minute
   setTimeout(() => runDoerWorkTimers(bot), 60_000);
@@ -3534,6 +3663,56 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
       console.warn("IPN verify failed for tx_ref:", txRef, req.body);
       return res.status(400).send("verify_failed");
     }
+    // --- A) Punishment fee webhook path (single-active session) ---
+    if (txRef.startsWith("punish_")) {
+      // Look up the work that expects THIS exact tx_ref
+      const work = await DoerWork.findOne({ punishmentTxRef: txRef }).populate('doer');
+      if (!work) return res.status(200).send("ok");         // unknown tx_ref
+      if (work.punishmentPaidAt) return res.status(200).send("ok"); // already handled
+
+      // Mark intent paid (idempotent)
+      const intent = await PaymentIntent.findOne({ chapaTxRef: txRef });
+      if (intent && intent.status !== "paid") {
+        intent.status = "paid";
+        intent.paidAt = new Date();
+        await intent.save();
+      }
+
+      // Mark the work as punishment paid
+      work.punishmentPaidAt = new Date();
+      await work.save();
+
+      // Unban everywhere (bot + group)
+      await unbanUserEverywhereWithBot({ telegram: bot.telegram }, work.doer);
+
+      // Inert + highlight the Punishment button if we know the message id
+      try {
+        if (work.punishmentBtnMessageId) {
+          await bot.telegram.editMessageReplyMarkup(
+            work.doer.telegramId,
+            work.punishmentBtnMessageId,
+            undefined,
+            { inline_keyboard: [[
+              Markup.button.callback(
+                `✔ ${TEXT.punishmentBtn[work.doer.language || 'en']}`,
+                `_DISABLED_PUNISH_${String(work._id)}`
+              )
+            ]] }
+          );
+        }
+      } catch (e) { console.error("punish inert markup fail:", e); }
+
+      // Notify doer
+      try {
+        await bot.telegram.sendMessage(
+          work.doer.telegramId,
+          TEXT.punishmentPaidSuccess[work.doer.language || 'en']
+        );
+      } catch {}
+
+      // Done with punishment flow
+      return res.status(200).send("ok");
+    }
 
     // Find or create the intent and mark paid (you already do this in your button flow)
     let intent = await PaymentIntent.findOne({ chapaTxRef: txRef });
@@ -3563,6 +3742,7 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
     console.error("IPN handler error:", e);
     return res.status(500).send("error");
   }
+  
 });
 
 // Transfer Approval Webhook (for Chapa server-side approval)
@@ -5387,6 +5567,30 @@ bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
   if (!u) return;
 
   await unbanUserEverywhere(ctx, u);
+  // Cancel any live punishment sessions by clearing the current tx_ref
+  const works = await DoerWork.find({ doer: u._id, punishmentPaidAt: { $exists: false } });
+  for (const w of works) {
+    // Make older/active checkout links invalid
+    w.punishmentTxRef = undefined;
+
+    // Make the punishment button inert (still displayed, not highlighted) if we know the message id
+    try {
+      if (w.punishmentBtnMessageId) {
+        const lang = u.language || 'en';
+        await ctx.telegram.editMessageReplyMarkup(
+          u.telegramId,
+          w.punishmentBtnMessageId,
+          undefined,
+          { inline_keyboard: [[
+            Markup.button.callback(TEXT.punishmentBtn[lang], `_DISABLED_PUNISH_${String(w._id)}`)
+          ]] }
+        );
+      }
+    } catch {}
+
+    await w.save();
+  }
+
   await ctx.reply(`User ${u.fullName || u.username || u.telegramId} has been unbanned and can now use Taskifii normally.`);
   try {
     const draft = await TaskDraft.findOne({ creatorTelegramId: u.telegramId });
@@ -9486,6 +9690,16 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     const doerUser = await User.findById(work.doer);
     const doerLang = doerUser?.language || 'en';
 
+    // If fee already hit <=35% and punishment flow is active, make it inert
+    if (work.penaltyEndAt && new Date() >= new Date(work.penaltyEndAt)) {
+      return ctx.answerCbQuery(
+        doerLang === 'am'
+          ? "የመጨረሻ ጊዜ አልፎታል። አሁን ቁልፉ አይሰራም።"
+          : "The late window has ended. This button is now inert.",
+        { show_alert: true }
+      );
+    }
+
     // 1️⃣ VALIDATION SAFEGUARD:
     // Has this doer actually sent at least ONE valid message/file?
     const hasAnyValidSubmission = work.messages?.length > 0;
@@ -9574,6 +9788,65 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
   } catch (e) {
     console.error("COMPLETED_SENT handler error:", e);
   }
+});
+bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const workId = ctx.match[1];
+  const work = await DoerWork.findById(workId).populate('task');
+  if (!work) return;
+
+  const doer = await User.findById(work.doer);
+  const lang = doer?.language || 'en';
+
+  // If already paid, make the button inert+highlighted and stop
+  if (work.punishmentPaidAt) {
+    try {
+      if (work.punishmentBtnMessageId) {
+        await ctx.telegram.editMessageReplyMarkup(
+          doer.telegramId,
+          work.punishmentBtnMessageId,
+          undefined,
+          { inline_keyboard: [[ Markup.button.callback(`✔ ${TEXT.punishmentBtn[lang]}`, `_DISABLED_PUNISH_${work._id}`) ]] }
+        );
+      }
+    } catch {}
+    return ctx.reply(TEXT.punishmentAlreadyPaid[lang]);
+  }
+
+  const fee = Number(work.task.paymentFee || 0);
+  const amountBirr = Math.round(fee * 0.50);
+  const currency = process.env.CHAPA_CURRENCY || "ETB";
+
+  // Generate a NEW tx_ref, make it the only valid one going forward
+  const txRef = `punish_${work._id}_${Date.now()}`;
+  work.punishmentTxRef = txRef;
+  await work.save();
+
+  // Create pending PaymentIntent so old sessions can be recognized later
+  await PaymentIntent.create({
+    user: doer._id,
+    task: work.task._id,
+    status: "pending",
+    provider: "chapa_hosted",
+    amount: amountBirr,
+    currency,
+    payload: `punishment:${work._id}`,
+    chapaTxRef: txRef
+  });
+
+  // Initialize hosted checkout (reuses your existing helper)
+  const { checkout_url } = await chapaInitializeEscrow({
+    amountBirr, currency, txRef, user: doer
+  });
+
+  await ctx.reply(
+    lang === "am"
+      ? "💳 ይህን ክፍትዎ ይክፈሉ፣ ከተሳካ በኋላ በራስ ራስ ታፈቱ።"
+      : "💳 Open this to pay. After it succeeds, you’ll be automatically unbanned.",
+    {
+      reply_markup: { inline_keyboard: [[ { text: "🔗 Open payment (Chapa)", url: checkout_url } ]] }
+    }
+  );
 });
 
 
