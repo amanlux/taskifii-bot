@@ -254,6 +254,11 @@ const DoerWorkSchema = new mongoose.Schema({
   // We'll store the doer-facing message that contains the "Completed task sent" button,
   // so we can flip it to a checked/inert state.
   doerControlMessageId: { type: Number },
+  // Add these fields inside DoerWorkSchema
+  reminder65SentAt: { type: Date },       // ensures the 65% reminder is sent once
+  timeUpNotifiedAt: { type: Date },       // ensures the "time up" notice is sent once
+  penaltyStartAt:   { type: Date },       // when the late-penalty window begins
+  penaltyEndAt:     { type: Date },       // when fee would hit 35% (or below)
 
   // Exact original Telegram messages from the doer so we can copy them to the creator
   // preserving captions and types.
@@ -308,27 +313,7 @@ const DoerWorkSchema = new mongoose.Schema({
   
   fixNoticeSentAt: { type: Date },
   
-  reminder65Sent: { type: Boolean, default: false, index: true },
-  deadlineMsgSent:{ type: Boolean, default: false, index: true },
-
-
-  penaltyStartedAt: Date, // set at deadline (when penalties begin)
-  penaltyAccrued: { type: Number, default: 0 }, // ETB, total accrued to date
-  penaltyLastCheck: Date, // last time we computed hourly increments
-
-
-  // ban / punishment recovery
-  isBannedForDelay: { type: Boolean, default: false, index: true },
-  completedBtnInert:{ type: Boolean, default: false },
-
-
-  // Punishment fee (50% of original). One active session at a time.
-  punishment: {
-  requiredAmount: Number, // 50% of task.paymentFee at time of ban
-  status: { type: String, enum: ['none','awaiting','paid'], default: 'none' },
-  lastCheckoutUrl: String,
-  lastChapaReference: String // use your PaymentIntent.reference
-  },
+  
   // NEW: Revision tracking
   revisionStartedAt: { type: Date },
   revisionDeadlineAt: { type: Date },
@@ -948,6 +933,70 @@ const TEXT = {
     en: "Needs Fixing",
     am: "ማስተካከል ይፈልጋል"
   },
+  doer65Reminder: {
+    en: (h, m) => [
+      "⏰ Heads up: time is ticking!",
+      `You have ${h} hour(s) and ${m} minute(s) left to complete and submit your task.`,
+      "Please send your completed work to the bot, to @taskifay, and to the task creator, then tap “Completed task sent”."
+    ].join("\n"),
+    am: (h, m) => [
+      "⏰ ማስታወሻ፦ ጊዜው በፍጥነት እየፈጠነ ነው!",
+      `ለተሰሩት ስራዎች ማቅረብ እና ለመላክ ${h} ሰአት እና ${m} ደቂቃ ብቻ ቀርቶታል።`,
+      "እባክዎ ተጠናቀቀው ያሉትን ስራዎች ለቦቱ፣ ለ@taskifay እና ለስራ ፈጣሪው ያስሩ እና “ተጠናቋል” የሚለውን ቁልፍ ይጫኑ።"
+    ].join("\n")
+  },
+
+  creator65Reminder: {
+    en: (doerName) => [
+      "⏰ 65% of the time to complete has passed.",
+      `Please consider checking in with the task doer${doerName ? ` (${doerName})` : ""} to confirm status.`
+    ].join("\n"),
+    am: (doerName) => [
+      "⏰ ስራውን ለመጨረስ የተመደበው ጊዜ 65% አልፏል።",
+      `እባክዎ የስራውን ሁኔታ ለማረጋገጥ ከስራ ሰሪው${doerName ? ` (${doerName})` : ""} ጋር ለመገናኘት ያስቡ።`
+    ].join("\n")
+  },
+
+  doerTimeUp: {
+    en: (penaltyPerHour, hoursTo35) => [
+      "⏰ Time’s up.",
+      penaltyPerHour > 0
+        ? `From now on, ${penaltyPerHour} birr will be deducted every hour until you submit the completed task.`
+        : "From now on, late submission may affect your fee (penalty per hour was not set).",
+      penaltyPerHour > 0
+        ? `Approx. time until your fee would drop to 35%: ~${hoursTo35} hour(s).`
+        : null,
+      "Please submit to the bot, to @taskifay, and to the task creator as soon as possible."
+    ].filter(Boolean).join("\n"),
+    am: (penaltyPerHour, hoursTo35) => [
+      "⏰ ጊዜው አልቋል።",
+      penaltyPerHour > 0
+        ? `ከአሁን ጀምሮ በየሰአቱ ${penaltyPerHour} ብር ከክፍያዎ ይቀነሳል እስከስራውን ታስረክቱ ድረስ።`
+        : "ከአሁን ጀምሮ ዘግይተው ማቅረብ በክፍያዎ ላይ ተፅእኖ ሊኖረው ይችላል (የቅጣት መጠን አልተቀመጠም)።",
+      penaltyPerHour > 0
+        ? `ክፍያዎ እስከ 35% ድረስ ሊወርድበት የሚቆይ ጊዜ፦ በአንደኛው ግምት ~${hoursTo35} ሰአት።`
+        : null,
+      "እባክዎ ተሰራውን ስራ በቶሎ ለቦቱ፣ ለ@taskifay እና ለስራ ፈጣሪው ያስሩ።"
+    ].filter(Boolean).join("\n")
+  },
+
+  creatorTimeUp: {
+    en: (penaltyPerHour) => [
+      "⚠️ The doer has not submitted within the allotted time.",
+      penaltyPerHour > 0
+        ? `A penalty of ${penaltyPerHour} birr per hour now applies until submission (before the fee reaches 35%).`
+        : "A late penalty window is now in effect.",
+      "We’re extremely sorry for this inconvenience."
+    ].join("\n"),
+    am: (penaltyPerHour) => [
+      "⚠️ የስራው ሰሪ በተመደበው ጊዜ ውስጥ ስራውን አላስረከበም።",
+      penaltyPerHour > 0
+        ? `ከአሁን ጀምሮ እስከስራው ድረስ በየሰአቱ ${penaltyPerHour} ብር ቅጣት ይተገበራል (ክፍያው እስከ 35% እንዲደርስ በፊት)።`
+        : "የቆይታ ቅጣት ሂደት ተጀምሯል።",
+      "ስለተፈጠረው እርምጃ በጣም ይቅርታ እናቀርባለን።"
+    ].join("\n")
+  },
+
 
 
 
@@ -1436,203 +1485,6 @@ async function checkTaskExpiries(bot) {
   // Check again in 1 minute
   setTimeout(() => checkTaskExpiries(bot), 60000);
 }
-const MS = {
-minute: 60_000,
-hour: 3_600_000
-};
-function addHours(d, h) { return new Date(d.getTime() + h * MS.hour); }
-function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
-function fmtLeft(ms) {
-const t = Math.max(0, Math.floor(ms / 1000));
-const h = Math.floor(t / 3600);
-const m = Math.floor((t % 3600) / 60);
-return { h, m };
-}
-// === Doer timers scanner: runs each minute ===
-async function scanDoerTimers(bot) {
-  const now = new Date();
-
-  // Load active works only
-  const works = await DoerWork.find({ status: 'active' }).populate('task');
-  for (const work of works) {
-    const task = work.task;
-    if (!task) continue;
-
-    // Base numbers
-    const tHours = Number(task.timeToComplete || 0);
-    if (!tHours) continue;
-
-    const started = work.startedAt ? new Date(work.startedAt) : null;
-    const deadline = work.deadlineAt ? new Date(work.deadlineAt) : null;
-    if (!started || !deadline) continue;
-
-    const totalMs = deadline - started;
-    const elapsedMs = now - started;
-    const leftMs = Math.max(0, deadline - now);
-
-    // --- 65% reminder (send exactly once, only if not completed) ---
-    if (!work.reminder65Sent && !work.completedAt) {
-      const sixtyFive = totalMs * 0.65;
-      if (elapsedMs >= sixtyFive) {
-        // Compute time left HH:MM
-        const hoursLeft = Math.floor(leftMs / 3_600_000);
-        const minutesLeft = Math.floor((leftMs % 3_600_000) / 60_000);
-
-        const msg = [
-          "⏳ Time is ticking!",
-          `You have ${hoursLeft} hour(s) and ${minutesLeft} minute(s) left to send your completed task(s) `,
-          "to the bot, to @taskifay, and to the task creator."
-        ].join(" ");
-
-        try {
-          await bot.telegram.sendMessage(work.doerTelegramId, msg);
-          work.reminder65Sent = true;
-          await work.save();
-        } catch (_) {}
-      }
-    }
-
-    // --- At deadline: start penalties & notify (only once) ---
-    if (now >= deadline && !work.deadlineMsgSent && !work.completedAt) {
-      // Tell the user time is up + penalties start now
-      const original = Number(task.paymentFee || 0);
-      const perHour  = Number(task.penaltyPerHour ?? task.latePenalty ?? 0);
-
-      // NEW: rough hours until 35% threshold
-      const approxHoursTo35 =
-        (original > 0 && perHour > 0) ? Math.ceil((original * 0.65) / perHour) : null;
-
-      const upMsg = [
-        "⛔️ Time is up.",
-        perHour > 0
-          ? `From now on, ${perHour} birr will be deducted every hour until you send the valid completed task(s).`
-          : "Please send the valid completed task(s) as soon as possible.",
-        "Deductions stop when you submit, or when the task fee reaches 35% of its original amount.",
-        // NEW line:
-        (approxHoursTo35 ? `At this rate, ~${approxHoursTo35} hour(s) until your fee would drop to 35% if you don’t submit.` : "")
-      ].filter(Boolean).join(" ");
-
-      try {
-        await bot.telegram.sendMessage(work.doerTelegramId, upMsg);
-      } catch (_) {}
-
-      // Mark penalty start & last check time
-      work.penaltyStartedAt = now;
-      work.penaltyLastCheck = now;
-      work.deadlineMsgSent = true;
-      await work.save();
-    }
-
-    // --- After deadline: accrue hourly penalty until 35% threshold ---
-    if (work.deadlineMsgSent && !work.isBannedForDelay && !work.completedAt) {
-      const original = Number(task.paymentFee || 0);
-      const perHour = Number(task.penaltyPerHour ?? task.latePenalty ?? 0);
-      if (perHour > 0) {
-        const last = work.penaltyLastCheck ? new Date(work.penaltyLastCheck) : now;
-        const hoursPassed = Math.floor((now - last) / 3_600_000);
-        if (hoursPassed > 0) {
-          const add = hoursPassed * perHour;
-          work.penaltyAccrued = Math.max(0, Number(work.penaltyAccrued || 0) + add);
-          work.penaltyLastCheck = now;
-          await work.save();
-        }
-      }
-
-      // Have we hit <= 35%?
-      const accrued = Number(work.penaltyAccrued || 0);
-      if (original > 0 && (original - accrued) <= original * 0.35) {
-        // Lock the Completed button (inert but visible)
-        if (work.doerControlMessageId) {
-          try {
-            const kbInert = Markup.inlineKeyboard([
-              [Markup.button.callback('Completed task sent (disabled)', 'noop_disabled')]
-            ]);
-            await bot.telegram.editMessageReplyMarkup(
-              work.doerTelegramId,
-              work.doerControlMessageId,
-              undefined,
-              kbInert.reply_markup
-            );
-          } catch (_){}
-        }
-        work.completedBtnInert = true;
-        work.isBannedForDelay = true;
-        await work.save();
-
-        // Ban from group & internal banlist
-        try { await bot.telegram.banChatMember("-1002239730204", work.doerTelegramId); } catch (_){}
-        try {
-          await Banlist.updateOne(
-            { telegramId: work.doerTelegramId },
-            { $set: { bannedAt: new Date(), reason: 'delay threshold reached' } },
-            { upsert: true }
-          );
-        } catch (_){}
-
-        // Store punishment fee (50%)
-        const punishAmount = Math.floor(original * 0.5);
-        await DoerWork.updateOne(
-          { _id: work._id },
-          { $set: { 'punishment.requiredAmount': punishAmount, 'punishment.status':'none' } }
-        );
-
-        // DM with Punishment button
-        try {
-          const kb = Markup.inlineKeyboard([
-            [Markup.button.callback('Punishment fee', `punish_pay:${String(task._id)}`)]
-          ]);
-          await bot.telegram.sendMessage(
-            work.doerTelegramId,
-            '🚫 You are banned from Taskifii for missing the time boundaries. Pay the 50% punishment fee using the button below to regain access.',
-            kb
-          );
-        } catch (_){}
-
-        // Notify private channel
-        const thirtyPct = Math.floor(original * 0.30);
-        try {
-          await bot.telegram.sendMessage(
-            '-1002616271109',
-            `${String(task._id)}\n${String(work.doer)}\n${original} birr\n${thirtyPct} birr\n#notoriousWTD`
-          );
-        } catch (_){}
-      }
-    }
-  }
-}
-
-
-async function computePenaltyTick(work, task) {
-// Accrue whole hours since last check, starting at penaltyStartedAt (deadline)
-const rate = clamp(Number(task.penaltyPerHour || 0), 0, Math.floor(task.paymentFee * 0.2));
-if (!rate) return work; // no penalty configured
-
-
-const start = work.penaltyStartedAt;
-if (!start) return work;
-
-
-const last = work.penaltyLastCheck || start;
-const now = new Date();
-const hoursSince = Math.floor((now - last) / MS.hour);
-if (hoursSince <= 0) return work; // nothing to add
-
-
-work.penaltyAccrued += hoursSince * rate;
-work.penaltyLastCheck = new Date(last.getTime() + hoursSince * MS.hour);
-await work.save();
-return work;
-}
-
-
-function remainingAfterPenalty(task, work) {
-// Penalty comes out of the doer’s eventual payout (separate from platform fee).
-// We compute against the original task.paymentFee as requested.
-const original = Number(task.paymentFee || 0);
-const remain = Math.max(0, original - Number(work.penaltyAccrued || 0));
-const threshold= Math.floor(original * 0.35);
-return { original, remain, threshold };
-}
 // ─── Utility: Release Payment & Finalize Task ─────────────────────────
 // ── Updated releasePaymentAndFinalize Function ──
 async function releasePaymentAndFinalize(taskId, reason) {
@@ -1657,20 +1509,9 @@ async function releasePaymentAndFinalize(taskId, reason) {
     // Platform commission: 5% of the task fee.
     const commission = round2(totalAmount * 0.05);
 
-    // Amount to *send* to the doer (before Chapa recipient fee):
-    // task fee - platform commission - accrued late penalty (capped so it never goes below zero)
-
-    // 1) Load accrued penalty (scanner already maintains DoerWork.penaltyAccrued)
-    const work = await DoerWork.findOne({ task: task._id }).lean();
-    const accruedPenalty = Math.max(0, Number(work?.penaltyAccrued || 0));
-
-    // 2) Safety cap: you cannot deduct more than what remains after commission
-    const maxPenaltyAllowed = Math.max(0, totalAmount - commission);
-    const penalty = Math.min(accruedPenalty, maxPenaltyAllowed);
-
-    // 3) Final payout to doer (Chapa will take its recipient fee from this)
-    const payoutAmount = round2(totalAmount - commission - penalty);
-
+    // Amount to *send* to the doer (before Chapa recipient fee): task fee - platform commission
+    // You explicitly want the doer transfer to be this amount, and let Chapa charge the recipient from this amount.
+    const payoutAmount = round2(totalAmount - commission);
 
     // (Keep using payoutAmount exactly as you already do later: store in global.pendingPayouts, etc.)
 
@@ -1718,10 +1559,7 @@ async function releasePaymentAndFinalize(taskId, reason) {
       selectedBankId: null,
       accountPromptMessageId: null,
       // NEW: persist the user's language for localization in later steps
-      language: doer.language || "en",
-      // NEW (for your own visibility in logs/flows):
-      commission: commission.toFixed(2),
-      penalty: penalty.toFixed(2)
+      language: doer.language || "en"
     };
 
     // Prompt the doer to choose a bank from the fetched list
@@ -1816,34 +1654,6 @@ async function checkPendingRefunds() {
   } catch (e) {
     console.error("checkPendingRefunds error:", e);
   }
-}
-// Webhook (server route) to mark punishment as paid (ensure you plug into your
-// existing Express app and Chapa verification). Once paid → unban + inert button.
-// Pseudo‑implementation; adapt to your existing webhook flow.
-async function onChapaWebhookPunishment(reference) {
-  const intent = await PaymentIntent.findOne({ reference, kind: 'punishment_fee' });
-  if (!intent || intent.status === 'paid') return;
-
-
-  intent.status = 'paid';
-  await intent.save();
-
-
-  const work = await DoerWork.findOneAndUpdate(
-  { task: intent.task },
-  { $set: { 'punishment.status': 'paid' } },
-  { new: true }
-  );
-  if (!work) return;
-
-
-  // Unban from bot + group
-  try { await Banlist.deleteOne({ telegramId: work.doerTelegramId }); } catch {}
-  try { await bot.telegram.unbanChatMember(BAN_GROUP_ID, work.doerTelegramId); } catch {}
-
-
-  // Notify user
-  try { await bot.telegram.sendMessage(work.doerTelegramId, '✅ Punishment fee paid. You can use Taskifii again.'); } catch {}
 }
 function round2(x) {
   const n = Number(x);
@@ -3537,6 +3347,132 @@ async function sendReminders(bot) {
   // Check again in 1 minute (this keeps the timing precise)
   setTimeout(() => sendReminders(bot), 60000);
 }
+async function runDoerWorkTimers(bot) {
+  const now = new Date();
+
+  // 3.1 — 65% reminder to DOER and CREATOR (only once)
+  // active work, not completed, reminder not sent, and passed 65% of the window
+  const works65 = await DoerWork.aggregate([
+    { $match: { status: 'active', completedAt: { $exists: false }, reminder65SentAt: { $exists: false } } },
+    {
+      $lookup: {
+        from: 'tasks',
+        localField: 'task',
+        foreignField: '_id',
+        as: 'taskDoc'
+      }
+    },
+    { $unwind: '$taskDoc' }
+  ]);
+
+  for (const w of works65) {
+    const startedAt  = new Date(w.startedAt);
+    const deadlineAt = new Date(w.deadlineAt);
+    const durationMs = deadlineAt - startedAt;
+    if (durationMs <= 0) continue;
+
+    const thresholdMs = startedAt.getTime() + durationMs * 0.65;
+    if (now.getTime() >= thresholdMs && now.getTime() < deadlineAt.getTime()) {
+      // Skip if completed in the meantime
+      const fresh = await DoerWork.findById(w._id);
+      if (!fresh || fresh.completedAt) continue;
+      if (fresh.reminder65SentAt) continue; // idempotency
+
+      // Compute time left
+      const leftMs = Math.max(0, deadlineAt.getTime() - now.getTime());
+      const h = Math.floor(leftMs / 3600000);
+      const m = Math.floor((leftMs % 3600000) / 60000);
+
+      // Load users
+      const doer = await User.findById(fresh.doer);
+      const creator = await User.findById(w.taskDoc.creator);
+
+      try {
+        // Doer message (once)
+        const doerLang = (doer?.language) || 'en';
+        const msgDoer = (TEXT.doer65Reminder?.[doerLang] || TEXT.doer65Reminder.en)(h, m);
+        await bot.telegram.sendMessage(doer.telegramId, msgDoer);
+
+        // Creator message (once)
+        const creatorLang = (creator?.language) || 'en';
+        const doerName = doer?.fullName || doer?.username || '';
+        const msgCreator = (TEXT.creator65Reminder?.[creatorLang] || TEXT.creator65Reminder.en)(doerName);
+        await bot.telegram.sendMessage(creator.telegramId, msgCreator);
+
+        fresh.reminder65SentAt = new Date();
+        await fresh.save();
+      } catch (e) {
+        console.error("65% reminder send failed:", e);
+      }
+    }
+  }
+
+  // 3.2 — Time up: notify both, start penalty window timer (only once)
+  const worksTimeUp = await DoerWork.aggregate([
+    { $match: { status: 'active', completedAt: { $exists: false }, timeUpNotifiedAt: { $exists: false } } },
+    {
+      $lookup: {
+        from: 'tasks',
+        localField: 'task',
+        foreignField: '_id',
+        as: 'taskDoc'
+      }
+    },
+    { $unwind: '$taskDoc' }
+  ]);
+
+  for (const w of worksTimeUp) {
+    const deadlineAt = new Date(w.deadlineAt);
+    if (now.getTime() < deadlineAt.getTime()) continue; // not reached yet
+
+    const fresh = await DoerWork.findById(w._id);
+    if (!fresh || fresh.completedAt) continue;
+    if (fresh.timeUpNotifiedAt) continue; // idempotency
+
+    // Pull fee/penalty from Task (handles both names you use)
+    const fee = Number(w.taskDoc.paymentFee || 0);
+    const penaltyPerHour = Number(
+      (w.taskDoc.penaltyPerHour ?? w.taskDoc.latePenalty) || 0
+    );
+
+    // Hours until fee would reach 35% (i.e., a 65% deduction)
+    // If penaltyPerHour is 0, hoursTo35 = 0 (we still send a neutral message)
+    const amountToDeduct = Math.max(0, fee * 0.65);
+    const hoursTo35 = penaltyPerHour > 0
+      ? Math.ceil(amountToDeduct / penaltyPerHour)
+      : 0;
+
+    const penaltyStartAt = now;
+    const penaltyEndAt   = new Date(now.getTime() + hoursTo35 * 3600000);
+
+    // Load users
+    const doer = await User.findById(fresh.doer);
+    const creator = await User.findById(w.taskDoc.creator);
+
+    try {
+      // Doer message
+      const doerLang = (doer?.language) || 'en';
+      const msgDoer = (TEXT.doerTimeUp?.[doerLang] || TEXT.doerTimeUp.en)(penaltyPerHour, hoursTo35);
+      await bot.telegram.sendMessage(doer.telegramId, msgDoer);
+
+      // Creator message
+      const creatorLang = (creator?.language) || 'en';
+      const msgCreator = (TEXT.creatorTimeUp?.[creatorLang] || TEXT.creatorTimeUp.en)(penaltyPerHour);
+      await bot.telegram.sendMessage(creator.telegramId, msgCreator);
+
+      // Persist idempotency + penalty window
+      fresh.timeUpNotifiedAt = new Date();
+      fresh.penaltyStartAt = penaltyStartAt;
+      fresh.penaltyEndAt = penaltyEndAt;
+      await fresh.save();
+    } catch (e) {
+      console.error("Time-up notify failed:", e);
+    }
+  }
+
+  // sweep again in ~1 minute
+  setTimeout(() => runDoerWorkTimers(bot), 60_000);
+}
 
   // Optionally include user stats (earned/spent/avg rating) if desired:
   // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
@@ -3696,23 +3632,6 @@ app.post("/chapa/payout", async (req, res) => {
   // Respond with 200 OK so Chapa knows we received the event
   res.sendStatus(200);
 });
-// NEW: Webhook for punishment fee success (Chapa -> your server)
-app.post("/chapa/punishment", [express.urlencoded({ extended: true }), express.json()], async (req, res) => {
-  try {
-    // If Chapa sends `reference`, verify it using your existing verifier if you have one:
-    // const ok = await verifyChapaTxRefSmart(req.body.reference);
-    // if (!ok) return res.status(400).send("verify_failed");
-
-    const reference = String(req.body.reference || "").trim();
-    if (!reference) return res.status(400).send("missing reference");
-
-    await onChapaWebhookPunishment(reference);
-    return res.status(200).send("ok");
-  } catch (e) {
-    console.error("punishment webhook error:", e);
-    return res.status(500).send("error");
-  }
-});
 
 
 
@@ -3732,15 +3651,11 @@ mongoose
     // Start the expiry checkers
     checkTaskExpiries(bot);
     sendReminders(bot);
-    
+    runDoerWorkTimers(bot);   // NEW: doer timers (65% + time-up/penalty)
     // Add these lines:
     checkPendingReminders(bot);
     // Run every hour to catch any missed reminders
     setInterval(() => checkPendingReminders(bot), 3600000);
-    // Kick off the scanner once (place near bot.launch())
-    setInterval(() => {
-    try { scanDoerTimers(bot); } catch (e) { console.error('scanDoerTimers error', e); }
-    }, 60 * 1000);
 async function retryQueuedRefunds() {
   try {
     const queued = await PaymentIntent.find({
@@ -9834,7 +9749,6 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   // Clear the creator's session fix mode
   ctx.session.fixingTaskId = null;
 });
-
 bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -9872,85 +9786,7 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
     );
   }
 });
-// Mark completed (your existing handler likely does this; ensure we set completedAt)
-bot.action(/^doer_completed:(.+)$/i, async (ctx) => {
-  const taskId = ctx.match[1];
-  const task = await Task.findById(taskId);
-  if (!task) return ctx.answerCbQuery('Task not found', { show_alert: true });
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  if (!user) return ctx.answerCbQuery('User not found', { show_alert: true });
 
-
-  const work = await DoerWork.findOne({ task: task._id });
-  if (!work) return ctx.answerCbQuery('Work not found', { show_alert: true });
-
-
-  if (work.isBannedForDelay) {
-  return ctx.answerCbQuery('Button is disabled due to late submission.', { show_alert: true });
-  }
-
-
-  // Mark as completed
-  work.completedAt = new Date();
-  work.status = 'completed';
-  await work.save();
-
-
-  // Optional: edit UI to show it was pressed
-  try {
-  await ctx.editMessageReplyMarkup(Markup.inlineKeyboard([[Markup.button.callback('✅ Completed task sent', 'noop')]]));
-  } catch {}
-
-
-  await ctx.answerCbQuery('Marked as completed.');
-});
-// "Punishment fee" button → create/return a hosted checkout URL.
-// Uses your PaymentIntent model so old sessions become inert once paid.
-bot.action(/^punish_pay:(.+)$/i, async (ctx) => {
-  const taskId = ctx.match[1];
-  const task = await Task.findById(taskId);
-  if (!task) return ctx.answerCbQuery('Task not found', { show_alert: true });
-  const work = await DoerWork.findOne({ task: task._id });
-  if (!work) return ctx.answerCbQuery('Work not found', { show_alert: true });
-
-
-  if (work.punishment?.status === 'paid') {
-  return ctx.answerCbQuery('Punishment already paid.');
-  }
-
-
-  const amount = work.punishment?.requiredAmount || Math.floor(Number(task.paymentFee||0)*0.5);
-
-
-  // Invalidate any pending intents by marking them canceled
-  await PaymentIntent.updateMany({ task: task._id, kind: 'punishment_fee', status: { $in: ['pending','created'] } }, { $set: { status: 'canceled' } });
-
-
-  // Create a fresh intent
-  const intent = await PaymentIntent.create({
-  task: task._id,
-  user: work.doer,
-  kind: 'punishment_fee',
-  amount,
-  currency: 'ETB',
-  status: 'created'
-  });
-
-
-  // Create Chapa hosted checkout (replace with your existing helper if you have one)
-  const { checkoutUrl, reference } = await createChapaCheckout(intent, {
-  title: 'Taskifii Punishment Fee',
-  description: 'Pay to regain access',
-  });
-
-
-  await PaymentIntent.updateOne({ _id: intent._id }, { $set: { status: 'pending', reference, checkoutUrl } });
-  await DoerWork.updateOne({ _id: work._id }, { $set: { 'punishment.status': 'awaiting', 'punishment.lastCheckoutUrl': checkoutUrl, 'punishment.lastChapaReference': reference } });
-
-
-  await ctx.reply(`Pay here: ${checkoutUrl}\n(This link refreshes if it expires. Once paid, other sessions will stop working.)`);
-  await ctx.answerCbQuery();
-});
 // ─── Handle Creator’s Fix Comments (Message Handler) ───────────────────
 bot.on('message', async (ctx) => {
   if (!ctx.session?.fixingTaskId) return;  // only handle if user is in fix-listing mode
