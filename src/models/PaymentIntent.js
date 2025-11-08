@@ -4,7 +4,11 @@ const Schema = mongoose.Schema;
 
 const PaymentIntentSchema = new Schema({
   user:   { type: Schema.Types.ObjectId, ref: "User", index: true, required: true },
-  draft:  { type: Schema.Types.ObjectId, ref: "TaskDraft", index: true, required: true },
+  draft: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'TaskDraft',
+    required: function () { return this.type !== 'punishment'; }
+  },
   task:   { type: Schema.Types.ObjectId, ref: "Task", index: true },        // NEW: link to posted task
   amount: { type: Number, required: true }, // birr (human units)
   currency: { type: String, default: "ETB" },
@@ -12,7 +16,10 @@ const PaymentIntentSchema = new Schema({
 
   status: { type: String, enum: ["pending", "paid", "failed"], default: "pending", index: true },
   provider: { type: String, default: "telegram_chapa" },
-  payload: { type: String, unique: true, required: true }, // invoice payload
+  payload: {
+    type: String,
+    required: function () { return this.type !== 'punishment'; }
+  },
   minorTotal: Number, // Telegram's smallest units
   provider_payment_charge_id: String,
   paidAt: Date,
