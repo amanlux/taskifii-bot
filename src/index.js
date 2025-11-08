@@ -3716,14 +3716,19 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
       // Mark the work as punishment paid
       work.punishmentPaidAt = new Date();
       await work.save();
+      const t = globalThis.TaskifiiBot?.telegram;
+      if (!t) {
+        // If the bot isn't ready yet, don't crash; log and ack so Chapa can retry later.
+        console.error("IPN: TaskifiiBot telegram not available");
+      }
 
       // Unban everywhere (bot + group)
-      await unbanUserEverywhereWithBot({ telegram: bot.telegram }, work.doer);
+      await unbanUserEverywhereWithBot({ telegram: t }, work.doer);
 
       // Inert + highlight the Punishment button if we know the message id
       try {
         if (work.punishmentBtnMessageId) {
-          await bot.telegram.editMessageReplyMarkup(
+          if (t) await t.editMessageReplyMarkup(
             work.doer.telegramId,
             work.punishmentBtnMessageId,
             undefined,
@@ -3739,10 +3744,7 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
 
       // Notify doer
       try {
-        await bot.telegram.sendMessage(
-          work.doer.telegramId,
-          TEXT.punishmentPaidSuccess[work.doer.language || 'en']
-        );
+        if (t) await t.sendMessage( work.doer.telegramId, TEXT.punishmentPaidSuccess[work.doer.language || 'en'] );
       } catch {}
 
       // Done with punishment flow
