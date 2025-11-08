@@ -9839,29 +9839,8 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
 
   const doer = await User.findById(work.doer);
   const lang = doer?.language || 'en';
-  // If this work doesn't carry the active tx_ref, redirect to the primary punishment session
-  if (!work.punishmentTxRef && !work.punishmentPaidAt) {
-    const primary = await DoerWork.findOne({
-      doer: doer._id,
-      punishmentTxRef: { $exists: true, $ne: null },
-      punishmentPaidAt: { $exists: false }
-    }).lean();
 
-    if (primary) {
-      const lang2 = doer?.language || 'en';
-      const kb = Markup.inlineKeyboard([[ Markup.button.callback(
-        TEXT.punishmentBtn[lang2], `PUNISH_PAY_${String(primary._id)}`
-      ) ]]);
-      return ctx.reply(
-        lang2 === 'am'
-          ? "አሁን ንቁ የቅጣት ክፍያ ክፍት ተግባር አለ። የታችኛውን ቁልፍ ይጫኑ እና እሱን ይክፈሉ።"
-          : "You already have an active punishment payment session. Use the button below to open it.",
-        { reply_markup: kb.reply_markup }
-      );
-    }
-  }
-
-  // If already paid, make the button inert+highlighted and stop
+  // Already paid? Highlight + inert and stop.
   if (work.punishmentPaidAt) {
     try {
       if (work.punishmentBtnMessageId) {
@@ -9880,37 +9859,26 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
   const amountBirr = Math.round(fee * 0.50);
   const currency = process.env.CHAPA_CURRENCY || "ETB";
 
-  // Generate a NEW tx_ref, make it the only valid one going forward
+  // Generate a NEW tx_ref and store it as the only valid one
   const txRef = `punish_${work._id}_${Date.now()}`;
   work.punishmentTxRef = txRef;
   await work.save();
 
-  // Create pending PaymentIntent so old sessions can be recognized later
-  await PaymentIntent.create({
-    user: doer._id,
-    task: work.task._id,
-    status: "pending",
-    provider: "chapa_hosted",
-    amount: amountBirr,
-    currency,
-    payload: `punishment:${work._id}`,
-    chapaTxRef: txRef
-  });
-
-  // Initialize hosted checkout (reuses your existing helper)
+  // DO NOT create PaymentIntent here (your schema requires draft) — we rely on txRef only
   const { checkout_url } = await chapaInitializeEscrow({
     amountBirr, currency, txRef, user: doer
   });
 
-  await ctx.reply(
+  return ctx.reply(
     lang === "am"
-      ? "💳 ይህን ክፍትዎ ይክፈሉ፣ ከተሳካ በኋላ በራስ ራስ ታፈቱ።"
+      ? "💳 ይህን ክፍትዎ ይክፈሉ። ከተሳካ በኋላ ራስስዎ ይፈታሉ።"
       : "💳 Open this to pay. After it succeeds, you’ll be automatically unbanned.",
     {
       reply_markup: { inline_keyboard: [[ { text: "🔗 Open payment (Chapa)", url: checkout_url } ]] }
     }
   );
 });
+
 
 
 // ─── CREATOR “Valid” Action ───────────────────────────
