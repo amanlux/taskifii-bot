@@ -3627,6 +3627,15 @@ async function runDoerWorkTimers(bot) {
 
     // unlock any creator engagement lock for this task
     try { await releaseLocksForTask(w.taskDoc._id); } catch (_) {}
+    // Defensive unlock to guarantee creator access is restored
+    try {
+      await EngagementLock.updateMany(
+        { user: creator._id, task: w.taskDoc._id },
+        { $set: { active: false, releasedAt: new Date() } }
+      );
+    } catch (e) {
+      console.error("Force-unlock creator failed:", e);
+    }
 
     // 5) Send audit notice to your private channel (-1002616271109)
     try {
@@ -3899,14 +3908,19 @@ mongoose
     console.log("✅ Connected to MongoDB Atlas");
     const bot = startBot(); // Make sure startBot() returns the bot instance
     
-    // Start the expiry checkers
-    checkTaskExpiries(bot);
-    sendReminders(bot);
-    runDoerWorkTimers(bot);   // NEW: doer timers (65% + time-up/penalty)
-    // Add these lines:
-    checkPendingReminders(bot);
-    // Run every hour to catch any missed reminders
-    setInterval(() => checkPendingReminders(bot), 3600000);
+    // Start the expiry checkers (guarded so they run exactly once)
+    if (!globalThis.__TASKIFII_TIMERS_STARTED__) {
+      globalThis.__TASKIFII_TIMERS_STARTED__ = true;
+
+      checkTaskExpiries(bot);
+      sendReminders(bot);
+      runDoerWorkTimers(bot);
+      checkPendingReminders(bot);
+
+      // periodic background passes
+      setInterval(() => checkPendingReminders(bot), 60 * 60 * 1000);
+    }
+
 async function retryQueuedRefunds() {
   try {
     const queued = await PaymentIntent.find({
