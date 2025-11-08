@@ -4093,7 +4093,7 @@ function startBot() {
       await next();
     } catch (err) {
       console.error("Error in duplicate application check middleware:", err);
-      await next();
+      return; // do NOT call next() again
     }
   });
   
