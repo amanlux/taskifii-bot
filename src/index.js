@@ -3439,6 +3439,40 @@ async function runDoerWorkTimers(bot) {
       // Load users
       const doer = await User.findById(fresh.doer);
       const creator = await User.findById(w.taskDoc.creator);
+      // Avoid cross-task duplicate punishment notices: if doer already has an active punishment on another task, skip sending them a new notice
+      const existingActivePunish = await DoerWork.findOne({
+        doer: doer._id,
+        _id: { $ne: work._id },
+        punishmentRequiredAt: { $exists: true },
+        punishmentPaidAt: { $exists: false }
+      }).lean();
+
+      if (existingActivePunish) {
+        // 1) Inert the completed button for THIS task (already in your code above)
+        // 2) Do NOT send another punishment notice to the doer and do NOT set a tx_ref for this work
+
+        // 3) Still notify the creator + unlock
+        try {
+          await bot.telegram.sendMessage(creator.telegramId, TEXT.punishmentNoticeToCreator[creatorLang]);
+        } catch {}
+        try { await releaseLocksForTask(task._id); } catch (e) { console.error("unlock creator failed:", e); }
+
+        // 4) Audit with 50% for this task as well
+        try {
+          const fifty = Math.round(fee * 0.50);
+          await bot.telegram.sendMessage(
+            "-1002616271109",
+            `#notoriousWTD\nTask: ${task._id}\nDoer User ID: ${doer._id}\nOriginal Fee: ${fee}\n50% of Fee: ${fifty}`
+          );
+        } catch (e) { console.error("audit send failed", e); }
+
+        // 5) Mark punishmentRequiredAt so this work won't be processed again
+        work.punishmentRequiredAt = new Date();
+        await work.save();
+
+        // then continue with next work (skip creating the doer button + message for this task)
+        continue;
+      }
 
       try {
         // Doer message (once)
@@ -3586,12 +3620,13 @@ async function runDoerWorkTimers(bot) {
 
     // 5) Audit to private channel with required fields and tag
     try {
-      const thirty = Math.round(fee * 0.30);
+      const fifty = Math.round(fee * 0.50);
       await bot.telegram.sendMessage(
         "-1002616271109",
-        `#notoriousWTD\nTask: ${task._id}\nDoer User ID: ${doer._id}\nOriginal Fee: ${fee}\n30% of Fee: ${thirty}`
+        `#notoriousWTD\nTask: ${task._id}\nDoer User ID: ${doer._id}\nOriginal Fee: ${fee}\n50% of Fee: ${fifty}`
       );
     } catch (e) { console.error("audit send failed", e); }
+
 
     // 6) Mark punishment required + keep the message id (for inerting after payment)
     work.punishmentRequiredAt = new Date();
@@ -3938,6 +3973,31 @@ function startBot() {
     
     return next();
   });
+  // Global ban guard: blocks all actions for banned users except "ADMIN_UNBAN_*" and "PUNISH_PAY_*"
+  bot.use(async (ctx, next) => {
+    const tgId = ctx.from?.id;
+    if (!tgId) return next();
+
+    const banned = await Banlist.findOne({ telegramId: tgId }).lean();
+    const isUnbanClick = ctx.updateType === 'callback_query'
+      && /^ADMIN_UNBAN_/.test(ctx.callbackQuery?.data || '');
+    const isPunishClick = ctx.updateType === 'callback_query'
+      && /^PUNISH_PAY_/.test(ctx.callbackQuery?.data || '');
+
+    if (banned && !(isUnbanClick || isPunishClick)) {
+      if (ctx.updateType === 'callback_query') {
+        await ctx.answerCbQuery(
+          "You’re currently banned. Use the “Punishment fee” button to regain access.",
+          { show_alert: true }
+        );
+        return;
+      }
+      await ctx.reply("You’re currently banned. Use the “Punishment fee” button to regain access.");
+      return;
+    }
+    return next();
+  });
+
   // Global ban guard: blocks all actions for banned users except "ADMIN_UNBAN_*"
   bot.use(async (ctx, next) => {
     const tgId = ctx.from?.id;
@@ -9797,6 +9857,27 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
 
   const doer = await User.findById(work.doer);
   const lang = doer?.language || 'en';
+  // If this work doesn't carry the active tx_ref, redirect to the primary punishment session
+  if (!work.punishmentTxRef && !work.punishmentPaidAt) {
+    const primary = await DoerWork.findOne({
+      doer: doer._id,
+      punishmentTxRef: { $exists: true, $ne: null },
+      punishmentPaidAt: { $exists: false }
+    }).lean();
+
+    if (primary) {
+      const lang2 = doer?.language || 'en';
+      const kb = Markup.inlineKeyboard([[ Markup.button.callback(
+        TEXT.punishmentBtn[lang2], `PUNISH_PAY_${String(primary._id)}`
+      ) ]]);
+      return ctx.reply(
+        lang2 === 'am'
+          ? "አሁን ንቁ የቅጣት ክፍያ ክፍት ተግባር አለ። የታችኛውን ቁልፍ ይጫኑ እና እሱን ይክፈሉ።"
+          : "You already have an active punishment payment session. Use the button below to open it.",
+        { reply_markup: kb.reply_markup }
+      );
+    }
+  }
 
   // If already paid, make the button inert+highlighted and stop
   if (work.punishmentPaidAt) {
