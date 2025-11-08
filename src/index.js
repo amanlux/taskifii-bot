@@ -3998,25 +3998,7 @@ function startBot() {
     return next();
   });
 
-  // Global ban guard: blocks all actions for banned users except "ADMIN_UNBAN_*"
-  bot.use(async (ctx, next) => {
-    const tgId = ctx.from?.id;
-    if (!tgId) return next();
-
-    const banned = await Banlist.findOne({ telegramId: tgId }).lean();
-    const isUnbanClick = ctx.updateType === 'callback_query'
-      && /^ADMIN_UNBAN_/.test(ctx.callbackQuery?.data || '');
-
-    if (banned && !isUnbanClick) {
-      if (ctx.updateType === 'callback_query') {
-        await ctx.answerCbQuery("You’re currently banned. Ask anyone to click “Unban User” under your profile post to restore access.", { show_alert: true });
-        return;
-      }
-      await ctx.reply("You’re currently banned. Ask anyone to click “Unban User” under your profile post to restore access.");
-      return;
-    }
-    return next();
-  });
+  
 
   // Add this middleware right after session initialization
   bot.use(async (ctx, next) => {
