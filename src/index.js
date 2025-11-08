@@ -2860,6 +2860,64 @@ async function creditIfNeeded(type, task, userId) {
   if (type === 'creatorSpent') u.stats.totalSpent = (u.stats.totalSpent  || 0) + amount;
   await u.save();
 }
+// ── Generic Chapa hosted-checkout initializer (wrapper) ─────────────────────
+// Returns { data: { checkout_url: "https://..." } } to match existing callers.
+async function createChapaCheckoutLink({
+  amount,
+  currency = "ETB",
+  email,
+  first_name = "Taskifii",
+  last_name = "User",
+  tx_ref,
+  callback_url,
+  return_url,
+  phone_number
+}) {
+  const secret =
+    (typeof defaultChapaSecretForInit === "function"
+      ? defaultChapaSecretForInit()
+      : (process.env.CHAPA_LIVE_SECRET_KEY ||
+         process.env.CHAPA_SECRET_KEY ||
+         process.env.CHAPA_TEST_SECRET_KEY ||
+         process.env.CHAPA_SECRET ||
+         "")); // last-ditch fallback
+
+  if (!secret) throw new Error("CHAPA secret missing");
+
+  // Build payload exactly as Chapa expects
+  const payload = {
+    amount: String(amount),
+    currency,
+    email,
+    first_name,
+    last_name,
+    tx_ref,
+    callback_url:
+      callback_url ||
+      `${process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || "https://taskifii-bot.onrender.com"}/chapa/ipn`,
+    return_url
+  };
+
+  if (phone_number) payload.phone_number = phone_number;
+
+  const resp = await fetch("https://api.chapa.co/v1/transaction/initialize", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const data = await resp.json().catch(() => null);
+  const checkout = data?.data?.checkout_url;
+  if (!resp.ok || !checkout) {
+    throw new Error(`Chapa init failed: ${resp.status} ${JSON.stringify(data)}`);
+  }
+
+  // Match the shape your callers use: checkout?.data?.checkout_url
+  return { data: { checkout_url: checkout } };
+}
 
 async function finalizeAndRequestRatings(reason, taskId, botOrTelegram) {
   const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
