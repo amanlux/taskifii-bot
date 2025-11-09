@@ -1017,7 +1017,7 @@ const TEXT = {
     en: "Session refreshed. Use the newest link below.",
     am: "ክፍያ ስርዓት ተዘምኗል። ከታች ያለውን አዲሱን ሊንክ ይጠቀሙ።"
   },
-
+  
 
   creatorTimeUp: {
     en: (penaltyPerHour) => [
@@ -3977,8 +3977,11 @@ mongoose
       // Recreate with a partial filter so only non-empty strings must be unique
       await col.createIndex(
         { payload: 1 },
-        { unique: true, partialFilterExpression: { payload: { $type: "string", $ne: "" } } }
+        // Keep unique only when payload exists and is non-empty.
+        // Using "payload.0": {$exists:true} matches non-empty strings (and arrays) without $type.
+        { unique: true, partialFilterExpression: { payload: { $exists: true }, "payload.0": { $exists: true } } }
       );
+
     }
 
     // Run it before the bot or timers create any new PaymentIntents
@@ -9906,9 +9909,11 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
     email: user.email || 'noemail@taskifii.local',
     first_name: user.fullName || user.username || `${user.telegramId}`,
     tx_ref: txRef,
-    callback_url: `${process.env.PUBLIC_BASE_URL || ''}/chapa/ipn`,
-    return_url: `${process.env.PUBLIC_BASE_URL || ''}/payment/thanks`
+    // We keep callback_url so the server receives IPN and unbans automatically.
+    callback_url: `${process.env.PUBLIC_BASE_URL || ''}/chapa/ipn`
+    // No return_url -> Chapa shows its receipt and doesn’t redirect.
   });
+
 
   await PaymentIntent.updateOne(
     { _id: intent._id },
