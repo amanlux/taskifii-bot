@@ -3962,8 +3962,30 @@ app.listen(PORT, () => {
 // Then connect to Mongo and launch the bot
 mongoose
   .connect(process.env.MONGODB_URI, { autoIndex: true })
-  .then(() => {
+  .then(async () => {
+
     console.log("✅ Connected to MongoDB Atlas");
+    // --- FIX: paymentintents.payload index (unique only for real strings) ---
+    async function migratePaymentIntentIndexes() {
+      const col = mongoose.connection.collection('paymentintents');
+      try {
+        // Old index (unique on all values including null) — drop if it exists
+        await col.dropIndex('payload_1');
+      } catch (e) {
+        // ignore if not found
+      }
+      // Recreate with a partial filter so only non-empty strings must be unique
+      await col.createIndex(
+        { payload: 1 },
+        { unique: true, partialFilterExpression: { payload: { $type: "string", $ne: "" } } }
+      );
+    }
+
+    // Run it before the bot or timers create any new PaymentIntents
+    await migratePaymentIntentIndexes().catch(err =>
+      console.error('migratePaymentIntentIndexes failed:', err)
+    );
+
     const bot = startBot(); // Make sure startBot() returns the bot instance
     
     // Start the expiry checkers (guarded so they run exactly once)

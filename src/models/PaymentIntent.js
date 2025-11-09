@@ -25,7 +25,7 @@ const PaymentIntentSchema = new Schema({
   chapaTxRef: { type: String },   // legacy/find-by-ref
   reference:  { type: String },   // you set this for punishment: `punish_<id>`
   checkoutUrl:{ type: String },   // hosted checkout URL (punishment + escrow)
-
+  
   status: { type: String, enum: ["pending", "paid", "failed", "voided"], default: "pending", index: true },
   provider: { type: String, default: "telegram_chapa" },
 
@@ -48,5 +48,14 @@ const PaymentIntentSchema = new Schema({
 
   createdAt: { type: Date, default: Date.now }
 }, { versionKey: false });
+// ✅ Make payload unique only for true string payloads (escrow path).
+//    Punishment intents have no payload, so they won't collide.
+PaymentIntentSchema.index(
+  { payload: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { payload: { $type: "string", $ne: "" } }
+  }
+);
 
 module.exports = mongoose.models.PaymentIntent || mongoose.model("PaymentIntent", PaymentIntentSchema);
