@@ -3483,6 +3483,19 @@ async function runDoerWorkTimers(bot) {
       // Load users
       const doer = await User.findById(fresh.doer);
       const creator = await User.findById(w.taskDoc.creator);
+      // Hard gate: only proceed if THIS doer actually confirmed THIS task
+      const confirmed = await Task.exists({
+        _id: w.taskDoc._id,
+        applicants: {
+          $elemMatch: {
+            user: fresh.doer,
+            status: "Accepted",
+            confirmedAt: { $ne: null },
+            canceledAt: null
+          }
+        }
+      });
+      if (!confirmed) continue;
 
       try {
         // Doer message (once)
@@ -3525,6 +3538,19 @@ async function runDoerWorkTimers(bot) {
     const fresh = await DoerWork.findById(w._id);
     if (!fresh || fresh.completedAt) continue;
     if (fresh.timeUpNotifiedAt) continue; // idempotency
+    // Only notify time-up if the doer actually confirmed this task
+    const confirmed = await Task.exists({
+      _id: w.taskDoc._id,
+      applicants: {
+        $elemMatch: {
+          user: fresh.doer,
+          status: "Accepted",
+          confirmedAt: { $ne: null },
+          canceledAt: null
+        }
+      }
+    });
+    if (!confirmed) continue;
 
     // Pull fee/penalty from Task (handles both names you use)
     const fee = Number(w.taskDoc.paymentFee || 0);
@@ -3593,6 +3619,27 @@ async function runDoerWorkTimers(bot) {
     if (!fresh || fresh.completedAt) continue;
     // Skip if we've already processed punishment for this work
     if (fresh.punishmentStartedAt) continue;
+    // Final safeguard before punishment: doer must have confirmed this exact task
+    const confirmed = await Task.exists({
+      _id: w.taskDoc._id,
+      applicants: {
+        $elemMatch: {
+          user: fresh.doer,
+          status: "Accepted",
+          confirmedAt: { $ne: null },
+          canceledAt: null
+        }
+      }
+    });
+    if (!confirmed) {
+      // Defensive: prevent this stale row from ever triggering again
+      try {
+        fresh.status = 'completed';
+        fresh.completedAt = new Date();
+        await fresh.save();
+      } catch (_) {}
+      continue;
+    }
 
     // Store a "punishment started" timestamp to avoid repeats
     fresh.punishmentStartedAt = now;
@@ -5955,6 +6002,22 @@ async function disableExpiredTaskButtons(bot) {
                 extra: { reason }
               });
             }
+            // --- NEW: cleanup when accepted doer never started (no "Do the task" before expiry) ---
+            if (reason === "Accepted doer did not start (no 'Do the task' before expiry)") {
+              try {
+                // Remove any accidental/legacy DoerWork rows tied to this task that could keep timers alive
+                await DoerWork.deleteMany({ task: task._id, status: 'active' });
+
+                // Release any engagement locks that might still be active for this task
+                await EngagementLock.updateMany(
+                  { task: task._id, active: true },
+                  { $set: { active: false, releasedAt: new Date() } }
+                );
+              } catch (e) {
+                console.error("Cleanup after expiry (no doer started) failed:", e);
+              }
+            }
+
           }
         }
       } catch (e) {
