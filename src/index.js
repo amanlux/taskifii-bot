@@ -10230,6 +10230,14 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
       : `❌ You haven't listed any issues to fix. Time remaining: ${timeLeftStr}.`;
     return ctx.answerCbQuery(alertMsg, { show_alert: true });
   }
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [[ Markup.button.callback(
+        lang === 'am' ? "✔ ማስተካከል ማሳወቂያ ተልኳል" : "✔ Fix Notice Sent",
+        `_DISABLED_SEND_FIX_NOTICE`
+      ) ]]
+    });
+  } catch {}
   // Creator provided fix requests: forward all to the task doer
   for (const req of work.fixRequests) {
     try {
@@ -10255,14 +10263,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   work.fixNoticeSentAt = new Date();
   work.currentRevisionStatus = 'awaiting_fix';
   await work.save();
-  try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[ Markup.button.callback(
-        lang === 'am' ? "✔ ማስተካከል ማሳወቂያ ተልኳል" : "✔ Fix Notice Sent",
-        `_DISABLED_SEND_FIX_NOTICE`
-      ) ]]
-    });
-  } catch {}
+  
   
   // Clear the creator's session fix mode
   ctx.session.fixingTaskId = null;
