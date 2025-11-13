@@ -107,7 +107,7 @@ const EngagementLock = mongoose.models.EngagementLock
 const RATING_CHANNEL_ID = "-1002289847417";
 const REFUND_AUDIT_CHANNEL_ID = "-1002616271109";
 const DISPUTE_CHANNEL_ID = "-1002432632907";
-
+const AUDIT_CHANNEL_ID = "-1002616271109";      // private audit channel
 // ------------------------------------
 //  Escalation & Banlist (no schema churn to Task/User)
 // ------------------------------------
@@ -5834,6 +5834,40 @@ bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
 
   await ctx.reply(`User ${u.fullName || u.username || u.telegramId} has been unbanned and can now use Taskifii normally.`);
 
+  // Cancel any half-window enforcement for tasks awaiting creator feedback
+  try {
+    const pending = await DoerWork.find({
+      halfWindowEnforcedAt: { $exists: false },
+      completedAt: { $exists: true },     // doer already submitted
+      status: { $ne: 'completed' }        // still considered active
+    }).lean();
+
+    for (const w of pending) {
+      // Mark canceled so the half-window setTimeout does nothing
+      await DoerWork.updateOne(
+        { _id: w._id },
+        { $set: { halfWindowCanceledAt: new Date(), status: 'completed' } }
+      );
+
+      // Inert the decision buttons (safety), if still on screen
+      try {
+        if (w.creatorDecisionMessageId) {
+          await ctx.telegram.editMessageReplyMarkup(
+            u.telegramId, // if u is the creator here; if not, look up the task’s creator
+            w.creatorDecisionMessageId,
+            undefined,
+            {
+              inline_keyboard: [[
+                Markup.button.callback(TEXT.validBtn[u.language || 'en'], `_DISABLED_VALID`),
+                Markup.button.callback(TEXT.needsFixBtn[u.language || 'en'], `_DISABLED_NEEDS_FIX`)
+              ]]
+            }
+          );
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
+
   
 
 });
@@ -10083,8 +10117,160 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     if (halfMs > 0) {
       const creatorTgId = creatorUser.telegramId;
       setTimeout(async () => {
-        // ... [existing half-time auto-finalize code] ...
+        try {
+          const freshTask = await Task.findById(task._id).populate("creator").lean();
+          if (!freshTask) return;
+
+          // Bail out if someone already finalized/closed or we cancelled this half-window
+          const freshWork = await DoerWork.findOne({ task: task._id });
+          if (!freshWork) return;
+          if (freshWork.halfWindowEnforcedAt || freshWork.halfWindowCanceledAt) return;
+
+          // Condition A: creator never chose Valid nor Needs Fix
+          const creatorNeverDecided = !freshWork?.creatorDecisionMessageIdChosen; // we’ll set this when they click either button (see step 5)
+
+          // Condition B: creator clicked Needs Fix but never sent the fix notice (and clicked Send Fix Notice)
+          const needsFixClicked = !!freshWork?.needsFixChosenAt;
+          const fixNoticeSent   = !!freshWork?.fixNoticeSentAt;
+
+          const shouldBan = (creatorNeverDecided) || (needsFixClicked && !fixNoticeSent);
+
+          if (!shouldBan) return;
+
+          // 1) Make decision buttons inert (but still displayed)
+          try {
+            if (freshWork.creatorDecisionMessageId && freshTask.creator?.telegramId) {
+              await globalThis.TaskifiiBot.telegram.editMessageReplyMarkup(
+                freshTask.creator.telegramId,
+                freshWork.creatorDecisionMessageId,
+                undefined,
+                {
+                  inline_keyboard: [[
+                    Markup.button.callback(TEXT.validBtn[freshTask.creator.language || 'en'], `_DISABLED_VALID`),
+                    Markup.button.callback(TEXT.needsFixBtn[freshTask.creator.language || 'en'], `_DISABLED_NEEDS_FIX`)
+                  ]]
+                }
+              );
+            }
+          } catch (_) {}
+
+          // 1b) If there was a "Send Fix Notice" prompt shown, make that button inert too
+          try {
+            if (freshWork.fixPromptMessageId && freshTask.creator?.telegramId) {
+              await globalThis.TaskifiiBot.telegram.editMessageReplyMarkup(
+                freshTask.creator.telegramId,
+                freshWork.fixPromptMessageId,
+                undefined,
+                {
+                  inline_keyboard: [[
+                    Markup.button.callback(
+                      (freshTask.creator.language === 'am' ? "🛠 ማስተካከል ማሳወቂያ ላክ" : "🛠 Send Fix Notice"),
+                      "_DISABLED_SEND_FIX_NOTICE"
+                    )
+                  ]]
+                }
+              );
+            }
+          } catch (_) {}
+
+          // 2) Ban the creator everywhere (bot + group)
+          const creatorUser = await User.findById(freshTask.creator._id);
+          await banUserEverywhere({ telegram: globalThis.TaskifiiBot.telegram }, creatorUser);
+
+          // 3) Close the task / stop revision life-cycle; unlock the winner doer
+          try {
+            await DoerWork.updateOne(
+              { _id: freshWork._id },
+              { $set: { status: 'completed', halfWindowEnforcedAt: new Date() } }
+            );
+          } catch (_) {}
+
+          try { await releaseLocksForTask(freshTask._id); } catch (_) {}
+          try {
+            await EngagementLock.updateMany(
+              { task: freshTask._id },
+              { $set: { active: false, releasedAt: new Date() } }
+            );
+          } catch (_) {}
+
+          // 4) Notifications
+          try {
+            await globalThis.TaskifiiBot.telegram.sendMessage(
+              creatorUser.telegramId,
+              "🚫 You’ve been temporarily banned from Taskifii for not giving the required feedback (Valid vs Needs Fixing) within the first half of the revision period. Taskifii will investigate and make a final decision."
+            );
+          } catch (_) {}
+
+          try {
+            const doerApp = (freshTask.applicants || []).find(a => a.confirmedAt);
+            const doerUser = doerApp ? await User.findById(doerApp.user) : null;
+            if (doerUser) {
+              await globalThis.TaskifiiBot.telegram.sendMessage(
+                doerUser.telegramId,
+                "ℹ️ The task creator didn’t provide feedback in time. Taskifii will review and decide as soon as possible. You can use Taskifii again in the meantime."
+              );
+            }
+          } catch (_) {}
+
+          // 5) Audit post with #NeitherApproveNorReject (+ repeat count + penalty total if applicable)
+          try {
+            const doerApp = (freshTask.applicants || []).find(a => a.confirmedAt);
+            const doerUser = doerApp ? await User.findById(doerApp.user) : null;
+
+            // increment creator repeat counter
+            let creatorRepeat = 1;
+            try {
+              const inc = await User.updateOne(
+                { _id: creatorUser._id },
+                { $inc: { noFeedbackCount: 1 } }
+              );
+              // fetch back value
+              const again = await User.findById(creatorUser._id).lean();
+              creatorRepeat = Math.max(again?.noFeedbackCount || 1, 1);
+            } catch (_) {}
+
+            const fee = Number(freshTask.paymentFee || 0);
+            const penaltyPerHour = Number((freshTask.penaltyPerHour ?? freshTask.latePenalty) || 0);
+
+            // compute total deducted penalty if doer submitted AFTER original deadline but BEFORE 35% limit
+            let deducted = 0;
+            try {
+              const completedAt   = freshWork.completedAt ? new Date(freshWork.completedAt) : null;
+              const deadlineAt    = freshWork.deadlineAt ? new Date(freshWork.deadlineAt) : null;
+              const penaltyStart  = freshWork.penaltyStartAt ? new Date(freshWork.penaltyStartAt) : null;
+              const penaltyEnd    = freshWork.penaltyEndAt ? new Date(freshWork.penaltyEndAt) : null;
+
+              if (completedAt && deadlineAt && penaltyStart && penaltyEnd && penaltyPerHour > 0) {
+                if (completedAt > deadlineAt && completedAt < penaltyEnd) {
+                  const hours = Math.ceil((completedAt - penaltyStart) / 3600000);
+                  deducted = Math.max(0, hours) * penaltyPerHour;
+                }
+              }
+            } catch (_) {}
+
+            const lines = [
+              "#NeitherApproveNorReject" + (creatorRepeat > 1 ? ` #${creatorRepeat}` : ""),
+              `Task: ${freshTask._id}`,
+              `Creator User ID: ${creatorUser?._id}`,
+              `Doer User ID: ${doerUser?._id || "-"}`,
+              `Task Fee: ${fee}`,
+            ];
+            if (deducted > 0) lines.push(`Penalty Deducted (so far): ${deducted}`);
+
+            await globalThis.TaskifiiBot.telegram.sendMessage(
+              AUDIT_CHANNEL_ID,
+              lines.join("\n"),
+              { disable_web_page_preview: true }
+            );
+          } catch (e) {
+            console.error("Audit send failed:", e);
+          }
+
+        } catch (e) {
+          console.error("Half-window enforcement failed:", e);
+        }
       }, halfMs);
+
     } else {
       // If no revision period, finalize immediately
       await releasePaymentAndFinalize(task._id, 'accepted');
@@ -10110,6 +10296,13 @@ bot.action(/^CREATOR_VALID_(.+)$/, async (ctx) => {
       ]]
     });
   } catch {}
+  try {
+    await DoerWork.updateOne(
+      { task: taskId },
+      { $set: { creatorDecisionMessageIdChosen: true } }
+    );
+  } catch (_) {}
+
   // Immediately send the rating prompt to the creator before finalizing.
   try {
     const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
@@ -10144,20 +10337,7 @@ bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
   if (!work) return;
   const task = await Task.findById(taskId);
   const halfDeadline = new Date(work.completedAt.getTime() + (task.revisionTime * 60 * 60 * 1000) / 2);
-  if (new Date() > halfDeadline) {
-    // Too late: half revision window passed, auto-validating
-    try {
-      await ctx.editMessageReplyMarkup({
-        inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_VALID`),
-          Markup.button.callback(TEXT.needsFixBtn[lang], `_DISABLED_NEEDS_FIX`)
-        ]]
-      });
-    } catch {}
-    // Finalize as valid since revision window lapsed
-    await releasePaymentAndFinalize(taskId, 'timeout');
-    return;
-  }
+  
   // Disable both decision buttons and mark "Needs Fixing" as chosen
   try {
     await ctx.editMessageReplyMarkup({
@@ -10167,25 +10347,40 @@ bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
       ]]
     });
   } catch {}
+  try {
+    await DoerWork.updateOne(
+      { task: taskId },
+      { $set: { creatorDecisionMessageIdChosen: true } }
+    );
+  } catch (_) {}
+
   // Notify the creator to list all issues and provide a "Send Fix Notice" button
   const instructMsg = (lang === 'am')
     ? "❗ እባክዎን ያስተካክሏቸው ሁሉንም ጉዳዮች በመልእክቶች ተዝርዞ ይጻፉ። ከተግባሩ ግልባጭ ውጪ ማስፈልግ አይፈቀድም። የቀረውን ጊዜ ተጠቅመው ይህን ዝርዝር ያቅርቡ። ከተጨረሱ በኋላ “ማስተካከል ማሳወቂያ ላክ” የሚለውን ቁልፍ ይጫኑ።"
     : "❗ Please *list everything* that needs fixing in separate messages below. You cannot request changes beyond the original task description. You have until halfway through the revision period to send this list. Once done, tap **Send Fix Notice**.";
-  await ctx.reply(instructMsg, {
-    parse_mode: "Markdown",
-    ...Markup.inlineKeyboard([
-      [ Markup.button.callback(
-          lang === 'am' ? "🛠 ማስተካከል ማሳወቂያ ላክ" : "🛠 Send Fix Notice",
-          `CREATOR_SEND_FIX_NOTICE_${taskId}`
-      ) ]
-    ])
+  const sentPrompt = await ctx.reply(instructMsg, {
+  parse_mode: "Markdown",
+  ...Markup.inlineKeyboard([
+    [ Markup.button.callback(
+        lang === 'am' ? "🛠 ማስተካከል ማሳወቂያ ላክ" : "🛠 Send Fix Notice",
+        `CREATOR_SEND_FIX_NOTICE_${taskId}`
+    ) ]
+  ])
   });
+
+  // Mark that creator chose "Needs Fixing" (we'll use this at half window)
+  try {
+    work.needsFixChosenAt = new Date();
+    work.fixPromptMessageId = sentPrompt?.message_id;
+    await work.save();
+  } catch (_) {}
+
   // Put the creator into "fix listing" mode to capture their messages
   ctx.session = ctx.session || {};
   ctx.session.fixingTaskId = taskId;
   // (Also mark in DB when revision was requested, if needed)
-  // work.revisionRequestedAt = new Date();
-  // await work.save();
+  work.revisionRequestedAt = new Date();
+  await work.save();
 });
 
 // ─── CREATOR “Send Fix Notice” Action ───────────────────────────
@@ -10201,15 +10396,12 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   const doerTid = work.doerTelegramId;
   const now = new Date();
   const halfDeadline = new Date(work.completedAt.getTime() + (await Task.findById(taskId)).revisionTime * 60 * 60 * 1000 / 2);
-  if (now > halfDeadline) {
-    // Past halfway point – treat as expired
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[ Markup.button.callback(`✔ ${TEXT.validBtn[lang]}`, `_DISABLED_SEND_FIX_NOTICE`) ]]
-    }).catch(()=>{});
-    // Auto-finalize as valid
-    await releasePaymentAndFinalize(taskId, 'timeout');
-    return;
-  }
+  // Flag that the creator actually submitted a fix notice (before clicking the button)
+  try {
+    work.fixNoticeSentAt = new Date();
+    await work.save();
+  } catch (_) {}
+
   // Check if creator provided any fix details
   if (!work.fixRequests || work.fixRequests.length === 0) {
     // No messages listed – show error with remaining time
