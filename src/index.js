@@ -336,8 +336,8 @@ const DoerWorkSchema = new mongoose.Schema({
   doerRevisionMessageId: { type: Number },      // message with "⚠️ Report this" / "✅ Send corrected version"
   secondHalfEnforcedAt:   { type: Date },       // when we auto-banned for no feedback
   secondHalfCanceledAt:   { type: Date },       // if an admin unbanned/canceled the window
-  doerRespondedAt:        { type: Date }        // when doer clicked Report or Send Corrected
-
+  doerRespondedAt:        { type: Date },        // when doer clicked Report or Send Corrected
+  halfWindowSatisfiedAt: { type: Date },     // when creator met the first-half rule (sent Fix Notice before midpoint)
 
 
 }, { versionKey: false, timestamps: true });
@@ -10173,16 +10173,30 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
           if (!freshWork) return;
           if (freshWork.halfWindowEnforcedAt || freshWork.halfWindowCanceledAt) return;
 
-          // Condition A: creator never chose Valid nor Needs Fix
-          const creatorNeverDecided = !freshWork?.creatorDecisionMessageIdChosen; // we’ll set this when they click either button (see step 5)
+          
+          // Determine if Fix Notice (if any) was sent before midpoint
+          let fixNoticeBeforeMid = false;
+          try {
+            if (freshWork?.fixNoticeSentAt && freshWork?.completedAt && (freshTask?.revisionTime || 0) > 0) {
+              const revisionMs   = (freshTask.revisionTime || 0) * 60 * 60 * 1000;
+              const firstHalfEnd = new Date(new Date(freshWork.completedAt).getTime() + (revisionMs / 2));
+              fixNoticeBeforeMid = (new Date(freshWork.fixNoticeSentAt) < firstHalfEnd);
+            }
+            // Fast path: if we set the explicit flag earlier, trust it
+            if (freshWork?.halfWindowSatisfiedAt) fixNoticeBeforeMid = true;
+          } catch (_) {}
 
-          // Condition B: creator clicked Needs Fix but never sent the fix notice (and clicked Send Fix Notice)
-          const needsFixClicked = !!freshWork?.needsFixChosenAt;
-          const fixNoticeSent   = !!freshWork?.fixNoticeSentAt;
+          // Old booleans you already had:
+          const creatorNeverDecided = !freshWork?.creatorDecisionMessageIdChosen;
+          const needsFixClicked     = !!freshWork?.needsFixChosenAt;
+          const fixNoticeSent       = !!freshWork?.fixNoticeSentAt;
 
-          const shouldBan = (creatorNeverDecided) || (needsFixClicked && !fixNoticeSent);
+          // UPDATED rule: only ban the creator if they failed the first-half rule.
+          // i.e., creator never decided OR (clicked Needs Fix but did NOT send a Fix Notice before midpoint)
+          const shouldBan = (creatorNeverDecided) || (needsFixClicked && !fixNoticeBeforeMid);
 
           if (!shouldBan) return;
+
 
           // 1) Make decision buttons inert (but still displayed)
           try {
@@ -10448,6 +10462,19 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
     work.fixNoticeSentAt = new Date();
     await work.save();
   } catch (_) {}
+  // If this Fix Notice was sent before the midpoint, remember that the half-window requirement is satisfied.
+  try {
+    const taskDoc      = await Task.findById(taskId).lean();
+    const revisionMs   = (taskDoc?.revisionTime || 0) * 60 * 60 * 1000;
+    const halfMs       = revisionMs / 2;
+    if (revisionMs > 0 && work.completedAt) {
+      const firstHalfEnd = new Date(new Date(work.completedAt).getTime() + halfMs);
+      if (new Date() < firstHalfEnd) {
+        work.halfWindowSatisfiedAt = new Date();
+        await work.save();
+      }
+    }
+  } catch (_) {}
 
   // Check if creator provided any fix details
   if (!work.fixRequests || work.fixRequests.length === 0) {
@@ -10506,6 +10533,20 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   work.fixNoticeSentAt = new Date();
   work.currentRevisionStatus = 'awaiting_fix';
   await work.save();
+  // If this Fix Notice was sent before the midpoint, remember that the half-window requirement is satisfied.
+  try {
+    const taskDoc      = await Task.findById(taskId).lean();
+    const revisionMs   = (taskDoc?.revisionTime || 0) * 60 * 60 * 1000;
+    const halfMs       = revisionMs / 2;
+    if (revisionMs > 0 && work.completedAt) {
+      const firstHalfEnd = new Date(new Date(work.completedAt).getTime() + halfMs);
+      if (new Date() < firstHalfEnd) {
+        work.halfWindowSatisfiedAt = new Date();
+        await work.save();
+      }
+    }
+  } catch (_) {}
+
     // --- Arm second-half watchdog (only if fix notice sent before half window elapsed) ---
   try {
     const freshTask = await Task.findById(taskId).lean();
