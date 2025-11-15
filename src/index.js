@@ -10173,7 +10173,13 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
           if (!freshWork) return;
           if (freshWork.halfWindowEnforcedAt || freshWork.halfWindowCanceledAt) return;
 
-          
+          // Condition A: creator never chose Valid nor Needs Fix
+          const creatorNeverDecided = !freshWork?.creatorDecisionMessageIdChosen; // we’ll set this when they click either button (see step 5)
+
+          // Condition B: creator clicked Needs Fix but never sent the fix notice (and clicked Send Fix Notice)
+          const needsFixClicked = !!freshWork?.needsFixChosenAt;
+          const fixNoticeSent   = !!freshWork?.fixNoticeSentAt;
+
           // Determine if Fix Notice (if any) was sent before midpoint
           let fixNoticeBeforeMid = false;
           try {
@@ -10182,19 +10188,11 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
               const firstHalfEnd = new Date(new Date(freshWork.completedAt).getTime() + (revisionMs / 2));
               fixNoticeBeforeMid = (new Date(freshWork.fixNoticeSentAt) < firstHalfEnd);
             }
-            // Fast path: if we set the explicit flag earlier, trust it
-            if (freshWork?.halfWindowSatisfiedAt) fixNoticeBeforeMid = true;
+            if (freshWork?.halfWindowSatisfiedAt) fixNoticeBeforeMid = true;  // fast-path guard
           } catch (_) {}
 
-          // Old booleans you already had:
-          const creatorNeverDecided = !freshWork?.creatorDecisionMessageIdChosen;
-          const needsFixClicked     = !!freshWork?.needsFixChosenAt;
-          const fixNoticeSent       = !!freshWork?.fixNoticeSentAt;
-
-          // UPDATED rule: only ban the creator if they failed the first-half rule.
-          // i.e., creator never decided OR (clicked Needs Fix but did NOT send a Fix Notice before midpoint)
+          // Condition booleans (defined once, above the "Old booleans..." comment — keep those, don’t duplicate them here)
           const shouldBan = (creatorNeverDecided) || (needsFixClicked && !fixNoticeBeforeMid);
-
           if (!shouldBan) return;
 
 
@@ -10533,6 +10531,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   work.fixNoticeSentAt = new Date();
   work.currentRevisionStatus = 'awaiting_fix';
   await work.save();
+    // --- Arm second-half watchdog (only if fix notice sent before half window elapsed) ---
   // If this Fix Notice was sent before the midpoint, remember that the half-window requirement is satisfied.
   try {
     const taskDoc      = await Task.findById(taskId).lean();
@@ -10547,7 +10546,6 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
     }
   } catch (_) {}
 
-    // --- Arm second-half watchdog (only if fix notice sent before half window elapsed) ---
   try {
     const freshTask = await Task.findById(taskId).lean();
     const freshWork = await DoerWork.findOne({ task: taskId });
