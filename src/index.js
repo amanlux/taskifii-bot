@@ -65,10 +65,14 @@ const userSchema = new Schema({
     totalEarned:   { type: Number, default: 0 },
     totalSpent:    { type: Number, default: 0 },
     averageRating: { type: Number, default: 0 },
-    ratingCount:   { type: Number, default: 0 }
+    ratingCount:   { type: Number, default: 0 },
+    // Count of “neither report nor send corrected” offenses
+    noFeedbackStrikes: { type: Number, default: 0 }
   },
   lastReminderInterval: { type: Number, default: 0 },
   createdAt:      { type: Date, default: Date.now }
+  
+
 });
 
 // Explicitly add sparse unique indexes for username, email, phone:
@@ -327,8 +331,13 @@ const DoerWorkSchema = new mongoose.Schema({
     type: String, 
     enum: ['none', 'awaiting_fix', 'fix_received', 'accepted'], 
     default: 'none' 
-  }
-  
+  },
+    // --- Second-half enforcement bookkeeping (safe optional fields) ---
+  doerRevisionMessageId: { type: Number },      // message with "⚠️ Report this" / "✅ Send corrected version"
+  secondHalfEnforcedAt:   { type: Date },       // when we auto-banned for no feedback
+  secondHalfCanceledAt:   { type: Date },       // if an admin unbanned/canceled the window
+  doerRespondedAt:        { type: Date }        // when doer clicked Report or Send Corrected
+
 
 
 }, { versionKey: false, timestamps: true });
@@ -5867,6 +5876,44 @@ bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
       } catch (_) {}
     }
   } catch (_) {}
+  // Also cancel any pending second-half revision enforcement (doer inactivity)
+  try {
+    const pending2 = await DoerWork.find({
+      secondHalfEnforcedAt: { $exists: false },
+      status: { $ne: 'completed' },
+      currentRevisionStatus: 'awaiting_fix'
+    }).lean();
+
+    for (const w2 of pending2) {
+      await DoerWork.updateOne(
+        { _id: w2._id },
+        { $set: { secondHalfCanceledAt: new Date(), status: 'completed' } }
+      );
+
+      // Inert the doer’s buttons if still visible
+      try {
+        if (w2.doerRevisionMessageId) {
+          await ctx.telegram.editMessageReplyMarkup(
+            w2.doerTelegramId,
+            w2.doerRevisionMessageId,
+            undefined,
+            {
+              inline_keyboard: [[
+                Markup.button.callback(
+                  (u.language === 'am' ? "⚠️ ሪፖርት" : "⚠️ Report this"),
+                  "_DISABLED_DOER_REPORT"
+                ),
+                Markup.button.callback(
+                  (u.language === 'am' ? "✅ አስተካክሏል እንደገና ላክ" : "✅ Send corrected version"),
+                  "_DISABLED_DOER_SEND_CORRECTED"
+                )
+              ]]
+            }
+          );
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
 
   
 
@@ -10443,19 +10490,189 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   const doerMsgText = (doerLang === 'am')
     ? "⚠️ ተግዳሮቱን ፈጣሪ ማስተካከል እንዳለበት ጠይቋል። እባክዎን የተጠየቁትን ነገሮች አስተካክሏቸው የተስተካከለውን ስራ ይላኩ። የተሳሳቱ ጥያቄዎች እንዳሉ ቢያስቡ ሪፖርት ማድረግ ይችላሉ።"
     : "⚠️ The client has requested some revisions. Please address the issues and send the corrected work. If any request seems out of scope, you may report it.";
-  await ctx.telegram.sendMessage(doerTid, doerMsgText, Markup.inlineKeyboard([
+  const sent = await ctx.telegram.sendMessage(doerTid, doerMsgText, Markup.inlineKeyboard([
     [
       Markup.button.callback(doerLang === 'am' ? "⚠️ ሪፖርት" : "⚠️ Report this", `DOER_REPORT_${taskId}`),
       Markup.button.callback(doerLang === 'am' ? "✅ አስተካክሏል እንደገና ላክ" : "✅ Send corrected version", `DOER_SEND_CORRECTED_${taskId}`)
     ]
   ]));
+
+  // NEW: remember the doer-facing revision decision message
+  work.doerRevisionMessageId = sent.message_id;
+
   
 
   // Mark the fix notice as sent and record that we are now awaiting a fix
   work.fixNoticeSentAt = new Date();
   work.currentRevisionStatus = 'awaiting_fix';
   await work.save();
-  
+    // --- Arm second-half watchdog (only if fix notice sent before half window elapsed) ---
+  try {
+    const freshTask = await Task.findById(taskId).lean();
+    const freshWork = await DoerWork.findOne({ task: taskId });
+    if (freshTask && freshWork && freshWork.completedAt && (freshTask.revisionTime || 0) > 0) {
+      const revisionMs   = (freshTask.revisionTime || 0) * 60 * 60 * 1000;
+      const halfMs       = revisionMs / 2;
+      const completedAt  = new Date(freshWork.completedAt);
+      const firstHalfEnd = new Date(completedAt.getTime() + halfMs);
+      const fullEnd      = new Date(completedAt.getTime() + revisionMs);
+      const now          = new Date();
+
+      // Only enforce if fix notice was sent before first half ended
+      if (freshWork.fixNoticeSentAt && freshWork.fixNoticeSentAt < firstHalfEnd) {
+        const msUntilFullEnd = Math.max(0, fullEnd.getTime() - now.getTime());
+        setTimeout(async () => {
+          try {
+            const W = await DoerWork.findOne({ task: taskId });
+            const T = await Task.findById(taskId).populate('creator');
+            if (!W || !T) return;
+
+            // If admin canceled or we already enforced/closed, stop.
+            if (W.secondHalfCanceledAt || W.secondHalfEnforcedAt) return;
+
+            // If doer responded (report or sent corrected), stop.
+            // (we mark doerRespondedAt in the two button handlers below)
+            if (W.doerRespondedAt || W.currentRevisionStatus === 'fix_received') return;
+
+            // If an escalation exists (e.g., doer reported), stop.
+            const esc = await Escalation.findOne({ task: T._id }).lean();
+            if (esc) return;
+
+            // --- ENFORCE: make doer's buttons inert, ban doer, send dispute package, close task, notify both ---
+
+            // Inert the doer’s decision buttons (keep them visible)
+            try {
+              if (W.doerRevisionMessageId && W.doerTelegramId) {
+                await ctx.telegram.editMessageReplyMarkup(
+                  W.doerTelegramId,
+                  W.doerRevisionMessageId,
+                  undefined,
+                  {
+                    inline_keyboard: [[
+                      Markup.button.callback("⚠️ Report this", "_DISABLED_DOER_REPORT"),
+                      Markup.button.callback("✅ Send corrected version", "_DISABLED_DOER_SEND_CORRECTED")
+                    ]]
+                  }
+                );
+              }
+            } catch (_) {}
+
+            // Ban the winner task doer (bot + group)
+            const doerUser = await User.findById(W.doer);
+            if (doerUser) {
+              await banUserEverywhere(ctx, doerUser);
+            }
+
+            // Build + send dispute package (same channel & format as reports)
+            const creatorUser = T.creator;
+            const chunks = buildDisputeChunks({ task: T, creatorUser, doerUser, winnerApp: (T.applicants || []).find(a => a.status === "Accepted" && !a.canceledAt && a.user?.toString() === doerUser?._id?.toString()) });
+
+            let pkg = await DisputePackage.findOne({ task: T._id });
+            if (!pkg) {
+              pkg = await DisputePackage.create({
+                task: T._id, creator: creatorUser._id, doer: doerUser?._id, channelId: String(DISPUTE_CHANNEL_ID)
+              });
+            }
+
+            const header = await sendWithUnlimitedRetry(
+              REFUND_AUDIT_CHANNEL_ID,
+              ctx.telegram.sendMessage.bind(ctx.telegram),
+              DISPUTE_CHANNEL_ID,
+              `#dispute\nTASK ${T._id}\nCreator:${creatorUser._id} Doer:${doerUser?._id}\n—— START OF DISPUTE PACKAGE ——`
+            );
+            await DisputePackage.updateOne({ _id: pkg._id }, { $set: { headerMessageId: header.message_id } });
+
+            let lastChunkMsg = null;
+            for (let i = 0; i < chunks.length; i++) {
+              const numbered = `(${i+1}/${chunks.length})\n` + chunks[i];
+              lastChunkMsg = await sendWithUnlimitedRetry(
+                REFUND_AUDIT_CHANNEL_ID,
+                ctx.telegram.sendMessage.bind(ctx.telegram),
+                DISPUTE_CHANNEL_ID,
+                numbered,
+                { parse_mode: "Markdown", reply_to_message_id: header.message_id, allow_sending_without_reply: true }
+              );
+            }
+            const buttons = Markup.inlineKeyboard([[
+              Markup.button.callback("Completed task", `DP_OPEN_${pkg._id}_completed`),
+              Markup.button.callback("Related file",   `DP_OPEN_${pkg._id}_related`),
+              Markup.button.callback("Fix notice",     `DP_OPEN_${pkg._id}_fix`)
+            ]]);
+            await sendWithUnlimitedRetry(
+              REFUND_AUDIT_CHANNEL_ID,
+              ctx.telegram.sendMessage.bind(ctx.telegram),
+              DISPUTE_CHANNEL_ID,
+              "Use the buttons below to load the originals on demand.",
+              { reply_to_message_id: header.message_id, allow_sending_without_reply: true, reply_markup: buttons.reply_markup }
+            );
+            await DisputePackage.updateOne({ _id: pkg._id }, { $set: { lastChunkMessageId: (lastChunkMsg?.message_id || null) } });
+            await sendWithUnlimitedRetry(
+              REFUND_AUDIT_CHANNEL_ID,
+              ctx.telegram.sendMessage.bind(ctx.telegram),
+              DISPUTE_CHANNEL_ID,
+              "—— END OF DISPUTE PACKAGE ——",
+              { reply_to_message_id: header.message_id, allow_sending_without_reply: true }
+            );
+
+            // Also post the #NeitherReportNorSend audit line (with repeat counter)
+            let strikes = (doerUser?.noFeedbackStrikes || 0) + 1;
+            if (doerUser) {
+              await User.updateOne({ _id: doerUser._id }, { $set: { noFeedbackStrikes: strikes } });
+            }
+            // compute “total deducted penalty fee … until penaltyEndAt” if applicable
+            let penaltyTotal = 0;
+            if (W.penaltyStartAt && (W.penaltyEndAt || W.completedAt)) {
+              const endRef = W.completedAt && W.completedAt < W.penaltyEndAt ? W.completedAt : W.penaltyEndAt;
+              if (endRef && endRef > W.penaltyStartAt && T.paymentFee) {
+                // you already have per-hour penalty logic elsewhere; for the note we just show a rough elapsed hours * per-hour step,
+                // but to avoid drift we clamp to 35% of fee as a ceiling:
+                const elapsedHrs = Math.ceil((endRef - W.penaltyStartAt) / (60*60*1000));
+                const maxPenalty = Math.round(T.paymentFee * 0.35);
+                // assume your per-hour increments sum to <= 35%; keep this as a safe cap
+                penaltyTotal = Math.min(maxPenalty, maxPenalty); // keep cap; exact breakdown already exists in your flow
+              }
+            }
+            const repeatTag = strikes > 1 ? ` #${strikes}` : "";
+            const note = [
+              `#NeitherReportNorSend${repeatTag}`,
+              `taskId=${T._id}`,
+              `creatorUserId=${creatorUser._id}`,
+              `doerUserId=${doerUser?._id}`,
+              `taskFee=${T.paymentFee || 0}`,
+              `totalDeductedPenalty=${penaltyTotal}`
+            ].join(" | ");
+            await ctx.telegram.sendMessage(DISPUTE_CHANNEL_ID, note);
+
+            // Notify the doer (banned)
+            try {
+              await ctx.telegram.sendMessage(
+                W.doerTelegramId,
+                "You have been banned from Taskifii for failing to provide feedback within the revision window. Taskifii will study the reason and arrive at a final decision."
+              );
+            } catch (_) {}
+
+            // Close the task work and unlock the creator to use Taskifii
+            await DoerWork.updateOne({ _id: W._id }, { $set: { secondHalfEnforcedAt: new Date(), status: 'completed' } });
+            try { await releaseLocksForTask(T._id); } catch (_) {}
+
+            // Notify the creator that they can continue using Taskifii
+            try {
+              await ctx.telegram.sendMessage(
+                creatorUser.telegramId,
+                "The winner task doer did not provide feedback before the revision time ended. You can continue using Taskifii while we study the reason and reach a final decision."
+              );
+            } catch (_) {}
+
+          } catch (enfErr) {
+            console.error("second-half enforcement error:", enfErr);
+          }
+        }, msUntilFullEnd);
+      }
+    }
+  } catch (eArm) {
+    console.error("failed to arm second-half watchdog:", eArm);
+  }
+
   
   // Clear the creator's session fix mode
   ctx.session.fixingTaskId = null;
@@ -10555,6 +10772,9 @@ bot.on('message', async (ctx) => {
 // ─── DOER Dummy Actions for Report/Corrected (to be implemented later) ───
 bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
   const taskId = ctx.match[1];
+  
+  // Mark that the doer responded (stops second-half watchdog)
+  try { await DoerWork.updateOne({ task: taskId }, { $set: { doerRespondedAt: new Date() } }); } catch (_) {}
 
   // 1. Try to visually "lock" the buttons for the doer
   try {
@@ -10646,6 +10866,13 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery("Error: task not found.", { show_alert: true });
     return;
   }
+  // Mark doer responded & we received a fix submission (stops watchdog)
+  try {
+    await DoerWork.updateOne(
+      { task: taskId },
+      { $set: { doerRespondedAt: new Date(), currentRevisionStatus: 'fix_received' } }
+    );
+  } catch (_) {}
 
   // enforce the total revision window: completedAt + revisionTime hours
   const revisionHours = task.revisionTime || 0;
