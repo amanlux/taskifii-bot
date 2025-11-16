@@ -250,6 +250,13 @@ const DoerWorkSchema = new mongoose.Schema({
   deadlineAt: { type: Date, required: true },
   completedAt:{ type: Date },                   // set when doer taps "Completed task sent"
   status:     { type: String, enum: ['active','completed'], default: 'active', index: true },
+  // First-half / second-half tracking
+  halfWindowEnforcedAt: { type: Date },
+  halfWindowCanceledAt: { type: Date },
+
+  // When the doer clicked "Send corrected version" during revision
+  doerCorrectedClickedAt: { type: Date },
+
 
   // We'll store the doer-facing message that contains the "Completed task sent" button,
   // so we can flip it to a checked/inert state.
@@ -10618,7 +10625,17 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   const doerUser = work.doer;
   const doerTid = work.doerTelegramId;
   const now = new Date();
-  const halfDeadline = new Date(work.completedAt.getTime() + (await Task.findById(taskId)).revisionTime * 60 * 60 * 1000 / 2);
+  // Load the task once so we can reuse it below
+  const task = await Task.findById(taskId);
+  if (!task) {
+    return ctx.answerCbQuery("Error: task not found.", { show_alert: true });
+  }
+
+  // First-half deadline = completedAt + (revisionTime / 2)
+  const halfDeadline = new Date(
+    work.completedAt.getTime() + (task.revisionTime * 60 * 60 * 1000) / 2
+  );
+
   // Flag that the creator actually submitted a fix notice (before clicking the button)
   try {
     work.fixNoticeSentAt = new Date();
