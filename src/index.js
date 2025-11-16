@@ -3992,7 +3992,8 @@ async function runDoerWorkTimers(bot) {
 
       // If a dispute already exists (doer reported), skip
       const escalated = await Escalation.findOne({ task: w.task }).lean();
-      if (escalted) continue;
+      if (escalated) continue;
+
 
       // If doer clicked "Send corrected version", skip
       if (fresh.doerCorrectedClickedAt) continue;
