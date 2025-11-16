@@ -3407,7 +3407,8 @@ async function enforceDoerSecondHalf(taskId) {
   if (!task) return;
 
   const work = await DoerWork.findOne({ task: task._id }).lean();
-  if (!work || work.status === 'completed') return;
+  if (!work) return;
+
 
   // Skip if creator canceled enforcement or we already enforced
   if (work.secondHalfEnforcedAt || work.secondHalfCanceledAt) return;
@@ -3962,7 +3963,7 @@ async function runDoerWorkTimers(bot) {
     const revWorks = await DoerWork.aggregate([
       {
         $match: {
-          status: 'active',
+          
           currentRevisionStatus: 'awaiting_fix',
           revisionDeadlineAt: { $exists: true },
         }
@@ -3987,7 +3988,7 @@ async function runDoerWorkTimers(bot) {
       // Reload fresh copy to respect any updates/cancellations
       const fresh = await DoerWork.findById(w._id);
       if (!fresh) continue;
-      if (fresh.status === 'completed') continue;
+      
       if (fresh.secondHalfEnforcedAt || fresh.secondHalfCanceledAt) continue;
 
       // If a dispute already exists (doer reported), skip
