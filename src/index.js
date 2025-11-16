@@ -3955,10 +3955,63 @@ async function runDoerWorkTimers(bot) {
       console.error("Failed to send #notoriousWTD audit:", e);
     }
   }
+  // 3.3 — Second-half revision enforcement (NeitherReportNorSend)
+  // If a Fix Notice was sent and the doer gave no feedback by the revision deadline,
+  // enforce the same logic as enforceDoerSecondHalf (ban + dispute package + tags).
+  try {
+    const revWorks = await DoerWork.aggregate([
+      {
+        $match: {
+          status: 'active',
+          currentRevisionStatus: 'awaiting_fix',
+          revisionDeadlineAt: { $exists: true },
+        }
+      },
+      {
+        $lookup: {
+          from: 'tasks',
+          localField: 'task',
+          foreignField: '_id',
+          as: 'taskDoc'
+        }
+      },
+      { $unwind: '$taskDoc' }
+    ]);
+
+    for (const w of revWorks) {
+      if (!w.revisionDeadlineAt) continue;
+
+      const deadline = new Date(w.revisionDeadlineAt);
+      if (now.getTime() < deadline.getTime()) continue; // still inside revision window
+
+      // Reload fresh copy to respect any updates/cancellations
+      const fresh = await DoerWork.findById(w._id);
+      if (!fresh) continue;
+      if (fresh.status === 'completed') continue;
+      if (fresh.secondHalfEnforcedAt || fresh.secondHalfCanceledAt) continue;
+
+      // If a dispute already exists (doer reported), skip
+      const escalated = await Escalation.findOne({ task: w.task }).lean();
+      if (escalted) continue;
+
+      // If doer clicked "Send corrected version", skip
+      if (fresh.doerCorrectedClickedAt) continue;
+
+      // Call the existing helper; it will:
+      // - inert the buttons
+      // - ban the doer + group
+      // - send dispute package with #NeitherReportNorSend and penalty total
+      // - close the task and unlock creator
+      await enforceDoerSecondHalf(String(w.task));
+    }
+  } catch (e) {
+    console.error("Second-half revision enforcement sweep failed:", e);
+  }
 
   // sweep again in ~1 minute
   setTimeout(() => runDoerWorkTimers(bot), 60_000);
 }
+
 
   // Optionally include user stats (earned/spent/avg rating) if desired:
   // lines.push(`*Creator Earned:* ${user.stats.totalEarned} birr`);
@@ -10733,10 +10786,29 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
 
   
 
-  // Mark the fix notice as sent and record that we are now awaiting a fix
+  // Mark fix notice as sent and track revision status
   work.fixNoticeSentAt = new Date();
   work.currentRevisionStatus = 'awaiting_fix';
+
+  // Also store revision start/end so timers survive restarts
+  // (use the doer completion time + task.revisionTime hours)
+  try {
+    if (work.completedAt && task && Number(task.revisionTime || 0) > 0) {
+      const revisionHours = Number(task.revisionTime || 0);
+      const revisionStart = new Date(work.completedAt);
+      const revisionEnd = new Date(
+        revisionStart.getTime() + revisionHours * 60 * 60 * 1000
+      );
+
+      work.revisionStartedAt = revisionStart;
+      work.revisionDeadlineAt = revisionEnd;
+    }
+  } catch (e) {
+    console.error("Failed to set revision window:", e);
+  }
+
   await work.save();
+
   
   
   // Clear the creator's session fix mode
