@@ -52,10 +52,8 @@ const UserSchema = new Schema({
     averageRating: { type: Number, default: 0 },
     ratingCount: { type: Number, default: 0 },
     tasksCompleted: { type: Number, default: 0 },
-    fieldStats: { type: Object, default: {} }, // Tracks frequency of task fields
-    // Count of “neither report nor send corrected” offenses
-    noFeedbackStrikes: { type: Number, default: 0 }
-
+    fieldStats: { type: Object, default: {} } // Tracks frequency of task fields
+    
   },
   createdAt:    { type: Date, default: Date.now }
 });
