@@ -3391,8 +3391,16 @@ async function escalateCreatorRejectRevision(ctx, taskId) {
       const creatorTgId = creatorUser.telegramId;
       const doerTgId    = work.doerTelegramId;
 
-      // Build chunk summary (completed work, any fix notices, etc.)
-      const chunks = await buildDisputeChunks(task, work);
+      // Find the winner application for richer dispute meta (may be null)
+      const winnerApp = (task.applicants || []).find(a =>
+        a.status === "Accepted" &&
+        !a.canceledAt &&
+        a.user &&
+        a.user.toString() === doerUser._id.toString()
+      );
+
+      // Build chunk summary (task meta + both profiles + winner pitch pointer)
+      const chunks = buildDisputeChunks({ task, creatorUser, doerUser, winnerApp });
 
       // Create or reuse one DisputePackage per task
       let pkg = await DisputePackage.findOne({ task: task._id });
@@ -3442,6 +3450,7 @@ async function escalateCreatorRejectRevision(ctx, taskId) {
     } catch (e) {
       console.error("dispute package creation (reject revision) failed:", e);
     }
+
   }
 }
 
