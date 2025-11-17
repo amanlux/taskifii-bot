@@ -10778,10 +10778,11 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
           { $set: { halfWindowCanceledAt: now } }
         );
 
-        // arm the second-half timer (ends at full revision deadline)
-        const revisionEnd = new Date(revisionStart.getTime() + revisionHours * 60 * 60 * 1000);
-        const delay = Math.max(0, revisionEnd.getTime() - now.getTime());
+        // arm the second-half timer (a fresh half of the revision time starting now)
+        const secondHalfEnd = new Date(now.getTime() + firstHalfMillis);
+        const delay = Math.max(0, secondHalfEnd.getTime() - now.getTime());
         scheduleDoerSecondHalfEnforcement(String(task._id), delay); // function added in section 3
+
       }
     }
   } catch (e) { console.error("second-half arming failed:", e); }
@@ -10793,13 +10794,15 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   work.currentRevisionStatus = 'awaiting_fix';
 
   // Also store revision start/end so timers survive restarts
-  // (use the doer completion time + task.revisionTime hours)
+  // (use the moment the Fix Notice is sent + HALF of task.revisionTime hours)
   try {
-    if (work.completedAt && task && Number(task.revisionTime || 0) > 0) {
+    if (work.fixNoticeSentAt && task && Number(task.revisionTime || 0) > 0) {
       const revisionHours = Number(task.revisionTime || 0);
-      const revisionStart = new Date(work.completedAt);
+      const secondHalfMillis = (revisionHours * 60 * 60 * 1000) / 2;
+
+      const revisionStart = new Date(work.fixNoticeSentAt);
       const revisionEnd = new Date(
-        revisionStart.getTime() + revisionHours * 60 * 60 * 1000
+        revisionStart.getTime() + secondHalfMillis
       );
 
       work.revisionStartedAt = revisionStart;
@@ -10808,6 +10811,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   } catch (e) {
     console.error("Failed to set revision window:", e);
   }
+
 
   await work.save();
 
