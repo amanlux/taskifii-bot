@@ -343,6 +343,11 @@ const DoerWorkSchema = new mongoose.Schema({
     default: 'none' 
   },
   
+    // NEW: Creator final decision (after corrected work)
+  creatorFinalDecisionMessageId: { type: Number }, // Approve/Reject keyboard message id
+  finalDecisionEnforcedAt:       { type: Date },   // when the post-correction timeout was enforced
+  finalDecisionCanceledAt:       { type: Date },   // set when creator Approve/Reject in time
+
 
 
 }, { versionKey: false, timestamps: true });
@@ -3578,6 +3583,195 @@ function scheduleDoerSecondHalfEnforcement(taskId, delayMs) {
       console.error("enforceDoerSecondHalf error:", e);
     }
   }, delayMs);
+}
+function scheduleCreatorFinalDecisionEnforcement(taskId, delayMs) {
+  setTimeout(async () => {
+    try {
+      await enforceCreatorFinalDecision(taskId);
+    } catch (e) {
+      console.error("Creator final decision enforcement failed:", e);
+    }
+  }, delayMs);
+}
+
+async function enforceCreatorFinalDecision(taskId) {
+  const telegram = globalThis.TaskifiiBot?.telegram;
+  if (!telegram) return;
+
+  try {
+    const task = await Task.findById(taskId).populate('creator').lean();
+    if (!task) return;
+
+    const work = await DoerWork.findOne({ task: taskId }).lean();
+    if (!work) return;
+
+    // If this enforcement was already handled or cancelled, do nothing.
+    if (work.finalDecisionEnforcedAt || work.finalDecisionCanceledAt) return;
+
+    // Only makes sense if the doer actually sent a corrected version
+    if (!work.doerCorrectedClickedAt) return;
+
+    // If task is already concluded or escalated, don't double-handle
+    const [state, escal, credit] = await Promise.all([
+      FinalizationState.findOne({ task: taskId }).lean(),
+      Escalation.findOne({ task: taskId }).lean(),
+      CreditLog.findOne({ task: taskId, type: 'doerEarned' }).lean()
+    ]);
+    if ((state && state.concludedAt) || escal || credit) {
+      await DoerWork.updateOne(
+        { _id: work._id },
+        { $set: { finalDecisionCanceledAt: new Date() } }
+      );
+      return;
+    }
+
+    const creatorDoc = await User.findById(task.creator._id || task.creator);
+    if (!creatorDoc) return;
+    const doerDoc = await User.findById(work.doer);
+    if (!doerDoc) return;
+
+    // Mark that we enforced this path
+    await DoerWork.updateOne(
+      { _id: work._id },
+      { $set: { finalDecisionEnforcedAt: new Date() } }
+    );
+
+    // 1) Make Approve/Reject buttons inert but still visible (difference A)
+    if (work.creatorFinalDecisionMessageId && creatorDoc.telegramId) {
+      const lang = creatorDoc.language === 'am' ? 'am' : 'en';
+      const approveLabel = lang === 'am' ? "✅ አጸድቅ" : "✅ Approve";
+      const rejectLabel  = lang === 'am' ? "❌ እስት ፍቀድ" : "❌ Reject";
+
+      const buttons = Markup.inlineKeyboard([
+        [
+          Markup.button.callback(approveLabel, '_DISABLED_APPROVE_REVISION'),
+          Markup.button.callback(rejectLabel,  '_DISABLED_REJECT_REVISION'),
+        ]
+      ]);
+
+      try {
+        await telegram.editMessageReplyMarkup(
+          creatorDoc.telegramId,
+          work.creatorFinalDecisionMessageId,
+          undefined,
+          buttons.reply_markup
+        );
+      } catch (e) {
+        console.error("Failed to inactivate Approve/Reject keyboard:", e);
+      }
+    }
+
+    // 2) Ban the creator everywhere (bot + group) – matches your existing ban flow.
+    try {
+      await banUserEverywhere(globalThis.TaskifiiBot, creatorDoc);
+    } catch (e) {
+      console.error("banUserEverywhere (creator final decision) failed:", e);
+    }
+
+    // 3) Release any locks on this task so the doer can use Taskifii again
+    try { await releaseLocksForTask(task._id); } catch (_) {}
+    try {
+      await EngagementLock.updateMany(
+        { task: task._id },
+        { $set: { active: false, releasedAt: new Date() } }
+      );
+    } catch (_) {}
+
+    // 4) Notify the task creator (difference B – creator message, bilingual)
+    try {
+      const lang = creatorDoc.language === 'am' ? 'am' : 'en';
+      const text = (lang === 'am')
+        ? "🚫 በራስዎ የተወሰነው የማሻሻያ ጊዜ ውስጥ ለተስተካከለው ስራ ምንም አይነት ግብዣ (አጸድቅ ወይም እስትፍቀድ) አልሰጡም። በምንም መንገድ የራስዎን ጊዜ-ገደብ አልከበሩም። Taskifii ይህን ጉዳይ በጊዜያዊ ሁኔታ ትመርማለች፣ እስከምንለቀቅዎ ድረስ መጠቀምዎን እንከልክላለን። የመጨረሻ ውሳኔውን በቴሌግራም እንረዳዎታለን።"
+        : "🚫 You didn’t give any feedback (Approve or Reject) on the corrected work within the revision time you set yourself. Taskifii has temporarily suspended your access while we study this case and make a final decision. We’ll contact you with the result on Telegram.";
+      await telegram.sendMessage(creatorDoc.telegramId, text);
+    } catch (_) {}
+
+    // 5) Notify the winner task doer (difference B – doer message, bilingual)
+    try {
+      const lang = doerDoc.language === 'am' ? 'am' : 'en';
+      const text = (lang === 'am')
+        ? "ℹ️ ተግዳሮቱን ፈጣሪ በራሱ የማሻሻያ ጊዜ ውስጥ ለተስተካከለው ስራ ማጽደቅ ወይም መካከል አላደረገም። ጉዳዩን Taskifii በአሁኑ ጊዜ ትመርማለች እና የመጨረሻ ውሳኔውን በቅርቡ ትደርስብዎታለች። በዚህ ጊዜ የነበሩት መቆለፊያዎች ተወግደዋል፤ ሌሎች ተግዳሮቶችን መማመር እና በTaskifii ላይ ያሉ ሌሎች ባህሪያትን መጠቀም ይችላሉ።"
+        : "ℹ️ The task creator didn’t Approve or Reject your corrected work within their part of the revision time. Taskifii will now review this case and get back to you with a final decision soon. In the meantime you’re free to start applying to other tasks and use other Taskifii features that were previously locked while you were engaged with this task.";
+      await telegram.sendMessage(work.doerTelegramId, text);
+    } catch (_) {}
+
+    // 6) Tag the dispute channel with #NeitherApproveNorReject2 + 4 buttons (difference C)
+
+    // Compute repeat counter & penalty, same style as the original #NeitherApproveNorReject audit
+    let creatorRepeat = 1;
+    try {
+      await User.updateOne(
+        { _id: creatorDoc._id },
+        { $inc: { noFeedbackCount: 1 } }
+      );
+      const again = await User.findById(creatorDoc._id).lean();
+      creatorRepeat = Math.max(again?.noFeedbackCount || 1, 1);
+    } catch (_) {}
+
+    const fee = Number(task.paymentFee || 0);
+    const penaltyPerHour = Number((task.penaltyPerHour ?? task.latePenalty) || 0);
+    let deducted = 0;
+    try {
+      const completedAt  = work.completedAt ? new Date(work.completedAt) : null;
+      const deadlineAt   = work.deadlineAt ? new Date(work.deadlineAt) : null;
+      const penaltyStart = work.penaltyStartAt ? new Date(work.penaltyStartAt) : null;
+      const penaltyEnd   = work.penaltyEndAt ? new Date(work.penaltyEndAt) : null;
+
+      if (completedAt && deadlineAt && penaltyStart && penaltyEnd && penaltyPerHour > 0) {
+        if (completedAt > deadlineAt && completedAt < penaltyEnd) {
+          const hours = Math.ceil((completedAt - penaltyStart) / 3600000);
+          deducted = Math.max(0, hours) * penaltyPerHour;
+        }
+      }
+    } catch (_) {}
+
+    const lines = [
+      "#NeitherApproveNorReject2" + (creatorRepeat > 1 ? ` #${creatorRepeat}` : ""),
+      `Task: ${task._id}`,
+      `Creator User ID: ${creatorDoc?._id}`,
+      `Doer User ID: ${doerDoc?._id || "-"}`,
+      `Task Fee: ${fee}`,
+    ];
+    if (deducted > 0) lines.push(`Penalty Deducted (so far): ${deducted}`);
+
+    // Ensure a DisputePackage exists so the DP_* buttons know which task to load
+    let pkg = await DisputePackage.findOne({ task: task._id });
+    if (!pkg) {
+      pkg = await DisputePackage.create({
+        task: task._id,
+        creator: creatorDoc._id,
+        doer: doerDoc._id,
+        channelId: String(DISPUTE_CHANNEL_ID)
+      });
+    }
+
+    const buttons = Markup.inlineKeyboard([
+      [
+        Markup.button.callback("Completed task",   `DP_OPEN_${pkg._id}_completed`),
+        Markup.button.callback("Related file",     `DP_OPEN_${pkg._id}_related`),
+        Markup.button.callback("Send corrections", `DP_SEND_CORRECTIONS_${pkg._id}`),
+        Markup.button.callback("Fix notice",       `DP_OPEN_${pkg._id}_fix`),
+      ]
+    ]);
+
+    try {
+      await sendWithUnlimitedRetry(
+        REFUND_AUDIT_CHANNEL_ID,
+        telegram.sendMessage.bind(telegram),
+        DISPUTE_CHANNEL_ID, // -1002432632907
+        lines.join("\n"),
+        {
+          disable_web_page_preview: true,
+          reply_markup: buttons.reply_markup
+        }
+      );
+    } catch (e) {
+      console.error("NeitherApproveNorReject2 tag send failed:", e);
+    }
+
+  } catch (err) {
+    console.error("enforceCreatorFinalDecision fatal:", err);
+  }
 }
 
 // Enforce when doer gave no feedback (neither reported nor sent corrected) by second-half end
@@ -11255,8 +11449,12 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   // enforce the total revision window: completedAt + revisionTime hours
   const revisionHours = task.revisionTime || 0;
   if (revisionHours > 0) {
-    const revisionEnd = new Date(work.completedAt.getTime() + revisionHours * 60 * 60 * 1000);
-    if (new Date() > revisionEnd) {
+    const baseEnd = new Date(work.completedAt.getTime() + revisionHours * 60 * 60 * 1000);
+    const effectiveEnd = work.revisionDeadlineAt
+      ? new Date(work.revisionDeadlineAt)
+      : baseEnd;
+
+    if (new Date() > effectiveEnd) {
       await ctx.answerCbQuery(
         (work.doer?.language || 'en') === 'am'
           ? "የማሻሻያ ጊዜ አልፎታል።"
@@ -11266,6 +11464,7 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
       return;
     }
   }
+
 
   // messages sent after the fix notice are considered corrections
   const cutOff   = work.fixNoticeSentAt || work.completedAt;
@@ -11307,7 +11506,8 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   const infoText = creatorLang === 'am'
     ? "የተስተካከለው ስራ ተልኳል። እባክዎ ይመልከቱና ለመቀበል ወይም ለመካከል ቁልፍ ይጫኑ።"
     : "The corrected work has been submitted. Please review it and tap Approve or Reject below.";
-  await ctx.telegram.sendMessage(
+
+  const creatorPrompt = await ctx.telegram.sendMessage(
     creatorUser.telegramId,
     infoText,
     Markup.inlineKeyboard([
@@ -11317,6 +11517,34 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
       ]
     ])
   );
+
+  // store this message id so we can later make Approve/Reject inert (difference A)
+  try {
+    await DoerWork.updateOne(
+      { _id: work._id },
+      {
+        $set: {
+          creatorFinalDecisionMessageId: creatorPrompt.message_id,
+          finalDecisionCanceledAt: null
+        }
+      }
+    );
+  } catch (e) {
+    console.error("Failed to store creatorFinalDecisionMessageId:", e);
+  }
+
+  // Start a fresh post-correction timer equal to HALF of the revision time.
+  // This only runs because we already checked that we are still within the second revision window.
+  try {
+    const revisionHoursLocal = task.revisionTime || 0;
+    if (revisionHoursLocal > 0) {
+      const halfMillis = (revisionHoursLocal * 60 * 60 * 1000) / 2;
+      scheduleCreatorFinalDecisionEnforcement(String(taskId), halfMillis);
+    }
+  } catch (e) {
+    console.error("Failed to schedule creator final decision enforcement:", e);
+  }
+
 
   // update revision state (optional but harmless)
   try {
@@ -11359,14 +11587,20 @@ bot.action(/^CREATOR_APPROVE_REVISION_(.+)$/, async (ctx) => {
 
   // 2) LOGIC: do the same things as CREATOR_VALID
   try {
-    // Mark that the creator has made a final decision
+    // Mark that the creator has made a final decision and cancel any pending timeout
     await DoerWork.updateOne(
       { task: taskId },
-      { $set: { creatorDecisionMessageIdChosen: true } }
+      {
+        $set: {
+          creatorDecisionMessageIdChosen: true,
+          finalDecisionCanceledAt: new Date()
+        }
+      }
     );
   } catch (e) {
     console.error("DoerWork update from approve failed:", e);
   }
+
 
   // Send early rating prompt to creator (same logic as CREATOR_VALID)
   try {
@@ -11422,6 +11656,15 @@ bot.action(/^CREATOR_REJECT_REVISION_(.+)$/, async (ctx) => {
     }
   } catch (err) {
     console.error('Failed to edit reject revision buttons:', err);
+  }
+  // Mark that a final decision was made so the post-correction timeout won't fire
+  try {
+    await DoerWork.updateOne(
+      { task: taskId },
+      { $set: { finalDecisionCanceledAt: new Date() } }
+    );
+  } catch (e) {
+    console.error("DoerWork update from reject failed:", e);
   }
 
   // 2) LOGIC: escalate exactly like a "Report this", but from creator side
