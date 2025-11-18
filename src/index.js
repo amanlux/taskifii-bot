@@ -3299,7 +3299,7 @@ async function escalateDoerReport(ctx, taskId) {
   const buttons = Markup.inlineKeyboard([
     [
       Markup.button.callback("Completed task",   `DP_OPEN_${pkg._id}_completed`),
-      Markup.button.callback("Send corrections", `DP_OPEN_${pkg._id}_corrections`),
+      Markup.button.callback("Send corrections", `DP_SEND_CORRECTIONS_${pkg._id}`),
       Markup.button.callback("Related file",     `DP_OPEN_${pkg._id}_related`),
       Markup.button.callback("Fix notice",       `DP_OPEN_${pkg._id}_fix`),
     ]
@@ -3324,9 +3324,9 @@ async function escalateDoerReport(ctx, taskId) {
   );
 
 }
-// Creator rejected the corrected version -> escalate from creator side.
-// Similar to escalateDoerReport, but with different wording.
-async function escalateCreatorRejectRevision(ctx, taskId) {
+// Creator rejected the corrected version – escalate dispute from creator side.
+// Mirrors escalateDoerReport but sets creatorReportedAt and uses different texts.
+async function escalateCreatorReject(ctx, taskId) {
   const telegram = ctx.telegram;
 
   // ----- PHASE A: one-time critical actions -----
@@ -3338,120 +3338,142 @@ async function escalateCreatorRejectRevision(ctx, taskId) {
 
   const creatorUser = await User.findById(task.creator._id);
   const doerUser    = await User.findById(work.doer._id);
-  if (!creatorUser || !doerUser) return;
 
-  // Ensure FinalizationState and guard against duplicate escalations
+  // FinalizationState ensure
   let state = await FinalizationState.findOne({ task: taskId });
   if (!state) {
     state = new FinalizationState({ task: taskId });
   }
 
+  // Avoid duplicate escalation
   if (!state.creatorReportedAt) {
     state.creatorReportedAt = new Date();
     await state.save();
 
-    // Record Escalation (upsert) from the creator's side
+    // record Escalation (creator role)
     await Escalation.updateOne(
       { task: taskId },
       { $set: { task: taskId, by: creatorUser._id, role: 'creator', createdAt: new Date() } },
       { upsert: true }
     );
 
-    // Ban both users
+    // Ban both users, same behavior as doer-report path
     await banUserEverywhere(ctx, creatorUser);
     await banUserEverywhere(ctx, doerUser);
 
-    // Notify the task creator (their claim was received, temporary ban)
+    // Notify the task creator (who is reporting)
     try {
-      const lang = creatorUser.language || 'en';
-      const msg =
-        lang === 'am'
-          ? "✅ የእርስዎ ጥርጣሬ ተቀብሏል። Taskifii ይህን ጉዳይ በትክክል ይመርምራል እና የመጨረሻ ውሳኔ በተወሰነ ጊዜ ይገልጻል። እስካሁን ድረስ በጊዜያዊነት ከTaskifii መጠቀም ታገዱማል።"
-          : "✅ Your claim has been received. Taskifii will study this case and contact you with a final decision. Until then, you are temporarily banned from using Taskifii.";
-      await telegram.sendMessage(creatorUser.telegramId, msg);
-    } catch (e) {
-      console.error("notify creator (reject revision) failed:", e);
-    }
-
-    // Notify the winner task doer (creator rejected corrected work, temporary ban)
-    try {
-      const lang = doerUser.language || 'en';
-      const msg =
-        lang === 'am'
-          ? "⚠️ የተሸማቹ ተግዳሮት ፈጣሪው የተስተካከለውን የተጠናቀቀ ስራ አልተቀበለም። Taskifii ይህን ጉዳይ ይመርምራል እና የመጨረሻ ውሳኔ ከተሰጠ በኋላ ይነግርዎታል። እስካሁን ድረስ በጊዜያዊነት ከTaskifii መጠቀም ታገዱማል።"
-          : "⚠️ The task creator has rejected the corrected version of the completed task. Taskifii will study this case and contact you with a final decision. Until then, you are temporarily banned from using Taskifii.";
-      await telegram.sendMessage(doerUser.telegramId, msg);
-    } catch (e) {
-      console.error("notify doer (reject revision) failed:", e);
-    }
-
-    // ----- PHASE B: create / update dispute package and send to channel -----
-    // Very similar to escalateDoerReport
-    try {
-      const creatorTgId = creatorUser.telegramId;
-      const doerTgId    = work.doerTelegramId;
-
-      // Find the winner application for richer dispute meta (may be null)
-      const winnerApp = (task.applicants || []).find(a =>
-        a.status === "Accepted" &&
-        !a.canceledAt &&
-        a.user &&
-        a.user.toString() === doerUser._id.toString()
-      );
-
-      // Build chunk summary (task meta + both profiles + winner pitch pointer)
-      const chunks = buildDisputeChunks({ task, creatorUser, doerUser, winnerApp });
-
-      // Create or reuse one DisputePackage per task
-      let pkg = await DisputePackage.findOne({ task: task._id });
-      if (!pkg) {
-        pkg = await DisputePackage.create({
-          task: task._id,
-          creator: creatorUser._id,
-          doer: doerUser._id,
-          channelId: String(DISPUTE_CHANNEL_ID)
-        });
-      }
-
-      const headerText = `🧾 DISPUTE PACKAGE (Creator rejected corrected version)\nTask ID: ${task._id}\nCreator: ${creatorUser.fullName || creatorUser.username || creatorTgId}\nDoer: ${doerUser.fullName || doerUser.username || doerTgId}`;
-      const header = await telegram.sendMessage(
-        DISPUTE_CHANNEL_ID,
-        headerText,
-        { disable_web_page_preview: true }
-      );
-
-      const buttons = Markup.inlineKeyboard([
-        [
-          Markup.button.callback("Completed task",   `DP_OPEN_${pkg._id}_completed`),
-          Markup.button.callback("Send corrections", `DP_OPEN_${pkg._id}_corrections`),
-          Markup.button.callback("Related file",     `DP_OPEN_${pkg._id}_related`),
-          Markup.button.callback("Fix notice",       `DP_OPEN_${pkg._id}_fix`)
-        ]
-      ]);
-
-      const tail = await telegram.sendMessage(
-        DISPUTE_CHANNEL_ID,
-        "Tap a button to load each part of this dispute (completed work, corrections, related files, or creator fix notice).",
-        buttons
-      );
-
-      pkg.headerMessageId = header.message_id;
-      pkg.lastChunkMessageId = tail.message_id;
-      await pkg.save();
-
-      // Send initial summary and tags to audit / dispute
-      await sendWithUnlimitedRetry(
-        REFUND_AUDIT_CHANNEL_ID,
-        telegram.sendMessage.bind(telegram),
-        DISPUTE_CHANNEL_ID,
-        chunks.summaryText,
-        { reply_to_message_id: header.message_id, allow_sending_without_reply: true }
+      await telegram.sendMessage(
+        creatorUser.telegramId,
+        "✅ We have received your claim for this task. Taskifii will study this case and get back to you with the final decision.\n\n" +
+        "⛔ Until then, you are temporarily banned from using Taskifii.\n\n" +
+        "✅ የዚህ ተግባር ቅሬታዎን ተቀብለናል። Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።\n\n" +
+        "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላሉ።"
       );
     } catch (e) {
-      console.error("dispute package creation (reject revision) failed:", e);
+      console.error("notify creator (reject) fail:", e);
     }
 
+    // Notify the winner task doer
+    try {
+      await telegram.sendMessage(
+        doerUser.telegramId,
+        "⚠️ The task creator has rejected your corrected version of the completed task. Taskifii will study this case and get back to you with the final decision.\n\n" +
+        "⛔ Until then, you are temporarily banned from using Taskifii.\n\n" +
+        "⚠️ የተግባሩን የተስተካከለውን ስራ ሰጥተዋል ቢሆንም የተግባሩ ፈጣሪ አልተቀበለውም። Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።\n\n" +
+        "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላችሁ።"
+      );
+    } catch (e) {
+      console.error("notify doer (reject) fail:", e);
+    }
   }
+
+  // ----- PHASE B: dispute summary in safe chunks + buttons -----
+  const winnerApp = (task.applicants || []).find(a =>
+    a.status === "Accepted" &&
+    !a.canceledAt &&
+    a.user &&
+    a.user.toString() === work.doer._id.toString()
+  );
+
+  const chunks = buildDisputeChunks({
+    task,
+    creatorUser: creatorUser.toObject ? creatorUser.toObject() : creatorUser,
+    doerUser:    doerUser.toObject ? doerUser.toObject() : doerUser,
+    winnerApp
+  });
+
+  // Create/ensure DisputePackage (same as doer-report path)
+  let pkg = await DisputePackage.findOne({ task: task._id });
+  if (!pkg) {
+    pkg = await DisputePackage.create({
+      task: task._id,
+      creator: creatorUser._id,
+      doer: doerUser._id,
+      channelId: String(DISPUTE_CHANNEL_ID)
+    });
+  }
+
+  const header = await sendWithUnlimitedRetry(
+    REFUND_AUDIT_CHANNEL_ID,
+    telegram.sendMessage.bind(telegram),
+    DISPUTE_CHANNEL_ID,
+    `#dispute\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`
+  );
+  await DisputePackage.updateOne(
+    { _id: pkg._id },
+    { $set: { headerMessageId: header.message_id } }
+  );
+
+  let lastChunkMsg = null;
+  for (let i = 0; i < chunks.length; i++) {
+    const numbered = `(${i+1}/${chunks.length})\n` + chunks[i];
+    lastChunkMsg = await sendWithUnlimitedRetry(
+      REFUND_AUDIT_CHANNEL_ID,
+      telegram.sendMessage.bind(telegram),
+      DISPUTE_CHANNEL_ID,
+      numbered,
+      { parse_mode: "Markdown", reply_to_message_id: header.message_id, allow_sending_without_reply: true }
+    );
+  }
+
+  // Attach dispute buttons (including "Send corrections"; see section 3)
+  const buttons = Markup.inlineKeyboard([
+    [
+      Markup.button.callback("Completed task",   `DP_OPEN_${pkg._id}_completed`),
+      Markup.button.callback("Send corrections", `DP_SEND_CORRECTIONS_${pkg._id}`),
+      Markup.button.callback("Related file",     `DP_OPEN_${pkg._id}_related`),
+      Markup.button.callback("Fix notice",       `DP_OPEN_${pkg._id}_fix`),
+    ]
+  ]);
+
+  await sendWithUnlimitedRetry(
+    REFUND_AUDIT_CHANNEL_ID,
+    telegram.sendMessage.bind(telegram),
+    DISPUTE_CHANNEL_ID,
+    "Use the buttons below to load the originals on demand.",
+    {
+      reply_to_message_id: header.message_id,
+      allow_sending_without_reply: true,
+      reply_markup: buttons.reply_markup
+    }
+  );
+
+  await DisputePackage.updateOne(
+    { _id: pkg._id },
+    { $set: { lastChunkMessageId: (lastChunkMsg?.message_id || null) } }
+  );
+
+  await sendWithUnlimitedRetry(
+    REFUND_AUDIT_CHANNEL_ID,
+    telegram.sendMessage.bind(telegram),
+    DISPUTE_CHANNEL_ID,
+    "—— END OF DISPUTE PACKAGE ——",
+    {
+      reply_to_message_id: header.message_id,
+      allow_sending_without_reply: true
+    }
+  );
 }
 
 
@@ -3627,7 +3649,7 @@ async function enforceDoerSecondHalf(taskId) {
   const buttons = Markup.inlineKeyboard([
     [
       Markup.button.callback("Completed task",   `DP_OPEN_${pkg._id}_completed`),
-      Markup.button.callback("Send corrections", `DP_OPEN_${pkg._id}_corrections`),
+      Markup.button.callback("Send corrections", `DP_SEND_CORRECTIONS_${pkg._id}`),
       Markup.button.callback("Related file",     `DP_OPEN_${pkg._id}_related`),
       Markup.button.callback("Fix notice",       `DP_OPEN_${pkg._id}_fix`),
     ]
@@ -10953,83 +10975,88 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   // Clear the creator's session fix mode
   ctx.session.fixingTaskId = null;
 });
-bot.action(/^DP_OPEN_(.+)_(completed|corrections|related|fix)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-  const [ , dpId, which ] = ctx.match;
-  const pkg = await DisputePackage.findById(dpId).lean();
+bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+  } catch {}
+
+  const [, pkgId, which] = ctx.match;
+  const pkg = await DisputePackage.findById(pkgId).lean();
   if (!pkg) return;
 
-  const task = await Task.findById(pkg.task).lean();
-  if (!task) return;
+  const task = await Task.findById(pkg.task).populate('creator').lean();
+  const work = await DoerWork.findOne({ task: pkg.task }).populate('doer').lean();
+  const creatorUser = await User.findById(task.creator._id).lean();
+  const doerUser    = await User.findById(work.doer._id).lean();
 
-  const work = await DoerWork.findOne({ task: task._id }).lean();
-  if (!work) return;
-
-  const channelId = pkg.channelId || String(DISPUTE_CHANNEL_ID);
+  // We always send to the same channel the package used
+  const channelId = pkg.channelId || DISPUTE_CHANNEL_ID;
 
   if (which === 'completed') {
-    const msgs = (work.messages || []).filter(m => !!m.date);
     await forwardMessageLogToDispute(
-      ctx.telegram,
-      channelId,
-      work.doerTelegramId,
-      msgs,
-      `📦 COMPLETED TASK — TASK ${task._id}:`
+      ctx.telegram, channelId, work.doerTelegramId, work.messages,
+      `📦 COMPLETED TASK (from Winner Task Doer) — TASK ${task._id}:`
     );
-  } else if (which === 'corrections') {
-    // Show ONLY the corrected work the doer sent AFTER the fix notice.
-    const all = work.messages || [];
-    let cutoff = null;
-
-    if (work.fixNoticeSentAt) {
-      cutoff = new Date(work.fixNoticeSentAt);
-    } else if (work.completedAt) {
-      // Fallback: anything after original completion time
-      cutoff = new Date(work.completedAt);
+  } else if (which === 'related') {
+    // related file(s) from task post
+    if (task.relatedFile?.fileId) {
+      await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "📎 TASK RELATED FILE (from original task post):");
+      await safeTelegramCall(sendTaskRelatedFile, ctx.telegram, channelId, task.relatedFile.fileId);
+    } else {
+      await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "No related file was attached on the original task.");
     }
+  } else if (which === 'fix') {
+    await forwardMessageLogToDispute(
+      ctx.telegram, channelId, creatorUser.telegramId, work.fixRequests,
+      `✏️ FIX NOTICE (from Task Creator) — TASK ${task._id}:`
+    );
+  }
+});
+// From the dispute channel: send ONLY the corrected version of the completed work.
+bot.action(/^DP_SEND_CORRECTIONS_(.+)$/, async (ctx) => {
+  try { await ctx.answerCbQuery(); } catch {}
 
-    const correctedEntries = cutoff
-      ? all.filter(e => e.date && e.date > cutoff)
-      : [];
+  const pkgId = ctx.match[1];
 
-    if (!correctedEntries.length) {
-      // Nothing recorded – just tell the dispute channel
-      await safeTelegramCall(
-        ctx.telegram.sendMessage.bind(ctx.telegram),
-        channelId,
-        `No corrected work was recorded for this task (Task ${task._id}).`
-      );
+  try {
+    const pkg = await DisputePackage.findById(pkgId).lean();
+    if (!pkg) return;
+
+    const work = await DoerWork.findOne({ task: pkg.task }).lean();
+    if (!work) {
+      await ctx.reply("No recorded work found for this task.");
       return;
     }
+
+    // "Corrected" messages = messages that came AFTER the fix notice
+    const cutoff =
+      work.fixNoticeSentAt ||
+      work.completedAt ||
+      work.startedAt ||
+      new Date(0);
+
+    const correctedEntries = (work.messages || []).filter(entry =>
+      entry.date && new Date(entry.date) > cutoff
+    );
+
+    if (!correctedEntries.length) {
+      await ctx.reply("No corrected submissions were recorded for this task.");
+      return;
+    }
+
+    const channelId = pkg.channelId || DISPUTE_CHANNEL_ID;
 
     await forwardMessageLogToDispute(
       ctx.telegram,
       channelId,
       work.doerTelegramId,
       correctedEntries,
-      `📤 CORRECTED TASK VERSION(S) — TASK ${task._id}:`
+      `📦 CORRECTED COMPLETED TASK (from Winner Task Doer) — TASK ${pkg.task}:`
     );
-  } else if (which === 'related') {
-    const msgs = (work.messages || []).filter(m => !m.date); // or whatever you already had
-    await forwardMessageLogToDispute(
-      ctx.telegram,
-      channelId,
-      work.doerTelegramId,
-      msgs,
-      `📎 RELATED FILES / CONTEXT — TASK ${task._id}:`
-    );
-  } else if (which === 'fix') {
-    const fixes = (work.fixRequests || []).filter(m => !!m.date);
-    await forwardMessageLogToDispute(
-      ctx.telegram,
-      channelId,
-      work.doerTelegramId,
-      fixes,
-      `🛠 CREATOR FIX NOTICE — TASK ${task._id}:`
-    );
+  } catch (e) {
+    console.error("DP_SEND_CORRECTIONS handler failed:", e);
   }
 });
-
 
 // ─── Handle Creator’s Fix Comments (Message Handler) ───────────────────
 bot.on('message', async (ctx) => {
@@ -11260,12 +11287,12 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
 });
 // Creator clicked Approve on a corrected submission.
-// Behaves like "Valid": finalize, release payment, send rating prompt.
-// Only the Approve/Reject buttons become inert; the old Valid/Needs Fix UI is untouched.
+// Visually behaves like before, but now also finalizes exactly like "Valid".
 bot.action(/^CREATOR_APPROVE_REVISION_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
   const taskId = ctx.match[1];
 
-  // 1) Visually highlight Approve and disable Reject
+  // 1) VISUAL: highlight Approve and disable both buttons (same behavior)
   try {
     const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
     if (currentKeyboard && currentKeyboard[0]) {
@@ -11285,25 +11312,28 @@ bot.action(/^CREATOR_APPROVE_REVISION_(.+)$/, async (ctx) => {
     console.error('Failed to edit approve revision buttons:', err);
   }
 
-  // 2) Mark in DoerWork that a decision was made and revision is accepted
+  // 2) LOGIC: do the same things as CREATOR_VALID
   try {
+    // Mark that the creator has made a final decision
     await DoerWork.updateOne(
       { task: taskId },
-      { $set: { creatorDecisionMessageIdChosen: true, currentRevisionStatus: 'accepted' } }
+      { $set: { creatorDecisionMessageIdChosen: true } }
     );
   } catch (e) {
-    console.error("Error updating DoerWork for approve revision:", e);
+    console.error("DoerWork update from approve failed:", e);
   }
 
-  // 3) Send the creator's rating prompt (same logic as CREATOR_VALID)
+  // Send early rating prompt to creator (same logic as CREATOR_VALID)
   try {
-    const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
+    const task = await Task.findById(taskId)
+      .populate("creator")
+      .populate("applicants.user");
+
     if (task) {
       const doer = acceptedDoerUser(task);
       const creator = task.creator;
       if (doer && creator) {
         const tIdString = task._id.toString();
-        global.sentRatingPromptToCreator = global.sentRatingPromptToCreator || {};
         if (!global.sentRatingPromptToCreator[tIdString]) {
           await sendRatingPromptToUser(ctx.telegram, creator, doer, 'creatorRatesDoer', task);
           global.sentRatingPromptToCreator[tIdString] = true;
@@ -11311,33 +11341,25 @@ bot.action(/^CREATOR_APPROVE_REVISION_(.+)$/, async (ctx) => {
       }
     }
   } catch (e) {
-    console.error("Error sending early rating prompt (approve revision):", e);
+    console.error("Error sending early rating prompt from approve:", e);
   }
 
-  // 4) Finalize and release payment just like "Valid"
+  // 3) Finalize and release payment as 'accepted' (identical to CREATOR_VALID)
   try {
     await releasePaymentAndFinalize(taskId, 'accepted');
   } catch (e) {
-    console.error("releasePaymentAndFinalize failed (approve revision):", e);
+    console.error("releasePaymentAndFinalize from approve failed:", e);
   }
-
-  // 5) Show a confirmation popup to the creator
-  try {
-    await ctx.answerCbQuery(
-      "✅ Approved. Taskifii is finalizing this task and releasing payment.",
-      { show_alert: true }
-    );
-  } catch (_) {}
 });
 
 
-// Creator clicked Reject on the corrected submission.
-// Behaves like "Report this": escalates, bans both, and notifies both sides.
-// Only the Approve/Reject buttons become inert and Reject is highlighted.
+// Creator clicked Reject on a corrected submission.
+// Visually behaves the same, but now escalates like "Report this".
 bot.action(/^CREATOR_REJECT_REVISION_(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
   const taskId = ctx.match[1];
 
-  // 1) Visually highlight Reject and disable Approve
+  // 1) VISUAL: highlight Reject and disable both buttons (same behavior)
   try {
     const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
     if (currentKeyboard && currentKeyboard[0]) {
@@ -11357,29 +11379,11 @@ bot.action(/^CREATOR_REJECT_REVISION_(.+)$/, async (ctx) => {
     console.error('Failed to edit reject revision buttons:', err);
   }
 
-  // 2) Show popup to confirm their claim was registered
+  // 2) LOGIC: escalate exactly like a "Report this", but from creator side
   try {
-    await ctx.answerCbQuery(
-      "⚠️ Your claim has been registered. Taskifii is locking the task and will investigate.",
-      { show_alert: true }
-    );
-  } catch (_) {}
-
-  // 3) Mark decision in DoerWork (for auditing)
-  try {
-    await DoerWork.updateOne(
-      { task: taskId },
-      { $set: { creatorDecisionMessageIdChosen: true, currentRevisionStatus: 'none' } }
-    );
-  } catch (e) {
-    console.error("Error updating DoerWork for reject revision:", e);
-  }
-
-  // 4) Escalate like a report (ban both, notify both, create dispute package)
-  try {
-    await escalateCreatorRejectRevision(ctx, taskId);
+    await escalateCreatorReject(ctx, taskId);
   } catch (err) {
-    console.error("escalateCreatorRejectRevision error:", err);
+    console.error("escalateCreatorReject top-level error:", err);
   }
 });
 
