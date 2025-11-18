@@ -1049,6 +1049,35 @@ const TEXT = {
       "ስለተፈጠረው እርምጃ በጣም ይቅርታ እናቀርባለን።"
     ].join("\n")
   },
+  disputeCreatorRejectNoticeToCreator: {
+    en: [
+      "✅ We have received your claim for this task.",
+      "Taskifii will study this case and get back to you with the final decision.",
+      "",
+      "⛔ Until then, you are temporarily banned from using Taskifii."
+    ].join("\n"),
+    am: [
+      "✅ የዚህ ተግባር ቅሬታዎን ተቀብለናል።",
+      "Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።",
+      "",
+      "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላችሁ።"
+    ].join("\n")
+  },
+
+  disputeCreatorRejectNoticeToDoer: {
+    en: [
+      "⚠️ The task creator has rejected your corrected version of the completed task.",
+      "Taskifii will study this case and get back to you with the final decision.",
+      "",
+      "⛔ Until then, you are temporarily banned from using Taskifii."
+    ].join("\n"),
+    am: [
+      "⚠️ የተግባሩ ፈጣሪ የተጠናቀቀውን የተስተካከለውን ስራዎ አልተቀበለውም።",
+      "Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።",
+      "",
+      "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላችሁ።"
+    ].join("\n")
+  },
 
 
 
@@ -3363,12 +3392,10 @@ async function escalateCreatorReject(ctx, taskId) {
 
     // Notify the task creator (who is reporting)
     try {
+      const lang = creatorUser.language === 'am' ? 'am' : 'en';
       await telegram.sendMessage(
         creatorUser.telegramId,
-        "✅ We have received your claim for this task. Taskifii will study this case and get back to you with the final decision.\n\n" +
-        "⛔ Until then, you are temporarily banned from using Taskifii.\n\n" +
-        "✅ የዚህ ተግባር ቅሬታዎን ተቀብለናል። Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።\n\n" +
-        "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላሉ።"
+        TEXT.disputeCreatorRejectNoticeToCreator[lang]
       );
     } catch (e) {
       console.error("notify creator (reject) fail:", e);
@@ -3376,16 +3403,15 @@ async function escalateCreatorReject(ctx, taskId) {
 
     // Notify the winner task doer
     try {
+      const lang = doerUser.language === 'am' ? 'am' : 'en';
       await telegram.sendMessage(
         doerUser.telegramId,
-        "⚠️ The task creator has rejected your corrected version of the completed task. Taskifii will study this case and get back to you with the final decision.\n\n" +
-        "⛔ Until then, you are temporarily banned from using Taskifii.\n\n" +
-        "⚠️ የተግባሩን የተስተካከለውን ስራ ሰጥተዋል ቢሆንም የተግባሩ ፈጣሪ አልተቀበለውም። Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።\n\n" +
-        "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላችሁ።"
+        TEXT.disputeCreatorRejectNoticeToDoer[lang]
       );
     } catch (e) {
       console.error("notify doer (reject) fail:", e);
     }
+
   }
 
   // ----- PHASE B: dispute summary in safe chunks + buttons -----
@@ -10993,11 +11019,30 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
   const channelId = pkg.channelId || DISPUTE_CHANNEL_ID;
 
   if (which === 'completed') {
+    // We want ONLY the original completed submission, not later corrections.
+    const cutoff =
+      work.fixNoticeSentAt ||
+      work.completedAt ||
+      work.startedAt ||
+      new Date(0);
+
+    // Messages up to and including the cutoff = original completed work
+    const baseEntries = (work.messages || []).filter(entry =>
+      entry.date && new Date(entry.date) <= cutoff
+    );
+
+    // Fallback: if for some legacy reason we don't get anything, send all
+    const entriesToSend = baseEntries.length ? baseEntries : (work.messages || []);
+
     await forwardMessageLogToDispute(
-      ctx.telegram, channelId, work.doerTelegramId, work.messages,
+      ctx.telegram,
+      channelId,
+      work.doerTelegramId,
+      entriesToSend,
       `📦 COMPLETED TASK (from Winner Task Doer) — TASK ${task._id}:`
     );
   } else if (which === 'related') {
+
     // related file(s) from task post
     if (task.relatedFile?.fileId) {
       await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "📎 TASK RELATED FILE (from original task post):");
