@@ -4820,6 +4820,18 @@ function startBot() {
         return next();
       }
 
+      // 1) Skip ALL buttons that live on channel posts
+      //    (your control buttons: profile admin, completed task, send corrections, etc.)
+      if (msg.chat.type === 'channel') {
+        return next();
+      }
+
+      // 2) Skip the "Punishment fee" button even in user chats
+      const data = ctx.callbackQuery.data || "";
+      if (data.startsWith("PUNISH_PAY_")) {
+        return next();
+      }
+
       // One global in-memory store shared by the whole process
       if (!globalThis.__TASKIFII_BUTTON_THROTTLE__) {
         globalThis.__TASKIFII_BUTTON_THROTTLE__ = new Map();
@@ -4856,6 +4868,7 @@ function startBot() {
       return next();
     }
   });
+
 
 
   // Add this middleware right after session initialization
