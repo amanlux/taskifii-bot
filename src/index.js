@@ -2098,13 +2098,13 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
 function buildRegistrationRequiredMessage() {
   // Single bilingual message + a button that kicks off the normal onboarding
   const en = [
-    "👋 To access Taskifii (apply to tasks, see details, etc.), you need to register first.",
-    "If you’d like to register now, tap */start* below."
+    "👋 To access Taskifay (apply to tasks,post tasks, etc.), you need to register first.",
+    "If you’d like to register now, send or click this */start* ."
   ].join("\n");
 
   const am = [
-    "👋 ወደ Taskifii ለመዳረስ (ተግዳሮቶችን ለመመለከት እና ለመመልከት ወዘተ) መመዝገብ መጀመር አለብዎት።",
-    "አሁን መመዝገብ ከፈለጉ ከታች ያለውን */start* ይጫኑ።"
+    "👋 ታስኪፌይን ለመጠቀም  (በቻናላችን ላይ ላሉት ስራዎች ለማመልከት ፣ ሰራ እንዲሰራላቹ ፣  ወዘተ) መመዝገብ አለብዎት።",
+    "አሁን መመዝገብ ከፈለጉ ይሄን */start* ይጫኑ ወይም ወደ ቦቱ ይላኩት።"
   ].join("\n");
 
   return `${en}\n\n${am}`;
@@ -4803,6 +4803,59 @@ function startBot() {
       return;
     }
     return next();
+  });
+
+  // ─────────── Global "first button wins" throttle (per message) ───────────
+  bot.use(async (ctx, next) => {
+    try {
+      // Only care about button clicks (callback queries) that belong to a message
+      if (!ctx.callbackQuery || !ctx.callbackQuery.message) {
+        return next();
+      }
+
+      const userId = ctx.from?.id;
+      const msg = ctx.callbackQuery.message;
+
+      if (!userId || !msg.chat || msg.message_id == null) {
+        return next();
+      }
+
+      // One global in-memory store shared by the whole process
+      if (!globalThis.__TASKIFII_BUTTON_THROTTLE__) {
+        globalThis.__TASKIFII_BUTTON_THROTTLE__ = new Map();
+      }
+
+      const store = globalThis.__TASKIFII_BUTTON_THROTTLE__;
+      const key = `${userId}:${msg.chat.id}:${msg.message_id}`;
+      const now = Date.now();
+      const last = store.get(key) || 0;
+
+      // If the same user taps *another* button on the same message
+      // within 700ms, we ignore it. First click wins.
+      if (now - last < 700) {
+        try {
+          // Just stop the Telegram "loading" spinner, no extra text
+          await ctx.answerCbQuery();
+        } catch (_) {}
+        return;
+      }
+
+      // Record this click time
+      store.set(key, now);
+
+      // Light cleanup so the Map doesn't grow forever
+      if (store.size > 5000) {
+        const cutoff = now - 5 * 60 * 1000; // keep last 5 minutes
+        for (const [k, t] of store.entries()) {
+          if (t < cutoff) store.delete(k);
+        }
+      }
+
+      return next();
+    } catch (err) {
+      console.error("button throttle middleware error:", err);
+      return next();
+    }
   });
 
   // Add this middleware right after session initialization
