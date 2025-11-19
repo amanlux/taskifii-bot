@@ -4827,12 +4827,11 @@ function startBot() {
 
       const store = globalThis.__TASKIFII_BUTTON_THROTTLE__;
       const key = `${userId}:${msg.chat.id}:${msg.message_id}`;
-      const now = Date.now();
-      const last = store.get(key) || 0;
+      const existing = store.get(key);
 
-      // If the same user taps *another* button on the same message
-      // within 700ms, we ignore it. First click wins.
-      if (now - last < 700) {
+      // If we've already processed ANY button from this user on this message,
+      // ignore all further clicks on the same message.
+      if (existing) {
         try {
           // Just stop the Telegram "loading" spinner, no extra text
           await ctx.answerCbQuery();
@@ -4840,7 +4839,7 @@ function startBot() {
         return;
       }
 
-      // Record this click time
+      const now = Date.now();
       store.set(key, now);
 
       // Light cleanup so the Map doesn't grow forever
@@ -4857,6 +4856,7 @@ function startBot() {
       return next();
     }
   });
+
 
   // Add this middleware right after session initialization
   bot.use(async (ctx, next) => {
