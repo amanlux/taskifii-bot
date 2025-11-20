@@ -3992,9 +3992,10 @@ async function sendReminders(bot) {
       if (total <= 0) continue;
 
       const half = total * 0.5;
-      // 🔒 KEY CHANGE: very narrow window (20 seconds) around the 50% mark.
-      // Since we run this every 60s, this guarantees at most ONE matching run.
-      const windowSize = 20 * 1000; // 20 seconds
+
+      // ✅ Wide 60-second window around halfway so we don't miss it
+      // but we'll use an atomic DB lock so it's still only sent once.
+      const windowSize = 60 * 1000; // 60 seconds
       const isAt50Percent = Math.abs(elapsed - half) <= windowSize;
       if (!isAt50Percent) continue;
 
@@ -4012,8 +4013,8 @@ async function sendReminders(bot) {
         try {
           const locked = await isEngagementLocked(doer.telegramId);
           if (locked) {
-            // Mark this applicant as "reminder handled" in Mongo so we never
-            // re-process them again, even across restarts.
+            // Mark this applicant as "reminder handled" in Mongo
+            // so we never re-process them again.
             try {
               await Task.updateOne(
                 {
@@ -4031,7 +4032,32 @@ async function sendReminders(bot) {
           }
         } catch (lockErr) {
           console.error("Error checking engagement lock in sendReminders:", lockErr);
-          // If lock check fails, fall through and behave as before (be conservative)
+          // If lock check fails, fall through and behave as before
+        }
+
+        // 🔐 Atomic claim: only ONE process is allowed to send this reminder.
+        // If another bot instance / another loop already set reminderSent=true,
+        // modifiedCount will be 0 and we skip sending.
+        let claimResult;
+        try {
+          claimResult = await Task.updateOne(
+            {
+              _id: task._id,
+              "applicants._id": app._id,
+              "applicants.reminderSent": { $ne: true }
+            },
+            {
+              $set: { "applicants.$.reminderSent": true }
+            }
+          );
+        } catch (claimErr) {
+          console.error("Error trying to claim reminder lock:", claimErr);
+          continue;
+        }
+
+        if (!claimResult || !claimResult.modifiedCount) {
+          // Someone else already handled this reminder (or another loop got here first)
+          continue;
         }
 
         // Time remaining until task expiry (for [hours]/[minutes] in the message)
@@ -4047,19 +4073,9 @@ async function sendReminders(bot) {
 
         try {
           await bot.telegram.sendMessage(doer.telegramId, message);
-
-          // ✅ Atomically mark this specific applicant as reminded in Mongo.
-          await Task.updateOne(
-            {
-              _id: task._id,
-              "applicants._id": app._id
-            },
-            {
-              $set: { "applicants.$.reminderSent": true }
-            }
-          );
         } catch (err) {
           console.error("Error sending reminder to doer:", doer.telegramId, err);
+          // We already set reminderSent; worst case they miss the reminder once.
         }
       }
     }
@@ -4070,6 +4086,7 @@ async function sendReminders(bot) {
   // Check again in 1 minute (this keeps the timing precise)
   setTimeout(() => sendReminders(bot), 60000);
 }
+
 
 
 async function runDoerWorkTimers(bot) {
