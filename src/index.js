@@ -3956,67 +3956,102 @@ async function sendReminders(bot) {
     const now = new Date();
     const tasks = await Task.find({
       status: "Open",
-      expiry: { $gt: now }
+      expiry: { $gt: now },
+      "applicants.status": "Accepted"
     }).populate("applicants.user");
-    
+
     for (const task of tasks) {
-      // Only get applications that:
-      // - Are accepted
-      // - Haven't been confirmed
-      // - Haven't been canceled
-      // - Haven't had a reminder sent yet
-      const acceptedApps = task.applicants.filter(app => 
-        app.status === "Accepted" && 
-        !app.confirmedAt && 
-        !app.canceledAt &&
-        !app.reminderSent
+      if (!task.postedAt || !task.expiry) continue;
+
+      const postedAt = task.postedAt instanceof Date ? task.postedAt : new Date(task.postedAt);
+      const expiry   = task.expiry   instanceof Date ? task.expiry   : new Date(task.expiry);
+
+      // 🛑 NEW (C): If ANY applicant has already confirmed "Do the task" for this task,
+      // skip reminders for ALL other accepted applicants of this task.
+      const someoneAlreadyConfirmed = task.applicants.some(a => a.confirmedAt);
+      if (someoneAlreadyConfirmed) {
+        continue;
+      }
+
+      // Only consider accepted applicants who have not confirmed, not canceled,
+      // and have not already been processed for a reminder.
+      const acceptedApps = task.applicants.filter(
+        app =>
+          app.status === "Accepted" &&
+          !app.confirmedAt &&
+          !app.canceledAt &&
+          !app.reminderSent
       );
-      
+
+      // Nothing to do for this task
       if (acceptedApps.length === 0) continue;
-      
-      const totalDuration = task.expiry.getTime() - task.postedAt.getTime();
-      const elapsed = now.getTime() - task.postedAt.getTime();
-      const timeLeftMs = task.expiry.getTime() - now.getTime();
-      
-      // Calculate the exact 50% point
-      const fiftyPercentPoint = totalDuration / 2;
-      
-      // Check if we're within 1 minute of the 50% mark
-      const isAt50Percent = Math.abs(elapsed - fiftyPercentPoint) <= 60000;
-      
-      if (isAt50Percent) {
-        const hoursLeft = Math.floor(timeLeftMs / (1000 * 60 * 60));
-        const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
-        
-        for (const app of acceptedApps) {
-          const doer = app.user;
-          const doerLang = doer.language || "en";
-          const message = TEXT.reminderNotification[doerLang]
-            .replace("[hours]", hoursLeft.toString())
-            .replace("[minutes]", minutesLeft.toString());
-          
-          try {
-            await bot.telegram.sendMessage(
-              doer.telegramId,
-              message
-            );
-            
-            // Mark that we've sent the reminder
+
+      // ⏰ Halfway timing logic (unchanged)
+      const elapsed = now - postedAt;
+      const total   = expiry - postedAt;
+      if (total <= 0) continue;
+
+      const half       = total * 0.5;
+      const windowSize = 60 * 1000; // 1 minute window around the 50% mark
+      const isAt50Percent = Math.abs(elapsed - half) <= windowSize;
+      if (!isAt50Percent) continue;
+
+      for (const app of acceptedApps) {
+        if (!app.user) continue;
+
+        const doer = app.user;
+        const lang = doer.language || "en";
+
+        // 🛑 NEW (B): If this user is already engagement-locked,
+        // it means they either:
+        //   - started another task as the winner doer, OR
+        //   - became a task creator.
+        // In both cases, they shouldn't get this reminder.
+        try {
+          const locked = await isEngagementLocked(doer.telegramId);
+          if (locked) {
+            // Mark as "reminder considered" so we don't keep checking/sending later
             app.reminderSent = true;
-            await task.save();
-          } catch (err) {
-            console.error("Error sending reminder to doer:", doer.telegramId, err);
+            try {
+              await task.save();
+            } catch (saveErr) {
+              console.error("Error marking reminderSent for locked doer:", saveErr);
+            }
+            continue; // do NOT send the reminder message
           }
+        } catch (lockErr) {
+          console.error("Error checking engagement lock in sendReminders:", lockErr);
+          // If lock check fails, fall through and behave as before (be conservative)
+        }
+
+        // Time remaining until task expiry (for [hours]/[minutes] in the message)
+        const msRemaining = expiry - now;
+        const totalMinutes = Math.max(0, Math.ceil(msRemaining / 60000));
+        const hours   = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        const template = TEXT.reminderNotification[lang] || TEXT.reminderNotification["en"];
+        const message = template
+          .replace("[hours]", String(hours))
+          .replace("[minutes]", String(minutes));
+
+        try {
+          await bot.telegram.sendMessage(doer.telegramId, message);
+          app.reminderSent = true;
+          await task.save();
+        } catch (err) {
+          console.error("Error sending reminder to doer:", doer.telegramId, err);
         }
       }
     }
   } catch (err) {
     console.error("Error in sendReminders:", err);
   }
-  
+
   // Check again in 1 minute (this keeps the timing precise)
   setTimeout(() => sendReminders(bot), 60000);
 }
+
 async function runDoerWorkTimers(bot) {
   const now = new Date();
 
