@@ -3966,7 +3966,7 @@ async function sendReminders(bot) {
       const postedAt = task.postedAt instanceof Date ? task.postedAt : new Date(task.postedAt);
       const expiry   = task.expiry   instanceof Date ? task.expiry   : new Date(task.expiry);
 
-      // 🛑 NEW (C): If ANY applicant has already confirmed "Do the task" for this task,
+      // 🛑 C: If ANY applicant has already confirmed "Do the task" for this task,
       // skip reminders for ALL other accepted applicants of this task.
       const someoneAlreadyConfirmed = task.applicants.some(a => a.confirmedAt);
       if (someoneAlreadyConfirmed) {
@@ -3986,13 +3986,15 @@ async function sendReminders(bot) {
       // Nothing to do for this task
       if (acceptedApps.length === 0) continue;
 
-      // ⏰ Halfway timing logic (unchanged)
+      // ⏰ Halfway timing logic
       const elapsed = now - postedAt;
       const total   = expiry - postedAt;
       if (total <= 0) continue;
 
-      const half       = total * 0.5;
-      const windowSize = 60 * 1000; // 1 minute window around the 50% mark
+      const half = total * 0.5;
+      // 🔒 KEY CHANGE: very narrow window (20 seconds) around the 50% mark.
+      // Since we run this every 60s, this guarantees at most ONE matching run.
+      const windowSize = 20 * 1000; // 20 seconds
       const isAt50Percent = Math.abs(elapsed - half) <= windowSize;
       if (!isAt50Percent) continue;
 
@@ -4002,7 +4004,7 @@ async function sendReminders(bot) {
         const doer = app.user;
         const lang = doer.language || "en";
 
-        // 🛑 NEW (B): If this user is already engagement-locked,
+        // 🛑 B: If this user is already engagement-locked,
         // it means they either:
         //   - started another task as the winner doer, OR
         //   - became a task creator.
@@ -4010,10 +4012,18 @@ async function sendReminders(bot) {
         try {
           const locked = await isEngagementLocked(doer.telegramId);
           if (locked) {
-            // Mark as "reminder considered" so we don't keep checking/sending later
-            app.reminderSent = true;
+            // Mark this applicant as "reminder handled" in Mongo so we never
+            // re-process them again, even across restarts.
             try {
-              await task.save();
+              await Task.updateOne(
+                {
+                  _id: task._id,
+                  "applicants._id": app._id
+                },
+                {
+                  $set: { "applicants.$.reminderSent": true }
+                }
+              );
             } catch (saveErr) {
               console.error("Error marking reminderSent for locked doer:", saveErr);
             }
@@ -4037,8 +4047,17 @@ async function sendReminders(bot) {
 
         try {
           await bot.telegram.sendMessage(doer.telegramId, message);
-          app.reminderSent = true;
-          await task.save();
+
+          // ✅ Atomically mark this specific applicant as reminded in Mongo.
+          await Task.updateOne(
+            {
+              _id: task._id,
+              "applicants._id": app._id
+            },
+            {
+              $set: { "applicants.$.reminderSent": true }
+            }
+          );
         } catch (err) {
           console.error("Error sending reminder to doer:", doer.telegramId, err);
         }
@@ -4051,6 +4070,7 @@ async function sendReminders(bot) {
   // Check again in 1 minute (this keeps the timing precise)
   setTimeout(() => sendReminders(bot), 60000);
 }
+
 
 async function runDoerWorkTimers(bot) {
   const now = new Date();
