@@ -4008,13 +4008,11 @@ async function sendReminders(bot) {
         // 🛑 B: If this user is already engagement-locked,
         // it means they either:
         //   - started another task as the winner doer, OR
-        //   - became a task creator.
+        //   - became a task creator with an active engaged task.
         // In both cases, they shouldn't get this reminder.
         try {
           const locked = await isEngagementLocked(doer.telegramId);
           if (locked) {
-            // Mark this applicant as "reminder handled" in Mongo
-            // so we never re-process them again.
             try {
               await Task.updateOne(
                 {
@@ -4033,6 +4031,38 @@ async function sendReminders(bot) {
         } catch (lockErr) {
           console.error("Error checking engagement lock in sendReminders:", lockErr);
           // If lock check fails, fall through and behave as before
+        }
+
+        // 🔄 NEW GUARD:
+        // If this user has their OWN active task as a creator (status "Open", not expired),
+        // we treat them as a creator and do NOT nag them with this doer reminder.
+        let hasOpenCreatorTask = false;
+        try {
+          hasOpenCreatorTask = !!(await Task.exists({
+            creator: doer._id,
+            status: "Open",
+            expiry: { $gt: now }
+          }));
+        } catch (creatorErr) {
+          console.error("Error checking creator open tasks in sendReminders:", creatorErr);
+        }
+
+        if (hasOpenCreatorTask) {
+          // Mark as handled so we don't keep checking this applicant again
+          try {
+            await Task.updateOne(
+              {
+                _id: task._id,
+                "applicants._id": app._id
+              },
+              {
+                $set: { "applicants.$.reminderSent": true }
+              }
+            );
+          } catch (saveErr) {
+            console.error("Error marking reminderSent for creator-doer:", saveErr);
+          }
+          continue; // skip sending reminder to this user
         }
 
         // 🔐 Atomic claim: only ONE process is allowed to send this reminder.
@@ -4086,6 +4116,7 @@ async function sendReminders(bot) {
   // Check again in 1 minute (this keeps the timing precise)
   setTimeout(() => sendReminders(bot), 60000);
 }
+
 
 
 
