@@ -2478,23 +2478,9 @@ function renderBankDetails(user, lang = "en") {
 function buildExchangeAndSkillSection(task, lang = "en") {
   const lines = [];
 
-  // Exchange strategy (with explanation)
-  if (task.exchangeStrategy) {
-    let desc = "";
-    if (task.exchangeStrategy === "100%") {
-      desc = TEXT.exchangeStrategyDesc100[lang];
-    } else if (task.exchangeStrategy === "30:40:30") {
-      desc = TEXT.exchangeStrategyDesc304030[lang];
-    } else {
-      // default to 50:50 description
-      desc = TEXT.exchangeStrategyDesc5050[lang];
-    }
-    lines.push(
-      lang === "am"
-        ? `🔀 *የልውውጥ ስልት:* ${desc}`
-        : `🔀 *Exchange Strategy:* ${desc}`
-    );
-  }
+  // 🔁 Exchange strategy section REMOVED on purpose
+  // We no longer add any "Exchange Strategy" text to the creator message.
+  // (We still keep the logic that *uses* exchangeStrategy elsewhere in your bot.)
 
   // Skill level (with emoji)
   if (task.skillLevel) {
@@ -2520,6 +2506,7 @@ function buildExchangeAndSkillSection(task, lang = "en") {
   return lines.length ? lines.join("\n") : "";
 }
 
+
 function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revMinutes, penaltyHoursToZero }) {
   const doerName = doer.fullName || (doer.username ? `@${doer.username}` : "Task Doer");
   const timeToCompleteH = task.timeToComplete; // integer hours
@@ -2542,50 +2529,50 @@ function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revM
 
   if (creatorLang === "am") {
     return [
-      `✅ *${doerName}* ከእንግዲህ ጀምሮ የተግዳሮትዎ ተግባራዊ አፈፃፀም አድርጎ ተመድቧል (100% ስልት).`,
+      `✅ *${doerName}* ከዚህ ጀምሮ ስራውን የሚተገብረው ይሆናል`,
       "",
-      `• ከዚህ በኋላ አስከ *${timeToCompleteH} ሰዓት* ውስጥ ተግባሩን ያቅርቡ ዘንድ የጊዜ ገደብ አለ።`,
-      `• የማሻሻያ ጊዜ፡ ${revisionNice}.`,
-      `• በየሰዓቱ የቅጣት መጠን፡ ${penaltyPerHour} ብር/ሰዓት.`,
+      `• ከዚህ ጀመሮ ያለቀ ስራ  በ*${timeToCompleteH} ሰዓት* ውስጥ  ይደስሎታል።`,
+      `• የማሻሻያ ጊዜ(የመጀመሪያው የማሻሻያ ጊዜ ግማሽ ለእርሶ ነው እናም በዚህ ሰዓት ውስጥ የሚላክላችሁን ሰራ ምንም ችግር የለበትም ለማለት ወይም ችግር አለበት እና  እንዲስተካከልሊኝ እፈለጋለው እንድትሉ የመደቡት ጊዜ ነው ፤ የቀረው የማሻሻያው ጊዜ ግማሽ ደሞ ለሰሪው የሚሰጥ ይሆናል እናም በዚ ጊዜ ውስጥ የተስተካከል ሰራ ማላክ ውይም የተስማማንበት አደለም ብሎ ሪፖርት ማቅረብ ይጠበቅባችዋል )    ፡ ${revisionNice}.`,
+      `• በተሰጠው ጊዜ ሰራው ባለማለቁ በየሰዓቱ ከክፍያው የሚቀነሰው የቅጣት መጠን፡ ${penaltyPerHour} ብር/ሰዓት.`,
       "",
-      `🧭 የጊዜ መቁጠሪያ ይጀምራል ከአሁን፤ ከሁሉም ጊዜዎች ድምር (መጨረሻ ማቅረብ + ማሻሻያ + 30 ደቂቃ ለክፍያ + የቅጣት ሰዓታት ${penaltyHoursToZero}) ጠቅላላ ጊዜ፡ *${totalNice}*.`,
-      `• ተግባሩ በመጨረሻ ሲደርስ ተግባሩን ለእርስዎ በቀጥታ በቴሌግራም ወይም በጄሜል ይላካል። የመልእክት ሳጥኖችዎን በተደጋጋሚ ያረጋግጡ እስከ *${timeToCompleteH} ሰዓት*.`,
-      `• ተግባሩ በዚያ ጊዜ ካልተላከ የቅጣት መቀነስ በየሰዓቱ ይጀምራል ( ${penaltyPerHour} ብር/ሰዓት ) እስከ 0 ድረስ (ግምት፡ ${penaltyHoursToZero} ሰዓታት).`,
+      
+      `• ልክ ስራው ሲጨረስ ሰሪው ያለቀውን ሰራ ወደኛ ቦት ብቻ ሳይሆን በቴሌግራም ፣ በጄሜል ውይም በሌሎችም አማራቾች ይልኩታል። ቦቱን በቻ ሳይሆን የመልእክት ሳጥኖችዎን አዝወትሮ ይመልከቱት በዚህ *${timeToCompleteH} ሰዓት* ውስጥ.`,
+      `• ተግባሩ በዚያ ጊዜ ካልተላከ  የብር ቅጣት ( ${penaltyPerHour} ብር/ሰዓት ) በየሰዓቱ ይቀነሳል ክፍያው 35% እስከሚደርስ  (ይሄም እስከሚሆን የሚፈጀው ሰዓት፡ ${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : " እርሶ በሰጡት የቅጣት መጠን ምሰረት ነው"} ).`,
       "",
-      "💳 *የክፍያ አማራጮች የተደረጉ ቅንብሮች*",
-      banks,
+      
       "",
-      "📞 *የአድራሻ መረጃ*",
-      contactLines || "• የሚገኙ መረጃዎች አልተሞላም",
+      "📞 *የሰሪው ግንኙነት መስመሮች*",
+      contactLines || "• ይቂርታ መረጃዎች አልተሞላም",
       "",
-      "⚠️ ከተሰጠው መግለጫ ውጭ ስራ መድረግ አይቻልም።",
+      "⚠️ እርሶ ከተሰጡት የሰራ መግለጫ ውጭ ሰሪውን የተለየ ነገር ማዘዝ አይቻላም ።",
       "",
-      `✅ ተግባሩ ሲፈቀድ እና እርስዎ ሲጸድቁ የክፍያ መረጃውን ለተግባር አድርጉ እና ደረሰኝ ለተልኮ።`,
-      `⏳ በ *${totalNice}* ውስጥ “ሚሽኑ ተጠናቋል” ወይም “ሪፖርት” ካልጫኑ እኛ እንደ “ሚሽኑ ተጠናቋል” ተብሎ ይቆጠራል፤ ስለዚህ ጊዜን በጥንቃቄ ይከታተሉ።`
+      
+      `⏳ የተጠናቀቀው ሥራ ከውሳኔ አማራቾች ጋር በቦቱ ሲላክልዎ፣ ከላይ እንደተነገራቹ ሥራውን ወይ ማጽደቅ ወይም ማስተካከያ መጠየቅ የሚችሉት በ ${revMinutes > 1 ? formatHM(Math.floor(revMinutes / 2), creatorLang) : revisionNice} (የማሻሻያ ጊዜው ግማሽ) ውስጥ ብቻ ስለሚሆን በግማሽ የማስተካከያ ጊዜ ውስጥ ምንም አይነት እርምጃ ካልወሰዱ (የተጠናቀቀው ሥራ በቦት ሲላክልዎ የሚላኩት የውሳኔ አማራቾችን በመጠቀም)፣ በተላከላቹ ሰራ እንደረካቹ የቆጠራል ፣ ስለዚህ እባክዎ ንቁ ይሁኑ እና ቦቱን በየጊዜው ይመልከቱት።`
     ].join("\n");
   }
 
   return [
-    `✅ *${doerName}* is now officially your task doer (strategy: 100%).`,
+    `✅ *${doerName}* is now officially your task doer.`,
     "",
-    `• Time to complete: *${timeToCompleteH} hour(s)*.`,
-    `• Revision time: ${revisionNice}.`,
-    `• Penalty per hour: ${penaltyPerHour} birr/hour.`,
+    `• Time given for the task doer to complete and send the task: *${timeToCompleteH} hour(s)*.`,
+    `• Total Revision time (which will begin as soon as the task doer sends the completed task/proof of task completetion to the bot in which the first half of the revision time is for you to either approve the completed task sent or to request fixes  and the second half of the revision time is for the task doer to either submit the corrected version of the task or report if there are አny issues with the fixes you requested from them): ${revisionNice}.`,
+    `• Penalty per hour(which will start being deducted every hour as soon as the time given to complete and submit the completed task is up before the task doer sent the completed task to the bot): ${penaltyPerHour} birr/hour.`,
     "",
-    `🧭 A countdown starts now. Total window (complete + revision + 30 min to pay + penalty runway ${penaltyHoursToZero}h): *${totalNice}*.`,
-    `• When the doer finishes, they will send the completed work directly to you via Telegram or Gmail — please check your inbox regularly during the *${timeToCompleteH} hours*.`,
-    `• If the work isn’t submitted within that time, the fee begins decreasing by ${penaltyPerHour} birr each hour until it reaches 0 (est. ${penaltyHoursToZero} hour${penaltyHoursToZero === 1 ? "" : "s"}).`,
+    
+    `• When the doer finishes, they will send the completed work not only through the bot but also directly to you via your Telegram account or your Gmail address or etc. — please check your inboxes regularly during the *${timeToCompleteH} hours*.`,
+    `• If the completed task isn’t submitted within that time, the fee begins decreasing by ${penaltyPerHour} birr each hour until the task fee reaches 35% of the original fee (exact time until 35%: ${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : "based on your penalty settings"}).`,
+,
     "",
-    "💳 *Doer’s banking option(s)*",
-    banks,
+    
     "",
-    "📞 *Contact the doer*",
+    "📞 *you can contact the doer*",
     contactLines || "• No contact info provided",
     "",
-    "⚠️ You may not ask for anything outside the original task description.",
+    "⚠️ You can not ask for anything outside the original task description.",
     "",
-    `✅ After you approve the completed task, send the fee using the doer’s banking option(s) *and* send them the payment receipt.`,
-    `⏳ If you don’t tap “Mission accomplished” or “Report” within *${totalNice}*, Taskifii will treat it as “Mission accomplished,” so please keep an eye on the time.`
+    
+    `⏳ Once the completed task is sent to you in the bot with the decision buttons, you will have only *${revMinutes > 1 ? formatHM(Math.floor(revMinutes / 2), creatorLang) : revisionNice}* (half of the revision time) to either approve the task or request fixes. If you don’t take any action(with the decision buttons that will be sent you once the completed task is sent to you through the bot)  within half of the revision time, it will be taken as if you were satisfied with the completed task sent to you , so please stay alert and check the bot regularly.`
+
   ].join("\n");
 }
 function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinutes, penaltyHoursToZero }) {
