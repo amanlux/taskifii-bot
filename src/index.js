@@ -2582,7 +2582,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
   const timeToCompleteH = task.timeToComplete || 0; // integer hours
   const penaltyPerHour = task.penaltyPerHour ?? task.latePenalty ?? 0; // tolerate older field names
   const totalNice = formatHM(totalMinutes, doerLang);
-
+  const paymentFee = task.paymentFee || 0;
   const revNice =
     revMinutes < 60
       ? (doerLang === "am" ? `${revMinutes} ደቂቃ` : `${revMinutes} minute${revMinutes === 1 ? "" : "s"}`)
@@ -2630,7 +2630,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
     
     creatorPhone ? `📞 If the task creator doesn’t reply on Telegram/Gmail, call: ${creatorPhone}` : null,
     "",
-    `⚠️ *Since* you *can click* the *button below* only *once*, make sure you click it after you sent the completed task/s to all the parties mentioned previously. `,
+    `⚠️ *Since* you *can click* the *button below* only *once*, make sure you click it after you sent the completed task/s to all the parties mentioned previously. `
   ].filter(Boolean).join("\n");
 }
 
