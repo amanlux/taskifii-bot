@@ -2529,25 +2529,28 @@ function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revM
 
   if (creatorLang === "am") {
     return [
-      `✅ *${doerName}* ከዚህ ጀምሮ ስራውን የሚተገብረው ይሆናል`,
+      `✅ *${doerName}* ከዚህ ጀምሮ ስራውን የሚተገብረው ይሆናል።`,
       "",
       `• ከዚህ ጀመሮ ያለቀ ስራ  በ*${timeToCompleteH} ሰዓት* ውስጥ  ይደስሎታል።`,
-      `• የማሻሻያ ጊዜ(የመጀመሪያው የማሻሻያ ጊዜ ግማሽ ለእርሶ ነው እናም በዚህ ሰዓት ውስጥ የሚላክላችሁን ሰራ ምንም ችግር የለበትም ለማለት ወይም ችግር አለበት እና  እንዲስተካከልሊኝ እፈለጋለው እንድትሉ የመደቡት ጊዜ ነው ፤ የቀረው የማሻሻያው ጊዜ ግማሽ ደሞ ለሰሪው የሚሰጥ ይሆናል እናም በዚ ጊዜ ውስጥ የተስተካከል ሰራ ማላክ ውይም የተስማማንበት አደለም ብሎ ሪፖርት ማቅረብ ይጠበቅባችዋል )    ፡ ${revisionNice}.`,
-      `• በተሰጠው ጊዜ ሰራው ባለማለቁ በየሰዓቱ ከክፍያው የሚቀነሰው የቅጣት መጠን፡ ${penaltyPerHour} ብር/ሰዓት.`,
+      "",
+      `• የማሻሻያ ጊዜ(ግን መገንዘብ ያለባቹ የመጀመሪያው የማሻሻያ ጊዜ ግማሽ ለእርሶ እንደሆነ ነው እናም በዚህ ሰዓት ውስጥ የሚላክሎት ሰራ ምንም ችግር የለበትም ለማለት ወይም ችግር አለበት እና  እንዲስተካከልሊኝ እፈለጋለው እንዲሉ የመደቡት ጊዜ ነው ፤ የቀረው የማሻሻያው ጊዜ ግማሽ ደሞ ለሰሪው የሚሰጥ ይሆናል እናም በዚ ጊዜ ውስጥ የተስተካከል ሰራ ማላክ ውይም የተስማማንበት አደለም ብሎ ሪፖርት ማቅረብ ይጠበቅባችዋል )    ፡ *${revisionNice}*.`,
+      "",
+      `• በተሰጠው ጊዜ ያልቀ ሰራ ባለማላኩ  በየሰዓቱ ከክፍያው የሚቀነሰው የቅጣት መጠን፡ *${penaltyPerHour}* ብር/ሰዓት.`,
       "",
       
-      `• ልክ ስራው ሲጨረስ ሰሪው ያለቀውን ሰራ ወደኛ ቦት ብቻ ሳይሆን በቴሌግራም ፣ በጄሜል ውይም በሌሎችም አማራቾች ይልኩታል። ቦቱን በቻ ሳይሆን የመልእክት ሳጥኖችዎን አዝወትሮ ይመልከቱት በዚህ *${timeToCompleteH} ሰዓት* ውስጥ.`,
-      `• ተግባሩ በዚያ ጊዜ ካልተላከ  የብር ቅጣት ( ${penaltyPerHour} ብር/ሰዓት ) በየሰዓቱ ይቀነሳል ክፍያው 35% እስከሚደርስ  (ይሄም እስከሚሆን የሚፈጀው ሰዓት፡ ${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : " እርሶ በሰጡት የቅጣት መጠን ምሰረት ነው"} ).`,
+      `• ልክ ስራው ሲጨረስ ሰሪው ያለቀውን ሰራ ወደዚ ቦት ብቻ ሳይሆን በ እርሶ ቴሌግራም አካውንት  ወይም  በ እርሶ ኢሜል አድራሻ ውይም በሌሎችም አማራቾች ይልኩታል። ቦቱን በቻ ሳይሆን የመልእክት ሳጥኖችዎን አዝወትሮ ይመልከቱት በዚህ *${timeToCompleteH} ሰዓት* ውስጥ.`,
+      "",
+      `• ተግባሩ በዚያ ጊዜ ካልተላከ  የብር ቅጣት ( *${penaltyPerHour}* ብር/ሰዓት ) በየሰዓቱ ይቀነሳል ክፍያው 35% እስከሚደርስ  (ይሄም እስከሚሆን የሚፈጀው ሰዓት፡ *${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : " እርሶ በሰጡት የቅጣት መጠን ምሰረት ነው"}* ).`,
       "",
       
       "",
-      "📞 *የሰሪው ግንኙነት መስመሮች*",
+      "📞 *የሰሪው ግንኙነት መስመሮች:*",
       contactLines || "• ይቂርታ መረጃዎች አልተሞላም",
       "",
-      "⚠️ እርሶ ከተሰጡት የሰራ መግለጫ ውጭ ሰሪውን የተለየ ነገር ማዘዝ አይቻላም ።",
+      "⚠️ *እርሶ ከተሰጡት የሰራ መግለጫ ውጭ ሰሪውን የተለየ ነገር ማዘዝ አይቻላም* ።",
       "",
       
-      `⏳ የተጠናቀቀው ሥራ ከውሳኔ አማራቾች ጋር በቦቱ ሲላክልዎ፣ ከላይ እንደተነገራቹ ሥራውን ወይ ማጽደቅ ወይም ማስተካከያ መጠየቅ የሚችሉት በ ${revMinutes > 1 ? formatHM(Math.floor(revMinutes / 2), creatorLang) : revisionNice} (የማሻሻያ ጊዜው ግማሽ) ውስጥ ብቻ ስለሚሆን በግማሽ የማስተካከያ ጊዜ ውስጥ ምንም አይነት እርምጃ ካልወሰዱ (የተጠናቀቀው ሥራ በቦት ሲላክልዎ የሚላኩት የውሳኔ አማራቾችን በመጠቀም)፣ በተላከላቹ ሰራ እንደረካቹ የቆጠራል ፣ ስለዚህ እባክዎ ንቁ ይሁኑ እና ቦቱን በየጊዜው ይመልከቱት።`
+      `⏳ የተጠናቀቀው ሥራ ከውሳኔ አማራቾች ጋር በቦቱ ሲላክልዎ፣ ከላይ እንደተነገራቹ ሥራውን ወይ ማጽደቅ ወይም ማስተካከያ መጠየቅ የሚችሉት በ *${revMinutes > 1 ? formatHM(Math.floor(revMinutes / 2), creatorLang) : revisionNice}* (*የማሻሻያ ጊዜው ግማሽ*) ውስጥ ብቻ ስለሚሆን በግማሽ የማስተካከያ ጊዜ ውስጥ ምንም አይነት እርምጃ ካልወሰዱ (የተጠናቀቀው ሥራ በዚህ ቦት ሲላክልዎ አንድላይ በሚላክላቹ የውሳኔ አማራቾችን በመጠቀም)፣ በተላከላቹ ሰራ እንደረካቹ የቆጠራል ፣ ስለዚህ እባክዎ ንቁ ይሁኑ እና ቦቱን በየጊዜው ይመልከቱት።`
     ].join("\n");
   }
 
@@ -2555,11 +2558,11 @@ function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revM
     `✅ *${doerName}* is now officially your task doer.`,
     "",
     `• Time given for the task doer to complete and send the task: *${timeToCompleteH} hour(s)*.`,
-    `• Total Revision time (which will begin as soon as the task doer sends the completed task/proof of task completetion to the bot in which the first half of the revision time is for you to either approve the completed task sent or to request fixes  and the second half of the revision time is for the task doer to either submit the corrected version of the task or report if there are አny issues with the fixes you requested from them): ${revisionNice}.`,
+    `• Total Revision time (which will begin as soon as the task doer sends the completed task/proof of task completetion to the bot in which the first half of the revision time is for you to either approve the sent completed task or to request fixes ; and the second half of the revision time is for the task doer to either submit the corrected version of the task or report if there are any issues with the fixes you requested from them): ${revisionNice}.`,
     `• Penalty per hour(which will start being deducted every hour as soon as the time given to complete and submit the completed task is up before the task doer sent the completed task to the bot): ${penaltyPerHour} birr/hour.`,
     "",
     
-    `• When the doer finishes, they will send the completed work not only through the bot but also directly to you via your Telegram account or your Gmail address or etc. — please check your inboxes regularly during the *${timeToCompleteH} hours*.`,
+    `• When the doer finishes, they will send the completed work *not only through the bot but also directly to you* via your Telegram account or your Gmail address or etc. — please check your inboxes regularly during the *${timeToCompleteH} hours*.`,
     `• If the completed task isn’t submitted within that time, the fee begins decreasing by ${penaltyPerHour} birr each hour until the task fee reaches 35% of the original fee (exact time until 35%: ${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : "based on your penalty settings"}).`,
 ,
     "",
@@ -2571,7 +2574,7 @@ function buildWinnerCreatorMessage({ task, doer, creatorLang, totalMinutes, revM
     "⚠️ You can not ask for anything outside the original task description.",
     "",
     
-    `⏳ Once the completed task is sent to you in the bot with the decision buttons, you will have only *${revMinutes > 1 ? formatHM(Math.floor(revMinutes / 2), creatorLang) : revisionNice}* (half of the revision time) to either approve the task or request fixes. If you don’t take any action(with the decision buttons that will be sent you once the completed task is sent to you through the bot)  within half of the revision time, it will be taken as if you were satisfied with the completed task sent to you , so please stay alert and check the bot regularly.`
+    `⏳ Once the completed task is sent to you in the bot with the decision buttons, you will have only *${revMinutes > 1 ? formatHM(Math.floor(revMinutes / 2), creatorLang) : revisionNice}* (half of the revision time) to either approve the sent completed task or request fixes. If you don’t take any action(with the decision buttons that will be sent you once the completed task is sent to you through the bot)  within half of the revision time, it will be taken as if you were satisfied with the completed task sent to you , so please stay alert and check the bot regularly.`
 
   ].join("\n");
 }
@@ -2595,51 +2598,39 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
 
   if (doerLang === "am") {
     return [
-      `🎉 እንኳን ደስ አለዎት! ከአሁን ጀምሮ ለዚህ ተግባር የስራ አከናውን ተመድበዋል።`,
+      `🎉 እንኳን ደስ አለዎት! ከአሁን ጀምሮ ለዚህ ስራ ተግባሪው እርሶ ኖት።`,
       "",
-      `📝 *የተግባሩ መግለጫ:* ${task.description}`,
+      `📝 *የተግባሩ መግለጫ(አሰሪው ከዚ ውጪ ተጨማሪ ነግር ማዘዝ አይችልም):* ${task.description}`,
       "",
-      `📮 *ማቅረብ:* የተጠናቀቀውን ስራ በቀጥታ ለተግባር ፈጣሪው በቴሌግራም: ${creatorHandle} ወይም በጄሜይል: ${creatorEmail} ይላኩ እና ይህ በ *${timeToCompleteH} ሰዓት* ውስጥ መሆን አለበት።`,
-      `⏱ ከዚያ በኋላ ተግባር ፈጣሪው ስርዓተ-ማሻሻያ ጊዜ *${revNice}* ይኖረዋል—ስለዚህ በዚያን ጊዜ ላይ በንቃት ዝግጁ ቆይታ ያድርጉ።`,
+      `📮 *ያለቀውን ሰራ * በ *${timeToCompleteH} ሰዓት* ውስጥ መላክ አለቦት እናም መላክ ያለቦት ለነዚህ ሶስት አካላቶች ናቸው: *1. ለአሰሪው* (ወይ በቴሌግራም አካውንታቸው: ${creatorHandle} ወይም በኢሜይል አድራሻቸው: ${creatorEmail} ውይም በሌላ አማራቾች) ፤ *2. ወደኛ ቴሌግራም አካውንት*: @taskifaysupport ፤ *3. ወደዚ ቦት* ⚠️*ነገር ግን ወደዚ ቦት ከላኩት ቡሃላ አታች ያለውን ቁልፍ መጫን አለቦት አለበዚያ እንደላኩት አይቆጠርም!!!*`,
       "",
-      `⚖️ ቅጣት: በ *${timeToCompleteH} ሰዓት* ውስጥ ካልተላከ ክፍያው በየሰዓቱ *${penaltyPerHour} ብር* ይቀንሳል እስከ 0 ድረስ (ግምት: ${penaltyHoursToZero} ሰዓት).`,
+      `⏱ ከላይ በተባለው ጊዜ ውስጥ ያለቀውንም ሰራ ወደዚ ቦት ለከዉት አታች ያለውን ቁልፍ ከተጫኑት አሰሪው *${revNice}* ይኖረዋል ማስተካከያ ለመጠየቅ (የተላከው ስራ ችግር ካለበት) ስለዚህ በዚያን ጊዜ ውስጥ በንቃት ዝግጁ ሆነው ይጠብቁ።`,
       "",
-      `🧭 *ጠቅላላ መቁጠሪያ:* መስጠት + ማሻሻያ + 30 ደቂቃ ለክፍያ + የቅጣት መውረድ (${penaltyHoursToZero}h) ማስታሰቢያ ድምር = *${totalNice}*.`,
-      `• በዚህ ጊዜ ውስጥ “*${TEXT.missionAccomplishedBtn.am}*” ወይም “*${TEXT.reportBtn.am}*” መጫን አለብዎት።`,
-      `• በ *${totalNice}* ውስጥ የአንዱንም አቋራጭ ካላጫኑ ስርአቱ እንደ “*${TEXT.missionAccomplishedBtn.am}*” ተደርጓል ይቆጠራል—ስለዚህ ጊዜን በጥንቃቄ ይከታተሉ።`,
+      `⚖️ ቅጣት: በ *${timeToCompleteH} ሰዓት* ውስጥ የለቀ ስራ ካልተላከ ክፍያው በየሰዓቱ *${penaltyPerHour} ብር* ይቀንሳል ክፍያው 35% እስከ ሚደርስ (ይሄም እስከሚሆን የሚፈጀው ሰዓት: *${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : "እርሶ በሰቱት የቅጣት መጠን መሰረት"}*).`,
       "",
-      `💳 *የክፍያ አማራጮችዎ:*`,
-      banks,
+      
+      
+      creatorPhone ? `📞 አሰሪው የአስገዳጅ ፈልጋቹት በቴልግራም አካውንታቸው ወይም በኢሜል አድራሻቸው ካልመለሱላቹ በዚህ ስልክ ይደውሉ፡ ${creatorPhone}` : null,
       "",
-      `🧾 እርስዎ የላኩት ስራ ከተጸየፈ በኋላ ፈጣሪው ክፍያውን በእነዚህ አማራጮች መካከል መላክ እና ደረሰኝ መላክ አለበት።`,
-      creatorPhone ? `📞 ፈጣሪው ማመለስ ካቋረጠ በዚህ ስልክ ይደውሉ፡ ${creatorPhone}` : null,
-      "",
-      `⚠️ የመጀመሪያው የተግባር መግለጫ ውጭ ስራ መጠየቅ አይፈቀድም።`,
+      `⚠️ እታች ያለውን ቁልፍ አንዴ ብቻ መጫን ስለሚቻል ሂሉንም ያለቀ ስራ ከላኩ ብሃላ ቁልፉን ይጫኑት።`,
     ].filter(Boolean).join("\n");
   }
 
   // English
   return [
-    `🎉 You are now the official task doer for this task.`,
+    `🎉 *You* are now *the official task doer* for this *task*.`,
     "",
-    `📝 *Task description:* ${task.description}`,
+    `📝 *Task description(please note that the task creator can't give you more work outside of this description):* ${task.description}`,
     "",
-    `📮 *Submit to the creator:* send the completed work directly via Telegram: ${creatorHandle} or Gmail: ${creatorEmail} within *${timeToCompleteH} hour(s)*.`,
-    `⏱ After you submit, the creator has *${revNice}* for revisions—stay available and responsive during that time.`,
+    `📮 *Within *${timeToCompleteH} hour(s)* *submit the completed task* *to the creator* ( via their Telegram account : ${creatorHandle} or their Gmail address: ${creatorEmail} or any other means that you both agree upon), *to our telegram account *: @taskifaysupport , and *to this bot* in which *you must click the button below after you sent it to all the parties mentioned above, other wise it won't be considered as you sent the completed task/s to any of the parties*.`,
+    `⏱ After you submit the completed task/s and click the button below , the creator has *${revNice}* to check the completed task/s and request any fixes from you(if there are any) so stay available and responsive during that time.`,
     "",
-    `⚖️ Penalty: if the work isn’t submitted within the allotted time, the fee decreases by *${penaltyPerHour} birr/hour* until it reaches 0 (est. ${penaltyHoursToZero} hour${penaltyHoursToZero === 1 ? "" : "s"}).`,
+    `⚖️ *Penalty*: if the work isn’t submitted within the allotted time, the fee decreases by *${penaltyPerHour} birr/hour* until it reaches 35% of the original amount  (exact time it will take till that happens:*${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : "Based on your penalty settings"}*).`,
     "",
-    `🧭 *Overall timer:* complete + revision + 30 min for payment + penalty runway (${penaltyHoursToZero}h) = *${totalNice}*.`,
-    `• Within this window you must tap “*${TEXT.missionAccomplishedBtn.en}*” (after receiving payment) or “*${TEXT.reportBtn.en}*” (if there’s a disagreement).`,
-    `• If you don’t tap either within *${totalNice}*, Taskifii will treat it as “*${TEXT.missionAccomplishedBtn.en}*.”`,
+    
+    creatorPhone ? `📞 If the task creator doesn’t reply on Telegram/Gmail, call: ${creatorPhone}` : null,
     "",
-    `💳 *Your banking option(s):*`,
-    banks,
-    "",
-    `🧾 After the creator approves your work, they must send the task fee via your banking option(s) *and* send you the payment receipt.`,
-    creatorPhone ? `📞 If the creator doesn’t reply on Telegram/Gmail, call: ${creatorPhone}` : null,
-    "",
-    `⚠️ The creator may not ask for anything outside the original task description.`,
+    `⚠️ *Since* you *can click* the *button below* only *once*, make sure you click it after you sent the completed task/s to all the parties mentioned previously. `,
   ].filter(Boolean).join("\n");
 }
 
