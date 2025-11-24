@@ -2606,7 +2606,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
       "",
       `⏱ ከላይ በተባለው ጊዜ ውስጥ ያለቀውንም ሰራ ወደዚ ቦት ለከዉት አታች ያለውን ቁልፍ ከተጫኑት አሰሪው *${revNice}* ይኖረዋል ማስተካከያ ለመጠየቅ (የተላከው ስራ ችግር ካለበት) ስለዚህ በዚያን ጊዜ ውስጥ በንቃት ዝግጁ ሆነው ይጠብቁ።`,
       "",
-      `⚖️ ቅጣት: በ *${timeToCompleteH} ሰዓት* ውስጥ የለቀ ስራ ካልተላከ ክፍያው በየሰዓቱ *${penaltyPerHour} ብር* ይቀንሳል ክፍያው 35% እስከ ሚደርስ (ይሄም እስከሚሆን የሚፈጀው ሰዓት: *${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : "እርሶ በሰቱት የቅጣት መጠን መሰረት"}*).`,
+      `⚖️ ቅጣት: በ *${timeToCompleteH} ሰዓት* ውስጥ የለቀ ስራ ካልተላከ ክፍያው በየሰዓቱ *${penaltyPerHour} ብር* ይቀንሳል ክፍያው 35% እስከ ሚደርስ (ይሄም እስከሚሆን የሚፈጀው ሰዓት: *${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, doerLang) : "እርሶ በሰቱት የቅጣት መጠን መሰረት"}*).`,
       "",
       
       
