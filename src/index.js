@@ -2671,7 +2671,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
     "",
     "",
     "",
-    `⚖️ *Penalty*: if the completed task isn’t submitted within the allotted time, the fee(*${paymentFee} birr*) decreases by *${penaltyPerHour} birr/hour* until it reaches 35% of the original amount  (exact time it will take till that happens:*${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, creatorLang) : "Based on your penalty settings"}*).`,
+    `⚖️ *Penalty*: if the completed task isn’t submitted within the allotted time, the fee(*${paymentFee} birr*) decreases by *${penaltyPerHour} birr/hour* until it reaches 35% of the original amount  (exact time it will take till that happens:*${penaltyPerHour > 0 ? formatHM(Math.ceil((paymentFee * 0.65) / penaltyPerHour) * 60, doerLang) : "Based on your penalty settings"}*).`,
     "",
     "",
     creatorPhone ? `📞 If the task creator doesn’t reply on Telegram/Gmail, call them: ${creatorPhone}` : null,
