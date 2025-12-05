@@ -6,6 +6,8 @@ const { Schema } = mongoose;
 const UserSchema = new Schema({
   telegramId: { type: Number, unique: true, required: true },
   username:   { type: String, unique: true, sparse: true, default: null },
+  // NEW: skills (fields) the user is good at – used for recommendations
+  skills:         { type: [String], default: [] },
 
   // ─── Onboarding Flow State ──────────────────────────────────────
   onboardingStep: {
