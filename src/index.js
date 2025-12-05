@@ -55,6 +55,8 @@ const userSchema = new Schema({
   phone:          { type: String, unique: true, sparse: true, default: null },
   email:          { type: String, unique: true, sparse: true, default: null },
   username:       { type: String, unique: true, sparse: true, default: null },
+  // NEW: skills (fields) the user is good at – used for recommendations
+  skills:         { type: [String], default: [] },
   bankDetails:    [
     {
       bankName:      String,
@@ -500,6 +502,11 @@ const TEXT = {
     en: "Your Telegram username is @%USERNAME%. Do you want to keep this? Click ‘Yes, keep it’ or send a new one below.",
     am: "የቲነልግራም የተጠቃሚ ስምዎ @%USERNAME% ነው። ይህን ለመቀበል ይፈቅዱ? ‘አዎን፣ ይቀበሉ’ ይጫኑ ወይም አዲስ ስም በታች ይጻፉ።"
   },
+  profileFieldsIntro: {
+    en: "Select 1–7 fields that you are skilled at. These will help us recommend tasks that match your expertise if you decide to become a task doer. It doesn’t matter if your skill level is beginner, intermediate, or professional. You can change your selections anytime, except when you are involved with an active task.",
+    am: "በችሎታ ያለዎትን 1-7 መስኮች ይምረጡ። እነዚህ ከፈለጉ ወደ ተግዳሮት አካል ሲሆኑ ከባለሙያነትዎ ጋር የሚጣጣሙ ተግዳሮቶችን እንድናመርምርሎት ይረዳናሉ። የችሎታዎ ደረጃ ጀማሪ ወይም መካከለኛ ወይም ፕሮፌሽናል መሆኑ አይገባም። ከአንድ ንቁ ተግዳሮት ጋር ባለማያተሉ ጊዜ ምርጫዎን በማንኛውም ጊዜ መቀየር ትችላላችሁ።"
+  },
+
   usernameErrorGeneral: {
     en: "Please make sure it is a valid Telegram username!",
     am: "እባክዎ ትክክለኛ የቲነልግራም የተጠቃሚ ስም መሆን አለበት!"
@@ -746,8 +753,9 @@ const TEXT = {
     am: "የተጠቃሚ ስም"
   },
   editBanksBtn: {
-    en: "Bank Details",
-    am: "የባንክ ዝርዝሮች"
+    en: "Skills",
+    am: "ችሎታዎች"
+
   },
   backBtn: {
     en: "Back",
@@ -5288,6 +5296,7 @@ bot.use(applyGatekeeper);
       user.phone = null;
       user.email = null;
       user.bankDetails = [];
+      user.skills = []; // NEW: reset skills too
       user.stats = {
         totalEarned: 0,
         totalSpent: 0,
@@ -5430,9 +5439,10 @@ bot.use(applyGatekeeper);
     }
 
     user.username = handle;
-    user.onboardingStep = "bankFirst";
+    user.onboardingStep = "skillsSelect";
     await user.save();
-    return ctx.reply(user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
+    return startUserSkillsSelection(ctx, user, false);
+
   });
 
   // ─── BANK “Add” Action ───────────────────────────
@@ -7755,9 +7765,10 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     }
 
     user.username = reply;
-    user.onboardingStep = "bankFirst";
+    user.onboardingStep = "skillsSelect";
     await user.save();
-    return ctx.reply(user.language === "am" ? TEXT.askBankDetails.am : TEXT.askBankDetails.en);
+    return startUserSkillsSelection(ctx, user, false);
+
   }
 
   // ─── FIRST BANK ENTRY ───────────────────────
@@ -8214,6 +8225,209 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   ctx.session.taskFlow.step = "skillLevel";
   
   return askSkillLevel(ctx, lang);
+});
+// ===============================================
+//  USER PROFILE SKILLS SELECTION (ONBOARDING + EDIT PROFILE)
+//  Reuses ALL_FIELDS but stores selections in user.skills
+// ===============================================
+
+const MAX_USER_SKILLS = 7;
+
+/**
+ * Show a page of field buttons for selecting skills
+ */
+async function askUserSkillsPage(ctx, page, user) {
+  const lang = user.language || "en";
+  const start = page * FIELDS_PER_PAGE;
+  const end = Math.min(start + FIELDS_PER_PAGE, ALL_FIELDS.length);
+
+  const rows = [];
+
+  for (let i = start; i < end; i++) {
+    rows.push([
+      Markup.button.callback(
+        ALL_FIELDS[i],
+        `USER_FIELD_${i}`
+      )
+    ]);
+  }
+
+  const navRow = [];
+  if (page > 0) {
+    navRow.push(
+      Markup.button.callback(
+        lang === "am" ? "⬅️ ወደ ኋላ" : "⬅️ Prev",
+        `USER_FIELDS_PAGE_${page - 1}`
+      )
+    );
+  }
+  if (end < ALL_FIELDS.length) {
+    navRow.push(
+      Markup.button.callback(
+        lang === "am" ? "ወደ ፊት ➡️" : "Next ➡️",
+        `USER_FIELDS_PAGE_${page + 1}`
+      )
+    );
+  }
+  if (navRow.length > 0) rows.push(navRow);
+
+  const intro = TEXT.profileFieldsIntro[lang];
+
+  return ctx.reply(
+    intro,
+    Markup.inlineKeyboard(rows)
+  );
+}
+
+/**
+ * Start skills selection, used both in onboarding and edit-profile.
+ */
+async function startUserSkillsSelection(ctx, user, fromEdit = false) {
+  ctx.session = ctx.session || {};
+  if (fromEdit) {
+    ctx.session.skillsEdit = true;
+  }
+  user.skills = user.skills || [];
+  await user.save();
+  return askUserSkillsPage(ctx, 0, user);
+}
+
+/**
+ * Finalize skill selection.
+ * - If onboardingStep === "skillsSelect" → move to Terms & Conditions.
+ * - Otherwise → treat as an edit and go back to profile.
+ */
+async function finalizeUserSkillsSelection(ctx, user) {
+  const lang = user.language || "en";
+
+  // Ensure we have at least one skill
+  if (!user.skills || user.skills.length === 0) {
+    return ctx.reply(
+      lang === "am"
+        ? "እባክዎ ቢያንስ አንድ መስክ ይምረጡ ከመቀጠልዎ በፊት።"
+        : "Please select at least one field before continuing."
+    );
+  }
+
+  // Try to delete the last message (safe to ignore errors)
+  try {
+    await ctx.deleteMessage();
+  } catch (e) {}
+
+  // 🟢 ONBOARDING PATH
+  if (user.onboardingStep === "skillsSelect") {
+    user.onboardingStep = "terms";
+    await user.save();
+
+    return ctx.reply(
+      lang === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
+      Markup.inlineKeyboard([
+        [buildButton(TEXT.agreeBtn, "TC_AGREE", lang, false)],
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", lang, false)]
+      ])
+    );
+  }
+
+  // 🟢 EDIT PROFILE PATH
+  await user.save();
+  ctx.session = ctx.session || {};
+  delete ctx.session.skillsEdit;
+
+  try {
+    await updateAdminProfilePost(ctx, user, user.adminMessageId);
+  } catch (err) {
+    console.error("Failed to update admin profile after skills edit:", err);
+  }
+
+  await ctx.reply(TEXT.profileUpdated[lang]);
+
+  const menu = Markup.inlineKeyboard([
+    [Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[lang], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[lang], "EDIT_PROFILE")]
+  ]);
+
+  return ctx.reply(buildProfileText(user, false), menu);
+}
+
+// ─── USER SKILLS PAGINATION ─────────────────────────
+bot.action(/USER_FIELDS_PAGE_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+
+  const page = parseInt(ctx.match[1], 10) || 0;
+
+  try {
+    await ctx.deleteMessage();
+  } catch (e) {}
+
+  return askUserSkillsPage(ctx, page, user);
+});
+
+// ─── USER SELECTS A FIELD AS SKILL ──────────────────
+bot.action(/USER_FIELD_(\d+)/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+
+  const lang = user.language || "en";
+  const idx = parseInt(ctx.match[1], 10);
+  const field = ALL_FIELDS[idx];
+
+  user.skills = user.skills || [];
+
+  if (!user.skills.includes(field) && user.skills.length < MAX_USER_SKILLS) {
+    user.skills.push(field);
+    await user.save();
+  }
+
+  // Delete previous keyboard message (ignore errors)
+  try {
+    await ctx.deleteMessage();
+  } catch (e) {}
+
+  // Auto-complete if they hit the hard cap
+  if (user.skills.length >= MAX_USER_SKILLS) {
+    return finalizeUserSkillsSelection(ctx, user);
+  }
+
+  const numbered = user.skills.map((f, i) => `${i + 1}. ${f}`).join("\n");
+
+  const summaryText =
+    lang === "am"
+      ? `✅ የችሎታ መስኮች ምርጫዎ ተመዝግቧል። እስካሁን ያመረጡት:\n${numbered}\n\nሌላ መስክ ለመጨመር \"Add another field\" ይጫኑ ወይም ለመቀጠል \"Done\" ይጫኑ።`
+      : `✅ Your field selection has been recorded. So far you've chosen:\n${numbered}\n\nTap \"Add another field\" to pick more, or \"Done\" to continue.`;
+
+  return ctx.reply(
+    summaryText,
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback(
+          lang === "am" ? "ሌላ መስክ ጨምር" : "Add another field",
+          "USER_FIELDS_PAGE_0"
+        )
+      ],
+      [
+        Markup.button.callback(
+          lang === "am" ? "ጨርስ" : "Done",
+          "USER_FIELDS_DONE"
+        )
+      ]
+    ])
+  );
+});
+
+// ─── USER TAPS "DONE" FOR SKILLS ────────────────────
+bot.action("USER_FIELDS_DONE", async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+
+  return finalizeUserSkillsSelection(ctx, user);
 });
 
 
@@ -9227,12 +9441,11 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
         const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
 
         const message = lang === "am" 
-          ? `⏰ ማስታወሻ: የተግዳሮትዎ ጊዜ እየቀረ ነው!\n\n` +
-            `የተግዳሮትዎ የማብቂያ ጊዜ የሚቀረው: ${hoursLeft} ሰዓት እና ${minutesLeft} ደቂቃ\n\n` +
-            `አመልካቾችን ለመቀበል የተቀረው ጊዜ በጣም አጭር ነው። እባክዎ በቅርቡ አመልካች ይምረጡ።`
+          ? `⏰ ማስታወሻ: ሰራውን ለመስራት ያመለከቱትን ለመምረጥ የቀረው ሰዓት እያለቀ ነው!\n\n` +
+            `የሚቀረውም ሰዓት: ${hoursLeft} ሰዓት እና ${minutesLeft} ደቂቃ\n\n` 
           : `⏰ Reminder: Your task time is running out!\n\n` +
             `Time remaining for your task: ${hoursLeft} hours and ${minutesLeft} minutes\n\n` +
-            `You have very little time left to accept applicants. Please select an applicant soon.`;
+            `You have very little time left to accept applicants. Please select an applicant soon(if there are any).`;
 
         await ctx.telegram.sendMessage(creator.telegramId, message);
         updatedTask.reminderSent = true;
@@ -9560,9 +9773,9 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
 });
 
 function buildProfileText(user, showCongrats = false) {
-  const banksList = user.bankDetails
-    .map((b, i) => `${i+1}. ${b.bankName} (${b.accountNumber})`)
-    .join("\n") || "N/A";
+  const skillsList = user.skills && user.skills.length
+    ? user.skills.map((s, i) => `${i + 1}. ${s}`).join("\n")
+    : (lang === "am" ? "አልተመረጡም" : "N/A");
   
   const profileLines = user.language === "am" 
     ? [
@@ -9572,7 +9785,7 @@ function buildProfileText(user, showCongrats = false) {
         `• ኢሜይል: ${user.email}`,
         `• ተጠቃሚ ስም: @${user.username}`,
         `• Taskifii መታወቂያ (ID): ${user._id}`,
-        `• ባንኮች:\n${banksList}`,
+        `• የስራ ልምድ(ዕውቀት):\n${skillsList}`,
         `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`,
         `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
@@ -9590,7 +9803,7 @@ function buildProfileText(user, showCongrats = false) {
         `• Email: ${user.email}`,
         `• Username: @${user.username}`,
         `• Taskifii ID: ${user._id}`,
-        `• Banks:\n${banksList}`,
+        `• Your skills:\n${skillsList}`,
         `• Language: ${user.language === "am" ? "Amharic" : "English"}`,
         `• Registered: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
@@ -9605,10 +9818,9 @@ function buildProfileText(user, showCongrats = false) {
   return profileLines.join("\n");
 }
 function buildAdminProfileText(user) {
-  // Fix the bank account display by using accountNumber instead of bankAccountNumber
-  const banksList = user.bankDetails
-    .map((b, i) => `${i+1}. ${b.bankName} (${b.accountNumber})`) // Changed from bankAccountNumber to accountNumber
-    .join("\n") || "N/A";
+  const skillsList = user.skills && user.skills.length
+    ? user.skills.map((s, i) => `${i + 1}. ${s}`).join("\n")
+    : "N/A";
   
   // Add user ID to the header
   const lines = user.language === "am" 
@@ -9618,7 +9830,7 @@ function buildAdminProfileText(user) {
         `• ስልክ: ${user.phone}`,
         `• ኢሜይል: ${user.email}`,
         `• ተጠቃሚ ስም: @${user.username}`,
-        `• ባንኮች:\n${banksList}`,
+        `• የስራ ልምድ(ዕውቀት):\n${skillsList}`,
         `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`,
         `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
@@ -9635,7 +9847,7 @@ function buildAdminProfileText(user) {
         `• Phone: ${user.phone}`,
         `• Email: ${user.email}`,
         `• Username: @${user.username}`,
-        `• Banks:\n${banksList}`,
+        `• Skill fields:\n${skillsList}`,
         `• Language: ${user.language === "am" ? "Amharic" : "English"}`,
         `• Registered: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
@@ -9679,7 +9891,7 @@ bot.action("EDIT_PROFILE", async (ctx) => {
     [Markup.button.callback(TEXT.editPhoneBtn[user.language], "EDIT_PHONE")],
     [Markup.button.callback(TEXT.editEmailBtn[user.language], "EDIT_EMAIL")],
     [Markup.button.callback(TEXT.editUsernameBtn[user.language], "EDIT_USERNAME")],
-    [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_BANKS")],
+    [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_SKILLS")],
     [Markup.button.callback(TEXT.backBtn[user.language], "EDIT_BACK")]
   ]);
 
@@ -9872,6 +10084,37 @@ bot.action("EDIT_USERNAME", async (ctx) => {
     promptText,
     Markup.inlineKeyboard([buttons])
   );
+});
+bot.action("EDIT_SKILLS", async (ctx) => {
+  await ctx.answerCbQuery();
+  const tgId = ctx.from.id;
+  const user = await User.findOne({ telegramId: tgId });
+  if (!user) return ctx.reply("User not found. Please /start again.");
+
+  const lang = user.language || "en";
+
+  // Mark that we are editing skills (used by finalizeUserSkillsSelection)
+  ctx.session = ctx.session || {};
+  ctx.session.skillsEdit = true;
+
+  // Highlight "Skills" and disable all edit buttons
+  try {
+    await ctx.editMessageReplyMarkup({
+      inline_keyboard: [
+        [Markup.button.callback(TEXT.editNameBtn[lang], "_DISABLED_EDIT_NAME")],
+        [Markup.button.callback(TEXT.editPhoneBtn[lang], "_DISABLED_EDIT_PHONE")],
+        [Markup.button.callback(TEXT.editEmailBtn[lang], "_DISABLED_EDIT_EMAIL")],
+        [Markup.button.callback(TEXT.editUsernameBtn[lang], "_DISABLED_EDIT_USERNAME")],
+        [Markup.button.callback(`✔ ${TEXT.editBanksBtn[lang]}`, "_DISABLED_EDIT_SKILLS")],
+        [Markup.button.callback(TEXT.backBtn[lang], "_DISABLED_EDIT_BACK")]
+      ]
+    });
+  } catch (err) {
+    console.error("Error editing edit-profile markup for skills:", err);
+  }
+
+  // Start the same skills selection flow as onboarding, but from edit mode
+  return startUserSkillsSelection(ctx, user, true);
 });
 
 // Add handler for keeping username during edit
@@ -10215,7 +10458,7 @@ bot.action("BANK_EDIT_DONE", async (ctx) => {
     [Markup.button.callback(TEXT.editPhoneBtn[user.language], "EDIT_PHONE")],
     [Markup.button.callback(TEXT.editEmailBtn[user.language], "EDIT_EMAIL")],
     [Markup.button.callback(TEXT.editUsernameBtn[user.language], "EDIT_USERNAME")],
-    [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_BANKS")],
+    [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_SKILLS")],
     [Markup.button.callback(TEXT.backBtn[user.language], "EDIT_BACK")]
   ]);
 
@@ -10327,7 +10570,7 @@ bot.action("CANCEL_NEW_USERNAME", async (ctx) => {
     [Markup.button.callback(TEXT.editPhoneBtn[user.language], "EDIT_PHONE")],
     [Markup.button.callback(TEXT.editEmailBtn[user.language], "EDIT_EMAIL")],
     [Markup.button.callback(TEXT.editUsernameBtn[user.language], "EDIT_USERNAME")],
-    [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_BANKS")],
+    [Markup.button.callback(TEXT.editBanksBtn[user.language], "EDIT_SKILLS")],
     [Markup.button.callback(TEXT.backBtn[user.language], "EDIT_BACK")]
   ]);
 
