@@ -19,6 +19,7 @@ const UserSchema = new Schema({
       "phone",            // enter phone
       "email",            // enter email
       "usernameConfirm",  // click “Yes, keep it” or type new one
+      "skillsSelect",     // NEW: select skill fields after username
       // bank‐details steps
       "bankFirst",        // first bank detail typed
       "bankMulti",        // in “Add/Replace/Done” phase
