@@ -1297,14 +1297,7 @@ function buildPreviewText(draft, user) {
     lines.push("");
   }
 
-  // Banks Accepted
-  if (user.bankDetails && user.bankDetails.length) {
-    const names = user.bankDetails.map(b => b.bankName).join(", ");
-    lines.push(lang === "am" 
-      ? `*ተቀባይነት ያላቸው ባንኮች:* ${names}` 
-      : `*Banks Accepted:* ${names}`);
-    lines.push("");
-  }
+  
 
   // Creator stats
   const ratingText = user.stats.ratingCount > 0
@@ -1410,12 +1403,7 @@ function buildChannelPostText(draft, user) {
     lines.push("");
   }
 
-  // Banks Accepted
-  if (user.bankDetails && user.bankDetails.length) {
-    const names = user.bankDetails.map(b => b.bankName).join(", ");
-    lines.push(`*Banks Accepted:* ${names}`);
-    lines.push("");
-  }
+  
 
   // Creator stats
   const ratingText = user.stats.ratingCount > 0
@@ -7245,15 +7233,13 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
                 `ጠቅላላ የተሰሩ ተግዳሮቶች: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
                 `ተደጋጋሚ የስራ መስኮች: ${topFields}\n` +
                 `ደረጃ: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)\n` +
-                `ተቀባይነት ያላቸው ባንኮች: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
                 `መልእክት: ${text.substring(0, 100)}...`
               : `📩 New applicant for your task!\n\n` +
                 `Task: ${task.description.substring(0, 50)}...\n\n` +
                 `Applicant: ${applicantName}\n` +
                 `Total earned: ${user.stats.totalEarned.toFixed(2)} birr\n` +
                 `Frequent fields: ${topFields}\n` +
-                `Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)\n` +
-                `Accepted banks: ${user.bankDetails.map(b => b.bankName).join(", ") || "N/A"}\n\n` +
+                `Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)\n` + 
                 `Message: ${text.substring(0, 100)}...`;
 
           const buttons = Markup.inlineKeyboard([
