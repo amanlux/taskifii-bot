@@ -8284,13 +8284,20 @@ async function askUserSkillsPage(ctx, page, user) {
  */
 async function startUserSkillsSelection(ctx, user, fromEdit = false) {
   ctx.session = ctx.session || {};
-  if (fromEdit) {
-    ctx.session.skillsEdit = true;
-  }
+  
+  // Always ensure it's an array
   user.skills = user.skills || [];
+
+  if (fromEdit) {
+    // We are editing from the profile → treat this as a fresh answer
+    ctx.session.skillsEdit = true;
+    user.skills = [];  // clear previous skills so new choices fully replace them
+  }
+
   await user.save();
   return askUserSkillsPage(ctx, 0, user);
 }
+
 
 /**
  * Finalize skill selection.
@@ -8309,10 +8316,7 @@ async function finalizeUserSkillsSelection(ctx, user) {
     );
   }
 
-  // Try to delete the last message (safe to ignore errors)
-  try {
-    await ctx.deleteMessage();
-  } catch (e) {}
+  
 
   // 🟢 ONBOARDING PATH
   if (user.onboardingStep === "skillsSelect") {
@@ -8389,20 +8393,30 @@ bot.action(/USER_FIELD_(\d+)/, async (ctx) => {
     await ctx.deleteMessage();
   } catch (e) {}
 
-  // Auto-complete if they hit the hard cap
-  if (user.skills.length >= MAX_USER_SKILLS) {
-    return finalizeUserSkillsSelection(ctx, user);
-  }
-
   const numbered = user.skills.map((f, i) => `${i + 1}. ${f}`).join("\n");
 
-  const summaryText =
+  // Text used while user is still choosing (1–6 skills) – with buttons
+  const summaryTextWithButtons =
     lang === "am"
       ? `✅ የችሎታ መስኮች ምርጫዎ ተመዝግቧል። እስካሁን ያመረጡት:\n${numbered}\n\nሌላ መስክ ለመጨመር \"Add another field\" ይጫኑ ወይም ለመቀጠል \"Done\" ይጫኑ።`
       : `✅ Your field selection has been recorded. So far you've chosen:\n${numbered}\n\nTap \"Add another field\" to pick more, or \"Done\" to continue.`;
 
+  // Text used when user reaches the hard cap (7 skills) – NO buttons
+  const summaryTextFinal =
+    lang === "am"
+      ? `✅ የችሎታ መስኮች ምርጫዎ ተመዝግቧል። ያመረጡት:\n${numbered}`
+      : `✅ Your field selection has been recorded. You've chosen:\n${numbered}`;
+
+  // Auto-complete if they hit the hard cap (7 skills)
+  if (user.skills.length >= MAX_USER_SKILLS) {
+    // Show the final list WITHOUT buttons
+    await ctx.reply(summaryTextFinal);
+    return finalizeUserSkillsSelection(ctx, user);
+  }
+
+  // Normal case (1–6 skills): show summary + Add / Done buttons
   return ctx.reply(
-    summaryText,
+    summaryTextWithButtons,
     Markup.inlineKeyboard([
       [
         Markup.button.callback(
@@ -8420,6 +8434,7 @@ bot.action(/USER_FIELD_(\d+)/, async (ctx) => {
   );
 });
 
+
 // ─── USER TAPS "DONE" FOR SKILLS ────────────────────
 bot.action("USER_FIELDS_DONE", async (ctx) => {
   await ctx.answerCbQuery();
@@ -8427,8 +8442,48 @@ bot.action("USER_FIELDS_DONE", async (ctx) => {
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
 
+  const lang = user.language || "en";
+
+  // Build the same "so far you've chosen" text, using current skills
+  const numbered = user.skills && user.skills.length
+    ? user.skills.map((f, i) => `${i + 1}. ${f}`).join("\n")
+    : "";
+
+  const summaryText =
+    lang === "am"
+      ? `✅ የችሎታ መስኮች ምርጫዎ ተመዝግቧል። እስካሁን ያመረጡት:\n${numbered}\n\nሌላ መስክ ለመጨመር \"Add another field\" ይጫኑ ወይም ለመቀጠል \"Done\" ይጫኑ።`
+      : `✅ Your field selection has been recorded. So far you've chosen:\n${numbered}\n\nTap \"Add another field\" to pick more, or \"Done\" to continue.`;
+
+  // Edit the existing message:
+  // - keep the text
+  // - disable both buttons (we'll use dummy callback_data)
+  // - highlight the Done button with a check mark
+  try {
+    await ctx.editMessageText(
+      summaryText,
+      Markup.inlineKeyboard([
+        [
+          Markup.button.callback(
+            lang === "am" ? "ሌላ መስክ ጨምር" : "Add another field",
+            "_DISABLED_USER_FIELDS_ADD"
+          )
+        ],
+        [
+          Markup.button.callback(
+            lang === "am" ? `✔ ጨርስ` : `✔ Done`,
+            "_DISABLED_USER_FIELDS_DONE"
+          )
+        ]
+      ])
+    );
+  } catch (e) {
+    console.error("Failed to edit skills summary message:", e);
+  }
+
+  // Now move on (onboarding → Terms, edit → back to profile)
   return finalizeUserSkillsSelection(ctx, user);
 });
+
 
 
 
