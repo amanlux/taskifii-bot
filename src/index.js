@@ -4848,7 +4848,7 @@ async function retryQueuedRefunds() {
 
         if (task) {
           await sendRefundAudit(globalThis.TaskifiiBot, {
-            tag: "#refundsuccessful",
+            tag: "#refund successful", // ✅ new text
             task, creator, intent,
             extra: { reason: "Retry queued refund (provider accepted)", chapaReference, refundId }
           });
@@ -4856,21 +4856,23 @@ async function retryQueuedRefunds() {
         console.log("Queued refund request accepted by provider:", intent._id.toString());
       } catch (err) {
         const msg = String(err?.message || "").toLowerCase();
-        if (!msg.includes("insufficient balance")) {
-          await PaymentIntent.updateOne(
-            { _id: intent._id },
-            { $set: { refundStatus: "failed" } }
-          );
-          console.error("Queued refund hard-failed:", intent._id.toString(), err);
-        } else {
+
+        // ❗ IMPORTANT: do NOT mark as failed anymore.
+        // Keep it as "queued"/"requested" so this worker retries forever.
+        if (msg.includes("insufficient balance")) {
           console.log("Queued refund still waiting for funds:", intent._id.toString());
+        } else {
+          console.error("Queued refund attempt failed, will retry:", intent._id.toString(), err);
         }
+        // No status update here → infinite automatic retries
       }
     }
   } catch (e) {
     console.error("retryQueuedRefunds error:", e);
   }
 }
+
+
 
 
 // run every 10 minutes
@@ -6889,26 +6891,29 @@ async function disableExpiredTaskButtons(bot) {
                 { $set: { refundStatus: "pending", refundedAt: new Date(), chapaReference, refundId } }
               );
 
+              // ✅ On success: #taskRefund + "#refund successful"
               await sendRefundAudit(bot, {
-                tag: "#refundsuccessful",
+                tag: "#refund successful",
                 task, creator, intent,
                 extra: { reason, chapaReference, refundId }
               });
             } catch (apiErr) {
               const msg = String(apiErr?.message || "").toLowerCase();
-              const insufficient = msg.includes("insufficient balance");
 
+              // ❗ Any type of failure → mark as queued so the worker keeps retrying forever
               await PaymentIntent.updateOne(
                 { _id: intent._id },
-                { $set: { refundStatus: insufficient ? "queued" : "failed" } }
+                { $set: { refundStatus: "queued" } }
               );
 
+              // ✅ On first failure: #taskRefund + "#refundfailed" (only once for this refund attempt)
               await sendRefundAudit(bot, {
                 tag: "#refundfailed",
                 task, creator, intent,
                 extra: { reason }
               });
             }
+
             // --- NEW: cleanup when accepted doer never started (no "Do the task" before expiry) ---
             if (reason === "Accepted doer did not start (no 'Do the task' before expiry)") {
               try {
@@ -9811,8 +9816,9 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
 
         await PaymentIntent.updateOne(
           { _id: intent._id },
-          { $set: { refundStatus: insufficient ? "queued" : "failed" } }
+          { $set: { refundStatus: "queued" } } // always queued so retryQueuedRefunds keeps trying
         );
+
 
         const sorry = (lang === "am")
           ? (insufficient
