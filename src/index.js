@@ -9804,6 +9804,19 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
           { $set: { refundStatus: "pending", refundedAt: new Date() } }
         );
 
+        // ✅ Audit for immediate success
+        try {
+          await sendRefundAudit(bot, {
+            tag: "#refund successful",
+            task,
+            creator: user,
+            intent,
+            extra: { reason: "Creator canceled before engagement" }
+          });
+        } catch (auditErr) {
+          console.error("Refund audit send failed (cancel success):", auditErr);
+        }
+
         const okMsg = (lang === "am")
           ? "💸 የኢስክሮ ገንዘብዎ ወደ መጀመሪያ የክፍያ መንገድዎ ተመልሷል።"
           : "💸 Your escrow funds have been refunded to your original payment method.";
@@ -9812,24 +9825,33 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
         console.error("Chapa refund failed:", apiErr);
 
         const msg = String(apiErr?.message || "").toLowerCase();
-        const insufficient = msg.includes("insufficient balance");
 
+        // ❗ Any kind of problem → queue it for unlimited retries
         await PaymentIntent.updateOne(
           { _id: intent._id },
-          { $set: { refundStatus: "queued" } } // always queued so retryQueuedRefunds keeps trying
+          { $set: { refundStatus: "queued" } } // retryQueuedRefunds keeps trying
         );
 
+        // ✅ On first failure: #taskRefund + "#refundfailed" (only once)
+        try {
+          await sendRefundAudit(bot, {
+            tag: "#refundfailed",
+            task,
+            creator: user,
+            intent,
+            extra: { reason: "Creator canceled before engagement (initial auto-refund failed)" }
+          });
+        } catch (auditErr) {
+          console.error("Refund audit send failed (cancel failure):", auditErr);
+        }
 
         const sorry = (lang === "am")
-          ? (insufficient
-              ? "⚠️ ራስ-ሰር መመለስ አልተሳካም (የንግድ ቀሪ ሂሳብ ዝቅተኛ ስለሆነ)። በቅርቡ እንደገና እንሞክራለን እና በተሳካ ጊዜ እናሳውቃለን።"
-              : "⚠️ ራስ-ሰር መመለስ አልተሳካም። እባክዎ ድጋፍ ጋር ይገናኙ ወይም በግል እንመልሳለን።")
-          : (insufficient
-              ? "⚠️ Auto-refund didn’t go through (merchant balance too low). We’ll retry shortly and notify you when it succeeds."
-              : "⚠️ We couldn’t auto-refund via the provider. We’ll resolve it promptly via support.");
+          ? "💸 የተግዳሮቱ ክፍያ ወደ መጀመሪያ የክፍያ መንገድዎ እንመልሳለን። መመለሱ በሂደት ላይ ነው።"
+          : "💸 Your task fee will be refunded back to your original payment method. The refund is being processed.";
 
         await ctx.reply(sorry);
       }
+
 
     }
   } catch (e) {
