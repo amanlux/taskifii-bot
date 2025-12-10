@@ -655,6 +655,11 @@ const TEXT = {
     en: "Amount cannot be less than 50 birr.",
     am: "መጠኑ ከ50 ብር መብለጥ አይችልም።"
   },
+  paymentFeeErrorRelativePenalty: {
+    en: "Payment fee must be at least 5× the penalty per hour you set. Please increase the payment amount (or reduce the penalty) and try again.",
+    am: "የክፍያው መጠን ቢያንስ ከእያንዳንዱ ሰዓት የቅጣት መጠን 5 ጊዜ መሆን አለበት። እባክዎ የክፍያውን መጠን ያሳድጉ (ወይም የቅጣቱን መጠን ያሳንሱ) እና ዳግም ይሞክሩ።"
+  },
+
   askTimeToComplete: {
     en: "What's the time required in hours to complete the task? (1-120)",
     am: "ተግዳሮቱን ለመጨረስ የሚወስደው ጊዜ በሰዓት ያስገቡ (1-120)"
@@ -663,7 +668,11 @@ const TEXT = {
     en: "Hours must be >0 and ≤120.",
     am: "ሰዓቶቹ ከ0 በላይ እና ≤120 መሆን አለበት።"
   },
-  
+  timeToCompleteErrorRelativeRevision: {
+    en: "Time to complete must be at least 2× the revision time you set. Please enter a larger number of hours and try again.",
+    am: "የተግባሩ ጊዜ ቢያንስ ከማሻሻያ ጊዜው 2 ጊዜ መሆን አለበት። እባክዎ የስራ ጊዜውን ቁጥር ያሳድጉ እና ዳግም ይሞክሩ።"
+  },
+
   askRevisionTime: {
   en: "How many hours for revision? (Up to half of total — you can use decimals for minutes, e.g. 0.5 for 30 min)",
   am: "ለማሻሻል ስንት ሰዓት ይፈልጋሉ? (≤ ጠቅላላው ግማሽ — የደቂቃ ጊዜ ለማሳየት ከዳስማስ ቁጥሮች ጥቅም ይችላሉ፣ ለምሳሌ 0.5 ማለት 30 ደቂቃ ነው)"
@@ -8541,28 +8550,52 @@ async function handlePaymentFee(ctx, draft) {
   const text = ctx.message.text?.trim();
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
+
+  // 1) digits-only check
   if (!/^\d+$/.test(text)) {
     return ctx.reply(TEXT.paymentFeeErrorDigits[lang]);
   }
-  const val = parseInt(text,10);
+
+  const val = parseInt(text, 10);
+
+  // 2) minimum 50 birr
   if (val < 50) {
     return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
   }
+
+  // 3) NEW RULE (only when editing):
+  //    paymentFee must be ≥ 5 * penaltyPerHour
+  if (
+    ctx.session.taskFlow?.isEdit &&
+    typeof draft.penaltyPerHour === "number" &&
+    draft.penaltyPerHour > 0
+  ) {
+    const minAllowed = draft.penaltyPerHour * 5;
+    if (val < minAllowed) {
+      return ctx.reply(TEXT.paymentFeeErrorRelativePenalty[lang]);
+    }
+  }
+
+  // If all checks pass, save and continue exactly as before
   draft.paymentFee = val;
   await draft.save();
-  
+
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ የክፍያ መጠን ተዘምኗል" : "✅ Payment fee updated.");
+    await ctx.reply(lang === "am"
+      ? "✅ የክፍያ መጠን ተዘምኗል"
+      : "✅ Payment fee updated."
+    );
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
+    const userAgain = await User.findOne({ telegramId: ctx.from.id });
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
-      buildPreviewText(updatedDraft, user),
+      buildPreviewText(updatedDraft, userAgain),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        [
+          locked
+            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -8570,39 +8603,62 @@ async function handlePaymentFee(ctx, draft) {
     ctx.session.taskFlow = null;
     return;
   }
-  
+
   ctx.session.taskFlow.step = "timeToComplete";
   return ctx.reply(TEXT.askTimeToComplete[lang]);
 }
+
 
 async function handleTimeToComplete(ctx, draft) {
   const text = ctx.message.text?.trim();
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en"; 
   
+  // 1) digits-only check
   if (!/^\d+$/.test(text)) {
     return ctx.reply(TEXT.digitsOnlyError[lang]);
   }
 
-  const hrs = parseInt(text,10);
-  if (hrs <=0 || hrs>120) {
+  const hrs = parseInt(text, 10);
+
+  // 2) basic range check
+  if (hrs <= 0 || hrs > 120) {
     return ctx.reply(TEXT.timeToCompleteError[lang]); 
   }
+
+  // 3) NEW RULE (only when editing):
+  //    timeToComplete must be ≥ 2 * revisionTime
+  if (
+    ctx.session.taskFlow?.isEdit &&
+    typeof draft.revisionTime === "number" &&
+    draft.revisionTime > 0
+  ) {
+    const minAllowed = 2 * draft.revisionTime;
+    if (hrs < minAllowed) {
+      return ctx.reply(TEXT.timeToCompleteErrorRelativeRevision[lang]);
+    }
+  }
+
+  // If all checks pass, save & continue as before
   draft.timeToComplete = hrs;
   await draft.save();
   
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ የስራ ጊዜ ተዘምኗል" : "✅ Time to complete updated.");
+    await ctx.reply(lang === "am"
+      ? "✅ የስራ ጊዜ ተዘምኗል"
+      : "✅ Time to complete updated."
+    );
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
+    const userAgain = await User.findOne({ telegramId: ctx.from.id });
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
-      buildPreviewText(updatedDraft, user),
+      buildPreviewText(updatedDraft, userAgain),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        [
+          locked
+            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -8614,6 +8670,7 @@ async function handleTimeToComplete(ctx, draft) {
   ctx.session.taskFlow.step = "revisionTime";
   return ctx.reply(TEXT.askRevisionTime[lang]); 
 }
+
 
 async function handleRevisionTime(ctx, draft) {
   const input = ctx.message.text?.trim();
