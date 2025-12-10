@@ -1308,7 +1308,7 @@ function buildPreviewText(draft, user) {
 
   
 
-  // Creator stats
+    // Creator stats
   const ratingText = user.stats.ratingCount > 0
     ? `${user.stats.averageRating.toFixed(1)} ★ (${user.stats.ratingCount} ${lang === "am" ? "ግምገማዎች" : "ratings"})`
     : `N/A ★ (0 ${lang === "am" ? "ግምገማዎች" : "ratings"})`;
@@ -1324,8 +1324,16 @@ function buildPreviewText(draft, user) {
     : `*Creator Rating:* ${ratingText}`);
   lines.push("");
 
+  // ⚠️ New: explain why "Post Task" might not do anything
+  lines.push(
+    lang === "am"
+      ? "ℹ️ ከታች ያለውን “ተግዳሮት ልጥፍ” ቁልፍ ሲጫኑት ምንም ነገር ካልተፈጠረ፣ በፕሮፋይልዎ ያስገቡት የስልክ ቁጥር ወይም ኢሜይል ትክክል አልሆነም ማለት ነው።"
+      : "ℹ️ If the *Post Task* button below does nothing when you tap it, it means the phone number or email you gave in your profile is not valid."
+  );
+
   return lines.join("\n");
 }
+
 
 function buildChannelPostText(draft, user) {
   const lines = [];
