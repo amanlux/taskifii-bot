@@ -1100,6 +1100,11 @@ const TEXT = {
       "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላችሁ።"
     ].join("\n")
   },
+  duplicateTaskPaymentNotice: {
+    en: "⚠️ You can only have one task active at a time. This payment link was for an older task draft, so the money you just paid will be refunded back to your original payment method shortly.",
+    am: "⚠️ በአንድ ጊዜ አንድ ንቁ ተግዳሮት ብቻ ማስቀመጥ ትችላላችሁ። ይህ የክፍያ ሊንክ ለቀድሞ የተተወ ረቂቅ ነበር፣ ስለዚህ አሁን የከፈሉት ገንዘብ ወደ መጀመሪያው የክፍያ መንገድዎ በቅርቡ ይመለሳል።"
+  },
+
 
 
 
@@ -2099,6 +2104,101 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
     );
   }
   return data;
+}
+async function refundStaleOrDuplicateEscrow({ intent, user, reason }) {
+  try {
+    if (!intent || !user) return;
+    if (intent.refundStatus === "succeeded") return;
+
+    // Guard against double-refund: mark as requested first
+    await PaymentIntent.updateOne(
+      { _id: intent._id, refundStatus: { $ne: "succeeded" } },
+      { $set: { refundStatus: "requested" } }
+    );
+
+    try {
+      const data = await refundEscrowWithChapa(
+        intent,
+        reason || "Stale or duplicate escrow payment"
+      );
+
+      const chapaReference =
+        (data && data.data && (data.data.reference || data.data.tx_ref)) ||
+        intent.chapaTxRef ||
+        null;
+
+      const refundId =
+        (data && data.data && (data.data.refund_id || data.data.refundId)) ||
+        null;
+
+      await PaymentIntent.updateOne(
+        { _id: intent._id },
+        {
+          $set: {
+            refundStatus: "pending",
+            refundedAt: new Date(),
+            chapaReference,
+            refundId
+          }
+        }
+      );
+
+      // Optional audit log (task-less, but still useful)
+      try {
+        await sendRefundAudit(globalThis.TaskifiiBot, {
+          tag: "#refund successful",
+          task: {
+            description: "[No task posted – stale checkout link]",
+            expiry: new Date(),
+            paymentFee: intent.amount
+          },
+          creator: user,
+          intent,
+          extra: { reason, chapaReference, refundId }
+        });
+      } catch (auditErr) {
+        console.error("Refund audit send failed (stale/duplicate success):", auditErr);
+      }
+    } catch (apiErr) {
+      console.error("Stale/duplicate escrow refund failed:", apiErr);
+
+      await PaymentIntent.updateOne(
+        { _id: intent._id },
+        { $set: { refundStatus: "queued" } }
+      );
+
+      try {
+        await sendRefundAudit(globalThis.TaskifiiBot, {
+          tag: "#refundfailed",
+          task: {
+            description: "[No task posted – stale checkout link]",
+            expiry: new Date(),
+            paymentFee: intent.amount
+          },
+          creator: user,
+          intent,
+          extra: { reason, error: String(apiErr?.message || "") }
+        });
+      } catch (auditErr) {
+        console.error("Refund audit send failed (stale/duplicate failure):", auditErr);
+      }
+    }
+
+    // Notify the creator in their language (once)
+    try {
+      const bot = globalThis.TaskifiiBot;
+      if (bot && user.telegramId) {
+        const lang = user.language || "en";
+        const msg =
+          TEXT.duplicateTaskPaymentNotice[lang] || TEXT.duplicateTaskPaymentNotice.en;
+        await bot.telegram.sendMessage(user.telegramId, msg);
+      }
+    } catch (e) {
+      console.error("Failed to send stale/duplicate payment notice:", e);
+    }
+  } catch (err) {
+    console.error("refundStaleOrDuplicateEscrow wrapper error:", err);
+  }
 }
 
 
@@ -4685,16 +4785,31 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
       await intent.save();
     }
 
-    // Continue exactly as you do after a successful hosted verify click:
-    const draft = await TaskDraft.findById(intent.draft);
-    const me    = await User.findById(intent.user);
-    if (!draft || !me) {
-      console.error("IPN draft/user missing", { draft: !!draft, me: !!me, txRef });
-      return res.status(404).send("draft_or_user_missing");
+    const me = await User.findById(intent.user);
+    const draft = intent.draft ? await TaskDraft.findById(intent.draft) : null;
+
+    // If the draft is gone but payment arrived, treat as stale / duplicate:
+    if (!me) {
+      console.error("IPN user missing for intent", intent._id.toString());
+      return res.status(404).send("user_missing");
     }
 
-    await postTaskFromPaidDraft({ ctx: null, me, draft, intent }); // ctx not required here
+    if (!draft) {
+      console.warn("IPN: stale or missing draft for intent", intent._id.toString(), "txRef:", txRef);
+
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft paid via Chapa IPN"
+      });
+
+      return res.status(200).send("stale_draft_refunded");
+    }
+
+    // Normal happy path: post the task
+    await postTaskFromPaidDraft({ ctx: null, me, draft, intent });
     return res.send("ok");
+
   } catch (e) {
     console.error("IPN handler error:", e);
     return res.status(500).send("error");
@@ -9617,39 +9732,46 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
       );
     }
 
-    // Now verified – load draft and continue
-    const draft = await TaskDraft.findById(draftId);
-    if (!draft) {
-      return ctx.reply(
-        me.language === "am"
-          ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ እንደገና ይሞክሩ።"
-          : "❌ Draft expired. Please try again."
-      );
-    }
-
     // Mark payment intent paid (idempotent)
     let intent = await PaymentIntent.findOne({ chapaTxRef: txRef });
     if (!intent) {
       intent = await PaymentIntent.create({
         user: me._id,
-        draft: draft._id,
+        draft: draftId, // may or may not still exist; we cast the id here
         chapaTxRef: txRef,
         status: "paid",
         paidAt: new Date(),
         provider: "chapa_hosted",
-        amount: draft?.paymentFee,             // optional, for nicer refund logs
+        amount: undefined, // optional; can be filled later from draft if needed
         currency: process.env.CHAPA_CURRENCY || "ETB"
       });
     } else if (intent.status !== "paid") {
       intent.status = "paid";
       intent.paidAt = new Date();
-      // keep provider/txRef that were already on the pending intent
       await intent.save();
     }
 
+    // Now verified – load draft and continue
+    const draft = await TaskDraft.findById(draftId);
+
+    if (!draft) {
+      // Draft is gone => this payment is for an abandoned draft; refund it.
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft (HOSTED_VERIFY)"
+      });
+
+      return ctx.reply(
+        me.language === "am"
+          ? TEXT.duplicateTaskPaymentNotice.am
+          : TEXT.duplicateTaskPaymentNotice.en
+      );
+    }
 
     // ✅ Use same helper to post task now
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
+
 
   } catch (err) {
     console.error("HOSTED_VERIFY error:", err);
@@ -9709,18 +9831,35 @@ bot.on('successful_payment', async (ctx) => {
       { new: true }
     );
 
+    if (!intent) {
+      // No matching intent (should be rare); just stop.
+      return ctx.reply(
+        me.language === "am"
+          ? "⚠️ የክፍያ መረጃ አልተገኘም። እባክዎ ከስራ አስኪያጆች ጋር ያግኙ።"
+          : "⚠️ We couldn’t find the payment session. Please contact support."
+      );
+    }
+
     // Load draft
     const draft = await TaskDraft.findById(draftId);
     if (!draft) {
+      // Draft is gone => refund this Telegram/Chapa escrow payment as stale
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft (Telegram successful_payment)"
+      });
+
       return ctx.reply(
         me.language === "am"
-          ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ እንደገና ይሞክሩ።"
-          : "❌ Draft expired. Please try again."
+          ? TEXT.duplicateTaskPaymentNotice.am
+          : TEXT.duplicateTaskPaymentNotice.en
       );
     }
 
     // ✅ Use the same unified task-posting helper
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
+
 
   } catch (err) {
     console.error("successful_payment handler error:", err);
@@ -10915,13 +11054,30 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
 
     // Load draft + user
     const me = await User.findOne({ telegramId: ctx.from.id });
-    const draft = await TaskDraft.findById(intent.draft);
-    if (!me || !draft) {
-      return ctx.reply("❌ Draft expired or user not found. Please try again.");
+    const draft = intent.draft ? await TaskDraft.findById(intent.draft) : null;
+
+    if (!me) {
+      return ctx.reply("❌ User not found. Please try again.");
     }
 
-    // ✅ NEW: continue exactly like your successful_payment path
+    if (!draft) {
+      // Draft is gone => payment is stale/duplicate; refund and inform.
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft (HV button)"
+      });
+
+      return ctx.reply(
+        me.language === "am"
+          ? TEXT.duplicateTaskPaymentNotice.am
+          : TEXT.duplicateTaskPaymentNotice.en
+      );
+    }
+
+    // ✅ Use your existing post-from-draft helper
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
+
 
   } catch (err) {
     console.error("HOSTED_VERIFY(HV) error:", err);
