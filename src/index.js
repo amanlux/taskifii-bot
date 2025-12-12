@@ -5731,7 +5731,7 @@ bot.use(applyGatekeeper);
     );
   });
 
-  // ─── AGE VERIFICATION Actions ────────────────────────────────────
+    // ─── AGE VERIFICATION Actions ────────────────────────────────────
   bot.action("AGE_YES", async (ctx) => {
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
@@ -5746,9 +5746,21 @@ bot.use(applyGatekeeper);
       ]]
     });
 
+    // Mark onboarding as completed and save to DB
     user.onboardingStep = "completed";
-    
-    // Check if there's a pending task to apply for
+    await user.save();
+
+    // 🔒 VERY IMPORTANT:
+    // Always ensure there is an Admin Profile post for this user
+    try {
+      await updateAdminProfilePost(ctx, user, user.adminMessageId);
+    } catch (err) {
+      console.error("Failed to create admin profile post during onboarding:", err);
+      // Keep your existing error message so behavior is familiar to you
+      return ctx.reply("Profile created, but failed to notify admin. Please contact support.");
+    }
+
+    // If there's a pending task to apply for, continue that flow
     if (ctx.session?.pendingTaskId) {
       const taskId = ctx.session.pendingTaskId;
       delete ctx.session.pendingTaskId;
@@ -5760,13 +5772,13 @@ bot.use(applyGatekeeper);
       };
 
       const prompt = user.language === "am"
-        ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና �ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
+        ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
         : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
       
       return ctx.reply(prompt);
     }
 
-    // Build and send user profile WITH congratulations
+    // Normal case: Build and send user profile WITH congratulations
     const menu = Markup.inlineKeyboard([
       [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
       [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
@@ -5774,42 +5786,9 @@ bot.use(applyGatekeeper);
     ]);
     
     // Send profile WITH congratulations (showCongrats = true)
-    await ctx.reply(buildProfileText(user, true), menu);
-
-    // Send new post to Admin Channel with 4 buttons
-    const adminText = buildAdminProfileText(user);
-    const adminButtons = Markup.inlineKeyboard([
-      [
-        Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
-        Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
-      ],
-      [
-        Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
-        Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
-      ]
-    ]);
-
-    try {
-      const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is correct
-      const sentMessage = await ctx.telegram.sendMessage(
-        ADMIN_CHANNEL,
-        adminText,
-        { 
-          parse_mode: "Markdown", 
-          reply_markup: adminButtons.reply_markup 
-        }
-      );
-      
-      // Store admin message ID for future edits
-      user.adminMessageId = sentMessage.message_id;
-      await user.save(); // Make sure to save after setting adminMessageId
-      
-      console.log(`Saved adminMessageId ${sentMessage.message_id} for user ${user._id}`);
-    } catch (err) {
-      console.error("Failed to send admin message:", err);
-      await ctx.reply("Profile created, but failed to notify admin. Please contact support.");
-    }
+    return ctx.reply(buildProfileText(user, true), menu);
   });
+
 
 // In the text handler for name editing:
 
@@ -8949,7 +8928,10 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
       const sent = await ctx.telegram.sendMessage(
         ADMIN_CHANNEL,
         adminText,
-        { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
+        {
+          // Removed parse_mode: "Markdown" to avoid errors with special characters
+          reply_markup: adminButtons.reply_markup
+        }
       );
       
       user.adminMessageId = sent.message_id;
@@ -8983,7 +8965,10 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
       messageId,
       null,
       adminText,
-      { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
+      {
+        // Removed parse_mode: "Markdown" here too
+        reply_markup: adminButtons.reply_markup
+      }
     );
     console.log("Successfully updated admin message");
     return result;
@@ -8991,15 +8976,20 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
     console.error("Failed to edit admin message:", err.message);
     
     // If the message is too old to edit, send a new one and delete the old
-    if (err.description.includes("message to edit not found") || 
-        err.description.includes("message is too old")) {
+    if (err.description && (
+          err.description.includes("message to edit not found") || 
+          err.description.includes("message is too old")
+        )) {
       console.log("Message too old, sending new one");
       
       // Send new message
       const sent = await ctx.telegram.sendMessage(
         ADMIN_CHANNEL,
         adminText,
-        { parse_mode: "Markdown", reply_markup: adminButtons.reply_markup }
+        {
+          // Removed parse_mode: "Markdown" here as well
+          reply_markup: adminButtons.reply_markup
+        }
       );
       
       // Try to delete the old message if it exists
@@ -9021,6 +9011,7 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
     throw err; // Re-throw other errors
   }
 }
+
 
 
 
