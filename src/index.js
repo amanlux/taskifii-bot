@@ -794,7 +794,7 @@ const TEXT = {
     en: "Selected:",
     am: "የተመረጡ:"
   },
-    acceptBtn: {
+  acceptBtn: {
     en: "Accept",
     am: "ተቀበል"
   },
@@ -1103,6 +1103,22 @@ const TEXT = {
   duplicateTaskPaymentNotice: {
     en: "⚠️ You can only have one task active at a time. This payment link was for an older task draft, so the money you just paid will be refunded back to your original payment method shortly.",
     am: "⚠️ በአንድ ጊዜ አንድ ንቁ ተግዳሮት ብቻ ማስቀመጥ ትችላላችሁ። ይህ የክፍያ ሊንክ ለቀድሞ የተተወ ረቂቅ ነበር፣ ስለዚህ አሁን የከፈሉት ገንዘብ ወደ መጀመሪያው የክፍያ መንገድዎ በቅርቡ ይመለሳል።"
+  },
+  skipBtn: {
+    en: "Skip",
+    am: "ዝለል"
+  },
+
+  // NEW: label for the Done button
+  doneBtn: {
+    en: "Done",
+    am: "ተጠናቋል"
+  },
+
+  // NEW: alert when Done is pressed without any valid file
+  relatedFileDoneError: {
+    en: "⚠️ Please send at least one related file (not plain text) before tapping Done.",
+    am: "⚠️ እባክዎ ቢያንስ አንድ ተያያዥ ፋይል (ከጽሑፍ በተለየ) ከ “ተጠናቋል” ቁልፉ በፊት ይላኩ።"
   },
 
 
@@ -2277,11 +2293,28 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   const now = new Date();
   const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
 
+  // Normalize related files from draft to task
+  let relatedFileForTask = null;
+  const rf = draft.relatedFile;
+
+  if (rf) {
+    if (Array.isArray(rf.files) && rf.files.length) {
+      relatedFileForTask = { files: rf.files };
+    } else if (rf.fileId) {
+      relatedFileForTask = { fileId: rf.fileId, fileType: rf.fileType || null };
+    } else if (typeof rf === "string") {
+      // Backward compatibility if draft.relatedFile was stored as a raw fileId
+      relatedFileForTask = { fileId: rf, fileType: null };
+    }
+  }
+
   const task = await Task.create({
     creator: me._id,
     description: draft.description,
-    relatedFile: draft.relatedFile?.fileId || null,
+    relatedFile: relatedFileForTask,
     fields: draft.fields,
+    // ... keep the rest as-is
+
     skillLevel: draft.skillLevel,
     paymentFee: draft.paymentFee,
     timeToComplete: draft.timeToComplete,
@@ -3260,6 +3293,22 @@ async function sendTaskRelatedFile(telegram, chatId, fileId) {
     console.error("sendTaskRelatedFile: even sendMessage failed:", eMsg);
   }
 }
+function getRelatedFilesFromDoc(doc) {
+  const rf = doc?.relatedFile;
+  if (!rf) return [];
+
+  if (Array.isArray(rf.files) && rf.files.length) {
+    return rf.files;
+  }
+  if (rf.fileId) {
+    return [{ fileId: rf.fileId, fileType: rf.fileType || null }];
+  }
+  if (typeof rf === "string") {
+    return [{ fileId: rf, fileType: null }];
+  }
+  return [];
+}
+
 // Forward a list of recorded messages (like work.messages or work.fixRequests)
 // to the dispute channel, preserving original formatting, captions, attachments,
 // grouped media, etc. We send them in order, one by one.
@@ -6568,6 +6617,21 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
         ]).reply_markup
       }
     );
+    // After assigning the winner, send all related files exactly as stored
+    const relatedFiles = getRelatedFilesFromDoc(updated);
+    if (relatedFiles.length) {
+      try {
+        await ctx.telegram.sendMessage(
+          user.telegramId,
+          TEXT.relatedFileForYou[langForDoer]
+        );
+        for (const f of relatedFiles) {
+          await sendTaskRelatedFile(ctx.telegram, user.telegramId, f.fileId, {});
+        }
+      } catch (e) {
+        console.error("Failed to send related files to winner doer:", e);
+      }
+    }
 
     // remember the message id (so later when they tap Completed task sent,
     // you can edit this SAME message to show the ✔ version)
@@ -8027,12 +8091,15 @@ async function handleDescription(ctx, draft) {
   ctx.session.taskFlow.step = "relatedFile";
   const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
-    Markup.inlineKeyboard([[ 
-      Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE") 
-    ]])
+    Markup.inlineKeyboard([
+      [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE")],
+      [Markup.button.callback(TEXT.doneBtn[lang], "TASK_DONE_FILE")]
+    ])
   );
   ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
   return;
+
+
 }
 
 
@@ -8040,48 +8107,52 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
-  
+
   if (!ctx.session.taskFlow) {
     ctx.session.taskFlow = {};
   }
-  
+
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
+  // 1) Freeze both buttons: Skip highlighted, Done inert
   try {
-    await ctx.telegram.editMessageReplyMarkup(
-      ctx.chat.id,
-      promptId,
-      undefined,
-      {
-        inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
-        ]]
-      }
-    );
+    if (promptId) {
+      await ctx.telegram.editMessageReplyMarkup(
+        ctx.chat.id,
+        promptId,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")],
+            [Markup.button.callback(TEXT.doneBtn[lang], "_DISABLED_DONE")]
+          ]
+        }
+      );
+    }
   } catch (err) {
     console.error("Failed to edit message reply markup:", err);
   }
 
-  // Clear any related file that might have been set
+  // 2) Clear any related file that might have been set
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   if (draft) {
     draft.relatedFile = undefined;
     await draft.save();
   }
 
-  // In edit mode, return to preview instead of proceeding to fields
+  // 3) In edit mode, go back to preview.
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        [
+          locked
+            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -8090,10 +8161,11 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
     return;
   }
 
-  // Original behavior for non-edit flow
+  // 4) Normal flow: move on to fields
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
+
 
 
 
@@ -8104,15 +8176,16 @@ async function handleRelatedFile(ctx, draft) {
   // Get user for language
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
-  
+
   if (!ctx.session.taskFlow) {
     ctx.session.taskFlow = {};
   }
-  
+
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
-  // 1) Determine file type and ID
+  // 1) Determine file type and ID – anything that is NOT plain text
   let fileId, fileType;
+
   if (ctx.message.photo) {
     const photos = ctx.message.photo;
     fileId = photos[photos.length - 1].file_id;
@@ -8126,57 +8199,72 @@ async function handleRelatedFile(ctx, draft) {
   } else if (ctx.message.audio) {
     fileId = ctx.message.audio.file_id;
     fileType = "audio";
+  } else if (ctx.message.voice) {
+    fileId = ctx.message.voice.file_id;
+    fileType = "voice";
+  } else if (ctx.message.animation) { // GIFs
+    fileId = ctx.message.animation.file_id;
+    fileType = "animation";
+  } else if (ctx.message.video_note) {
+    fileId = ctx.message.video_note.file_id;
+    fileType = "video_note";
   } else {
+    // Plain text or unsupported => invalid
     return ctx.reply(TEXT.relatedFileError[lang]);
   }
 
-  // 2) Save the related file info to the draft
-  draft.relatedFile = { fileId, fileType };
+  // 2) Save ALL related files into draft.relatedFile.files[]
+  //    We use a flexible object so old data ({ fileId, fileType }) still works.
+  if (!draft.relatedFile || typeof draft.relatedFile !== "object") {
+    draft.relatedFile = {};
+  }
+
+  // Normalize older shape => { files: [ {fileId, fileType}, ... ] }
+  if (!Array.isArray(draft.relatedFile.files)) {
+    if (draft.relatedFile.fileId) {
+      draft.relatedFile = {
+        files: [
+          {
+            fileId: draft.relatedFile.fileId,
+            fileType: draft.relatedFile.fileType || null
+          }
+        ]
+      };
+    } else {
+      draft.relatedFile.files = [];
+    }
+  }
+
+  draft.relatedFile.files.push({ fileId, fileType });
   await draft.save();
 
-  // 3) Update the original "related file" prompt to disable skip button
-  // BUT DON'T HIGHLIGHT IT since it wasn't clicked
+  // 3) Update the original "related file" prompt:
+  //    - Skip becomes disabled
+  //    - Done stays clickable
   try {
-    await ctx.telegram.editMessageReplyMarkup(
-      ctx.chat.id,
-      promptId,
-      undefined,
-      {
-        inline_keyboard: [[
-          Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP") // No checkmark prefix
-        ]]
-      }
-    );
+    if (promptId) {
+      await ctx.telegram.editMessageReplyMarkup(
+        ctx.chat.id,
+        promptId,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP")],
+            [Markup.button.callback(TEXT.doneBtn[lang], "TASK_DONE_FILE")]
+          ]
+        }
+      );
+    }
   } catch (err) {
     console.error("Failed to edit message reply markup:", err);
   }
 
-  // Rest of the function remains the same...
-  // If in edit‐mode, show updated preview
-  if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
-    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    const locked = await isEngagementLocked(ctx.from.id);
-    await ctx.reply(
-      buildPreviewText(updatedDraft, user),
-      Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
-        ]
-      ], { parse_mode: "Markdown" })
-    );
-
-    ctx.session.taskFlow = null;
-    return;
-  }
-
-  // Move on to next step for non-edit flow
-  ctx.session.taskFlow.step = "fields";
-  return askFieldsPage(ctx, 0);
+  // IMPORTANT:
+  // We DO NOT move to the next step here anymore.
+  // The user can send multiple files while step === "relatedFile".
+  // Moving on only happens when they press the Done button.
 }
+
 
 
 function askFieldsPage(ctx, page) {
@@ -9120,9 +9208,11 @@ bot.action("EDIT_relatedFile", async (ctx) => {
   const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
     Markup.inlineKeyboard([
-      [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE_EDIT")]
-    ])  // Fixed: Added missing closing bracket
+      [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE_EDIT")],
+      [Markup.button.callback(TEXT.doneBtn[lang], "TASK_DONE_FILE")]
+    ])
   );
+
   ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
 });
 
@@ -9130,26 +9220,29 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
   await ctx.answerCbQuery();
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
-  
+
   if (!ctx.session.taskFlow) {
     ctx.session.taskFlow = {};
   }
-  
+
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
   try {
-    await ctx.telegram.editMessageReplyMarkup(
-      ctx.chat.id,
-      promptId,
-      undefined,
-      {
-        inline_keyboard: [[
-          Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")
-        ]]
-      }
-    );
+    if (promptId) {
+      await ctx.telegram.editMessageReplyMarkup(
+        ctx.chat.id,
+        promptId,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(`✔ ${TEXT.skipBtn[lang]}`, "_DISABLED_SKIP")],
+            [Markup.button.callback(TEXT.doneBtn[lang], "_DISABLED_DONE")]
+          ]
+        }
+      );
+    }
   } catch (err) {
-    console.error("Failed to edit message reply markup:", err);
+    console.error("Failed to edit message reply markup (EDIT):", err);
   }
 
   // Clear any related file that might have been set
@@ -9159,19 +9252,109 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
     await draft.save();
   }
 
-  // In edit mode, return to preview instead of proceeding to fields
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ ተያያዥ ፋይል ተዘምኗል" : "✅ Related file updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const user = await User.findOne({ telegramId: ctx.from.id });
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        [
+          locked
+            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ]
+      ], { parse_mode: "Markdown" })
+    );
+
+    ctx.session.taskFlow = null;
+    return;
+  }
+});
+bot.action("TASK_DONE_FILE", async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await User.findOne({ telegramId: ctx.from.id });
+  const lang = user?.language || "en";
+
+  if (!ctx.session.taskFlow) {
+    ctx.session.taskFlow = {};
+  }
+
+  const promptId = ctx.session.taskFlow.relatedFilePromptId;
+
+  // 1) Load the draft
+  let draft = null;
+  if (ctx.session.taskFlow.draftId) {
+    draft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+  }
+  if (!draft) {
+    draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  }
+  if (!draft) {
+    // Nothing to work with
+    return ctx.reply(
+      lang === "am"
+        ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።"
+        : "❌ Draft expired. Please click Post a Task again."
+    );
+  }
+
+  // 2) Check if we actually have at least one valid file
+  let filesCount = 0;
+  const rf = draft.relatedFile;
+  if (rf) {
+    if (Array.isArray(rf.files) && rf.files.length) {
+      filesCount = rf.files.length;
+    } else if (rf.fileId) {
+      filesCount = 1;
+    }
+  }
+
+  if (!filesCount) {
+    // No valid related file yet => show alert (Am/En)
+    try {
+      await ctx.answerCbQuery(TEXT.relatedFileDoneError[lang], { show_alert: true });
+    } catch (_) {}
+    return; // keep buttons active
+  }
+
+  // 3) Freeze buttons: Done highlighted, Skip inert
+  try {
+    if (promptId) {
+      await ctx.telegram.editMessageReplyMarkup(
+        ctx.chat.id,
+        promptId,
+        undefined,
+        {
+          inline_keyboard: [
+            [Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP")],
+            [Markup.button.callback(`✔ ${TEXT.doneBtn[lang]}`, "_DISABLED_DONE")]
+          ]
+        }
+      );
+    }
+  } catch (err) {
+    console.error("Failed to edit message reply markup (DONE):", err);
+  }
+
+  // 4) Finish depending on edit vs non-edit
+  if (ctx.session.taskFlow?.isEdit) {
+    await ctx.reply(
+      lang === "am"
+        ? "✅ ተያያዥ ፋይሎች ተዘምነዋል"
+        : "✅ Related files updated."
+    );
+    const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
+    const locked = await isEngagementLocked(ctx.from.id);
+    await ctx.reply(
+      buildPreviewText(updatedDraft, user),
+      Markup.inlineKeyboard([
+        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [
+          locked
+            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -9180,10 +9363,11 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
     return;
   }
 
-  // Original behavior for non-edit flow
+  // Normal creation flow: move on to fields
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
+
 
 bot.action("EDIT_fields", async (ctx) => {
   await ctx.answerCbQuery();
@@ -11961,14 +12145,37 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
     );
   } else if (which === 'related') {
 
-    // related file(s) from task post
-    if (task.relatedFile?.fileId) {
-      await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "📎 TASK RELATED FILE (from original task post):");
-      await safeTelegramCall(sendTaskRelatedFile, ctx.telegram, channelId, task.relatedFile.fileId);
-    } else {
-      await safeTelegramCall(ctx.telegram.sendMessage.bind(ctx.telegram), channelId, "No related file was attached on the original task.");
+    // Use the helper to normalize single/multiple related files
+    const files = getRelatedFilesFromDoc(task);
+
+    if (!files.length) {
+      await safeTelegramCall(
+        ctx.telegram.sendMessage.bind(ctx.telegram),
+        channelId,
+        "📎 There is no related file attached to this task."
+      );
+      return;
     }
+
+    // Optional header so it’s clear what this block is
+    await safeTelegramCall(
+      ctx.telegram.sendMessage.bind(ctx.telegram),
+      channelId,
+      "📎 These are all the related files attached by the task creator:"
+    );
+
+    // Send every related file in the stored order
+    for (const f of files) {
+      await safeTelegramCall(
+        sendTaskRelatedFile,
+        ctx.telegram,
+        channelId,
+        f.fileId
+      );
+    }
+
   } else if (which === 'fix') {
+
     await forwardMessageLogToDispute(
       ctx.telegram, channelId, creatorUser.telegramId, work.fixRequests,
       `✏️ FIX NOTICE (from Task Creator) — TASK ${task._id}:`
