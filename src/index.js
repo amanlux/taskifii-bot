@@ -8094,6 +8094,8 @@ async function handleDescription(ctx, draft) {
 // Related file: Skip (create)
 // ─────────────────────────────
 bot.action("TASK_SKIP_FILE", async (ctx) => {
+  console.log("DEBUG TASK_SKIP_FILE fired for", ctx.from?.id);
+  await ctx.reply("DEBUG: TASK_SKIP_FILE fired");
   // Close spinner quickly
   await ctx.answerCbQuery();
 
@@ -8170,6 +8172,8 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
 // Related file: DONE (create + edit)
 // ─────────────────────────────
 bot.action("TASK_FILE_DONE", async (ctx) => {
+  console.log("DEBUG TASK_FILE_DONE fired for", ctx.from?.id);
+  await ctx.reply("DEBUG: TASK_FILE_DONE fired");
   // Close spinner; we may override with alert
   await ctx.answerCbQuery();
 
@@ -9289,6 +9293,8 @@ bot.action("EDIT_relatedFile", async (ctx) => {
 // Related file: Skip in EDIT mode
 // ─────────────────────────────
 bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
+  console.log("DEBUG TASK_SKIP_FILE_EDIT fired for", ctx.from?.id);
+  await ctx.reply("DEBUG: TASK_SKIP_FILE_EDIT fired");
   await ctx.answerCbQuery();
 
   const user = await User.findOne({ telegramId: ctx.from.id });
