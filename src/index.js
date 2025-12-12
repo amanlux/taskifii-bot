@@ -9272,8 +9272,9 @@ bot.action("TASK_SKIP_FILE_EDIT", async (ctx) => {
     return;
   }
 });
+// Handles pressing the "Done" button in both create + edit flows
 bot.action("TASK_DONE_FILE", async (ctx) => {
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery(); // small “tap” feedback
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
 
@@ -9283,7 +9284,7 @@ bot.action("TASK_DONE_FILE", async (ctx) => {
 
   const promptId = ctx.session.taskFlow.relatedFilePromptId;
 
-  // 1) Load the draft
+  // 1) Load the draft (prefer draftId in session, fallback by creatorTelegramId)
   let draft = null;
   if (ctx.session.taskFlow.draftId) {
     draft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
@@ -9345,18 +9346,22 @@ bot.action("TASK_DONE_FILE", async (ctx) => {
         ? "✅ ተያያዥ ፋይሎች ተዘምነዋል"
         : "✅ Related files updated."
     );
+
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
-      Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+      Markup.inlineKeyboard(
         [
-          locked
-            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
-        ]
-      ], { parse_mode: "Markdown" })
+          [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+          [
+            locked
+              ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+              : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+          ]
+        ],
+        { parse_mode: "Markdown" }
+      )
     );
 
     ctx.session.taskFlow = null;
@@ -9367,6 +9372,7 @@ bot.action("TASK_DONE_FILE", async (ctx) => {
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
 });
+
 
 
 bot.action("EDIT_fields", async (ctx) => {
@@ -12631,6 +12637,13 @@ bot.action("_DISABLED_NEEDS_FIX", async (ctx) => {
 bot.action("_DISABLED_SEND_FIX_NOTICE", async (ctx) => { 
   await ctx.answerCbQuery(); 
 });
+// Generic handlers for disabled buttons – just show a tiny hint or ignore
+bot.action(["_DISABLED_SKIP", "_DISABLED_DONE"], async (ctx) => {
+  try {
+    await ctx.answerCbQuery("This button is disabled.", { show_alert: false });
+  } catch (_) {}
+});
+
 // Error handling middleware
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
