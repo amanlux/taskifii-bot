@@ -2289,7 +2289,32 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   const task = await Task.create({
     creator: me._id,
     description: draft.description,
-    relatedFile: draft.relatedFile?.fileId || null,
+
+    // NEW: support multi-file and old single-file styles
+    relatedFile: (() => {
+      if (!draft.relatedFile) return null;
+
+      // New style: { fileIds: [...] }
+      if (Array.isArray(draft.relatedFile.fileIds) && draft.relatedFile.fileIds.length) {
+        return { fileIds: draft.relatedFile.fileIds };
+      }
+
+      // Old style: { fileId: "..." } or direct string
+      if (draft.relatedFile.fileId) {
+        return { fileId: draft.relatedFile.fileId };
+      }
+
+      if (Array.isArray(draft.relatedFile) && draft.relatedFile.length) {
+        return { fileIds: draft.relatedFile };
+      }
+
+      if (typeof draft.relatedFile === "string") {
+        return { fileId: draft.relatedFile };
+      }
+
+      return null;
+    })(),
+
     fields: draft.fields,
     skillLevel: draft.skillLevel,
     paymentFee: draft.paymentFee,
@@ -2304,6 +2329,7 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
     postedAt: now,
     reminderSent: false
   });
+
 
   // Post to channel
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
