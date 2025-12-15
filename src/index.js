@@ -7224,10 +7224,35 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
     const originalExpiryHours = Math.round(originalExpiryMs / (1000 * 60 * 60));
 
     // Create a new draft from the old task WITH THE ORIGINAL EXPIRY TIME
+    // Normalize the old task.relatedFile into the draft's multi-file format
+    let relatedFileForDraft;
+    if (task.relatedFile) {
+      const rf = task.relatedFile;
+      let fileIds = [];
+
+      if (Array.isArray(rf.fileIds)) {
+        // new style in Task
+        fileIds = rf.fileIds;
+      } else if (rf.fileId) {
+        // old style in Task
+        fileIds = [rf.fileId];
+      } else if (Array.isArray(rf)) {
+        // very old style: [".", "."]
+        fileIds = rf;
+      } else if (typeof rf === "string") {
+        // oldest style: single file_id string
+        fileIds = [rf];
+      }
+
+      if (fileIds.length) {
+        relatedFileForDraft = { fileIds };
+      }
+    }
+
     const draft = await TaskDraft.create({
       creatorTelegramId: ctx.from.id,
       description: task.description,
-      relatedFile: task.relatedFile ? { fileId: task.relatedFile } : undefined,
+      relatedFile: relatedFileForDraft,
       fields: task.fields,
       skillLevel: task.skillLevel,
       paymentFee: task.paymentFee,
@@ -7237,6 +7262,7 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
       expiryHours: originalExpiryHours, // Using original expiry time
       exchangeStrategy: task.exchangeStrategy
     });
+
 
     // Rest of the code remains exactly the same...
     const locked = await isEngagementLocked(ctx.from.id);
@@ -9881,11 +9907,37 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   // Create the task with postedAt timestamp
   const now = new Date();
   const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
-  
+
+  // 🔹 Normalize the related file(s) from the draft so the rest of your code can use them
+  let relatedFilePayload = null;
+  if (draft.relatedFile) {
+    const rf = draft.relatedFile;
+    let fileIds = [];
+
+    if (Array.isArray(rf.fileIds)) {
+      // new style: { fileIds: [".", "."] }
+      fileIds = rf.fileIds;
+    } else if (rf.fileId) {
+      // old style: { fileId: "." }
+      fileIds = [rf.fileId];
+    } else if (Array.isArray(rf)) {
+      // very old style: [".", "."]
+      fileIds = rf;
+    } else if (typeof rf === "string") {
+      // oldest style: a single file_id string
+      fileIds = [rf];
+    }
+
+    if (fileIds.length) {
+      // canonical "new style" your other code already understands
+      relatedFilePayload = { fileIds };
+    }
+  }
+
   const task = await Task.create({
     creator: user._id,
     description: draft.description,
-    relatedFile: draft.relatedFile?.fileId || null,
+    relatedFile: relatedFilePayload,
     fields: draft.fields,
     skillLevel: draft.skillLevel,
     paymentFee: draft.paymentFee,
@@ -9900,6 +9952,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     postedAt: now,
     reminderSent: false
   });
+
 
   // Post to channel
   const channelId = process.env.CHANNEL_ID || "-1002254896955";
