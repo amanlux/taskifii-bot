@@ -8489,61 +8489,83 @@ async function handleRelatedFile(ctx, draft) {
     ctx.session.taskFlow = {};
   }
 
-  // 1) Determine file type and ID (only non-text is valid)
-  let fileId;
-  if (ctx.message.photo) {
-    const photos = ctx.message.photo;
+  const msg = ctx.message;
+  if (!msg) return;
+
+  // 1) Determine what kind of message this is.
+  // We now support:
+  //   - photo (with caption)
+  //   - document / PDF
+  //   - video
+  //   - audio
+  //   - plain text (so links / extra notes are also preserved)
+  let fileId = null;
+  let hasSupportedContent = false;
+
+  if (msg.photo && msg.photo.length) {
+    const photos = msg.photo;
     fileId = photos[photos.length - 1].file_id;
-  } else if (ctx.message.document) {
-    fileId = ctx.message.document.file_id;
-  } else if (ctx.message.video) {
-    fileId = ctx.message.video.file_id;
-  } else if (ctx.message.audio) {
-    fileId = ctx.message.audio.file_id;
-  } else {
-    // Text or unsupported → invalid; silently ignore.
-    // The Done button will show a proper alert if no valid file was ever sent.
+    hasSupportedContent = true;
+  } else if (msg.document) {
+    fileId = msg.document.file_id;
+    hasSupportedContent = true;
+  } else if (msg.video) {
+    fileId = msg.video.file_id;
+    hasSupportedContent = true;
+  } else if (msg.audio) {
+    fileId = msg.audio.file_id;
+    hasSupportedContent = true;
+  } else if (msg.text) {
+    // Treat any text message here as a "related" message.
+    // This way links, instructions, etc. are also forwarded.
+    hasSupportedContent = true;
+  }
+
+  // If it’s something like a sticker, contact, etc. → ignore.
+  if (!hasSupportedContent) {
     return;
   }
 
-  // 2) Normalize draft.relatedFile to a multi-file structure
-  //    We support both old (single) and new style:
-  //    - old: { fileId: "." }
-  //    - new: { fileIds: [".", "."] }
-  if (!draft.relatedFile) {
+  // 2) Normalize draft.relatedFile to the multi-file structure
+  //    (backward compatible with older single-file fields).
+  if (!draft.relatedFile || typeof draft.relatedFile !== "object") {
     draft.relatedFile = { fileIds: [], messages: [] };
-  } else if (draft.relatedFile.fileId && !Array.isArray(draft.relatedFile.fileIds)) {
-    // Convert old single-file structure into multi-file
-    draft.relatedFile = {
-      fileIds: [draft.relatedFile.fileId],
-      messages: draft.relatedFile.messages || []
-    };
   } else {
+    // Ensure fileIds is an array
     if (!Array.isArray(draft.relatedFile.fileIds)) {
-      draft.relatedFile.fileIds = [];
+      const legacyId = draft.relatedFile.fileId || null;
+      draft.relatedFile.fileIds = legacyId ? [legacyId] : [];
     }
+    // Ensure messages is an array
     if (!Array.isArray(draft.relatedFile.messages)) {
       draft.relatedFile.messages = [];
     }
   }
 
-  // 3) Append the new file id
-  draft.relatedFile.fileIds.push(fileId);
+  // 3) If this message has an actual Telegram file (photo/audio/pdf/etc),
+  //    store its file_id too (for legacy fallback).
+  if (fileId) {
+    if (!draft.relatedFile.fileIds.includes(fileId)) {
+      draft.relatedFile.fileIds.push(fileId);
+    }
+    // Keep legacy single-file field in sync just in case old code reads it
+    draft.relatedFile.fileId = fileId;
+  }
 
-  // 3b) ALSO store the exact original message reference
+  // 4) Always store the original Telegram message reference.
+  //    This is the MOST important part: dispute channel and
+  //    winner doer will copy this exact message, including captions.
   draft.relatedFile.messages.push({
-    chatId: ctx.chat.id,                 // where the file was originally sent (creator chat with bot)
-    messageId: ctx.message.message_id    // which exact message
+    chatId: msg.chat.id,
+    messageId: msg.message_id
   });
 
   await draft.save();
 
-  // 3c) ALSO keep the list in session so Done can trust it
-  ctx.session.taskFlow.fileIds = draft.relatedFile.fileIds.slice();
-
-  // No "File added" prompt anymore – UX is handled by the Done/Skip buttons.
-  // We stay in step 'relatedFile' until Skip or Done is pressed.
+  // Optional flag – safe and doesn’t break anything
+  ctx.session.taskFlow.hasRelatedFile = true;
 }
+
 
 
 
