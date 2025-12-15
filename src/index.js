@@ -8074,10 +8074,13 @@ async function handleDescription(ctx, draft) {
     ctx.session.taskFlow = null;
     return;
   }
-  await ctx.reply("DEBUG: description saved, preparing related file step...");
 
+  // NORMAL CREATE FLOW → go to "related file" step
+  ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "relatedFile";
-  await ctx.reply("DEBUG: sending related file prompt");
+  ctx.session.taskFlow.draftId = draft._id.toString();  // 🔴 IMPORTANT
+  ctx.session.taskFlow.isEdit = false;
+  ctx.session.taskFlow.fileIds = [];
 
   const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
@@ -8088,6 +8091,7 @@ async function handleDescription(ctx, draft) {
   );
   ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
   return;
+
 
 
 }
