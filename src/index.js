@@ -8175,30 +8175,18 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
 // Related file: DONE (create + edit)
 // ─────────────────────────────
 bot.action("TASK_FILE_DONE", async (ctx) => {
-  console.log("DEBUG TASK_FILE_DONE fired for", ctx.from?.id);
-  await ctx.reply("DEBUG: TASK_FILE_DONE fired");
-  await ctx.reply("DEBUG: checking draft...");
+  console.log("TASK_FILE_DONE fired for", ctx.from?.id);
 
-  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id }).catch(e => {
-    ctx.reply("DEBUG ERROR: TaskDraft.findOne failed: " + e.message);
-  });
+  // Load draft FIRST
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  const user  = await User.findOne({ telegramId: ctx.from.id });
+  const lang  = user?.language || "en";
 
-  if (!draft) return ctx.reply("DEBUG ERROR: No draft found");
-
-  await ctx.reply("DEBUG: draft loaded");
-
-  // Close spinner; we may override with alert
-  await ctx.answerCbQuery();
-
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-
-  // Use the message we clicked on
-  const promptId = ctx.callbackQuery?.message?.message_id;
-
-  // Load the draft for this creator
-  
   if (!draft) {
+    // Draft expired
+    try {
+      await ctx.answerCbQuery();
+    } catch (_) {}
     return ctx.reply(
       lang === "am"
         ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።"
@@ -8206,16 +8194,17 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
     );
   }
 
-  // Normalize relatedFile into a list of fileIds
+  const promptId = ctx.callbackQuery?.message?.message_id;
 
+  // ── 1) Collect fileIds (session first, then draft) ─────────────────
   let fileIds = [];
 
-  // 1) NEW: trust the session first (what handleRelatedFile stored)
+  // Prefer what handleRelatedFile stored in the session
   if (ctx.session.taskFlow && Array.isArray(ctx.session.taskFlow.fileIds)) {
     fileIds = ctx.session.taskFlow.fileIds.filter(Boolean);
   }
 
-  // 2) Fallback: read from draft.relatedFile (for older flows / safety)
+  // Fallback to draft.relatedFile if session is empty
   if (!fileIds.length) {
     const rf = draft.relatedFile;
     if (rf) {
@@ -8229,20 +8218,27 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
     }
   }
 
-  // 3) (optional) debug
-  await ctx.reply("DEBUG: fileIds = " + JSON.stringify(fileIds));
-
-
-  // If no valid file -> popup alert, do NOT advance
+  // ── 2) If still no files → show popup alert, don't advance ────────
   if (!fileIds.length) {
-    await ctx.answerCbQuery(
-      TEXT.relatedFileDoneNoFileAlert[lang],
-      { show_alert: true }
-    );
+    try {
+      await ctx.answerCbQuery(
+        TEXT.relatedFileDoneNoFileAlert[lang],
+        { show_alert: true }
+      );
+    } catch (err) {
+      console.error("TASK_FILE_DONE alert answerCbQuery error:", err);
+    }
     return;
   }
 
-  // Disable both buttons, highlight Done (if we still have the message)
+  // We DO have fileIds → close spinner quietly (no alert text)
+  try {
+    await ctx.answerCbQuery();
+  } catch (err) {
+    console.error("TASK_FILE_DONE answerCbQuery error:", err);
+  }
+
+  // ── 3) Disable buttons: Skip inert, Done highlighted ──────────────
   if (promptId) {
     try {
       await ctx.telegram.editMessageReplyMarkup(
@@ -8261,7 +8257,7 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
     }
   }
 
-  // EDIT mode: go back to preview
+  // ── 4) EDIT mode: go back to preview ──────────────────────────────
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(
       lang === "am"
@@ -8270,7 +8266,7 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
     );
 
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
-    const me = await User.findOne({ telegramId: ctx.from.id });
+    const me    = await User.findOne({ telegramId: ctx.from.id });
     const locked = await isEngagementLocked(ctx.from.id);
 
     await ctx.reply(
@@ -8289,7 +8285,7 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
     return;
   }
 
-  // NORMAL CREATE FLOW: move to fields
+  // ── 5) NORMAL CREATE FLOW: move to fields ─────────────────────────
   ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "fields";
 
@@ -8300,14 +8296,17 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
   );
 
   try {
-  await ctx.reply("DEBUG: about to call askFieldsPage");
-  return askFieldsPage(ctx, 0);
+    return askFieldsPage(ctx, 0);
   } catch (err) {
-    await ctx.reply("DEBUG ERROR: askFieldsPage crashed: " + err.message);
-    console.error(err);
+    console.error("TASK_FILE_DONE askFieldsPage error:", err);
+    await ctx.reply(
+      lang === "am"
+        ? "❌ ወደ ተግባሩ መረጃዎች ለመሄድ ችግኝ ተፈጥሯል። እባክዎ እንደገና ይጀምሩ።"
+        : "❌ There was a problem moving to task fields. Please start again."
+    );
   }
-
 });
+
 
 
 
