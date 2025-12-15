@@ -8091,6 +8091,44 @@ async function handleDescription(ctx, draft) {
 
 
 }
+// ─────────────────────────────
+// Related file: message handler (create + edit)
+// ─────────────────────────────
+bot.on('message', async (ctx) => {
+  // Only handle when we are in the relatedFile step
+  if (!ctx.session?.taskFlow || ctx.session.taskFlow.step !== "relatedFile") {
+    return;
+  }
+
+  // Ignore /commands so /start etc still work
+  const msg = ctx.message;
+  if (!msg || (msg.text && msg.text.startsWith('/'))) {
+    return;
+  }
+
+  // Load the draft tied to this flow
+  const draftId = ctx.session.taskFlow.draftId;
+  if (!draftId) {
+    return;
+  }
+
+  const draft = await TaskDraft.findById(draftId);
+  if (!draft) {
+    // Draft is gone → tell the user and clear flow
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
+    await ctx.reply(
+      lang === "am"
+        ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።"
+        : "❌ Draft expired. Please click Post a Task again."
+    );
+    ctx.session.taskFlow = null;
+    return;
+  }
+
+  // Save this message as a related file (photo/document/video/audio)
+  await handleRelatedFile(ctx, draft);
+});
 
 
 // ─────────────────────────────
