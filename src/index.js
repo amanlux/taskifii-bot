@@ -8074,8 +8074,11 @@ async function handleDescription(ctx, draft) {
     ctx.session.taskFlow = null;
     return;
   }
+  await ctx.reply("DEBUG: description saved, preparing related file step...");
 
   ctx.session.taskFlow.step = "relatedFile";
+  await ctx.reply("DEBUG: sending related file prompt");
+
   const relPrompt = await ctx.reply(
     TEXT.relatedFilePrompt[lang],
     Markup.inlineKeyboard([
@@ -8174,6 +8177,16 @@ bot.action("TASK_SKIP_FILE", async (ctx) => {
 bot.action("TASK_FILE_DONE", async (ctx) => {
   console.log("DEBUG TASK_FILE_DONE fired for", ctx.from?.id);
   await ctx.reply("DEBUG: TASK_FILE_DONE fired");
+  await ctx.reply("DEBUG: checking draft...");
+
+  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id }).catch(e => {
+    ctx.reply("DEBUG ERROR: TaskDraft.findOne failed: " + e.message);
+  });
+
+  if (!draft) return ctx.reply("DEBUG ERROR: No draft found");
+
+  await ctx.reply("DEBUG: draft loaded");
+
   // Close spinner; we may override with alert
   await ctx.answerCbQuery();
 
@@ -8184,7 +8197,7 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
   const promptId = ctx.callbackQuery?.message?.message_id;
 
   // Load the draft for this creator
-  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
+  
   if (!draft) {
     return ctx.reply(
       lang === "am"
@@ -8205,6 +8218,7 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
       fileIds = rf;
     }
   }
+  await ctx.reply("DEBUG: fileIds = " + JSON.stringify(fileIds));
 
   // If no valid file -> popup alert, do NOT advance
   if (!fileIds.length) {
@@ -8272,7 +8286,14 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
       : "✅ Related file(s) saved. Now let’s move to task details (fields)."
   );
 
+  try {
+  await ctx.reply("DEBUG: about to call askFieldsPage");
   return askFieldsPage(ctx, 0);
+  } catch (err) {
+    await ctx.reply("DEBUG ERROR: askFieldsPage crashed: " + err.message);
+    console.error(err);
+  }
+
 });
 
 
