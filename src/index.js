@@ -8207,18 +8207,31 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
   }
 
   // Normalize relatedFile into a list of fileIds
+
   let fileIds = [];
-  const rf = draft.relatedFile;
-  if (rf) {
-    if (Array.isArray(rf.fileIds)) {
-      fileIds = rf.fileIds;
-    } else if (rf.fileId) {
-      fileIds = [rf.fileId];
-    } else if (Array.isArray(rf)) {
-      fileIds = rf;
+
+  // 1) NEW: trust the session first (what handleRelatedFile stored)
+  if (ctx.session.taskFlow && Array.isArray(ctx.session.taskFlow.fileIds)) {
+    fileIds = ctx.session.taskFlow.fileIds.filter(Boolean);
+  }
+
+  // 2) Fallback: read from draft.relatedFile (for older flows / safety)
+  if (!fileIds.length) {
+    const rf = draft.relatedFile;
+    if (rf) {
+      if (Array.isArray(rf.fileIds)) {
+        fileIds = rf.fileIds;
+      } else if (rf.fileId) {
+        fileIds = [rf.fileId];
+      } else if (Array.isArray(rf)) {
+        fileIds = rf;
+      }
     }
   }
+
+  // 3) (optional) debug
   await ctx.reply("DEBUG: fileIds = " + JSON.stringify(fileIds));
+
 
   // If no valid file -> popup alert, do NOT advance
   if (!fileIds.length) {
@@ -8346,6 +8359,9 @@ async function handleRelatedFile(ctx, draft) {
   draft.relatedFile.fileIds.push(fileId);
   await draft.save();
 
+  // 3b) ALSO keep the list in session so Done can trust it
+  ctx.session.taskFlow.fileIds = draft.relatedFile.fileIds.slice();
+
   // 4) Acknowledge to the user (but do NOT change buttons or step)
   await ctx.reply(
     lang === "am"
@@ -8355,6 +8371,7 @@ async function handleRelatedFile(ctx, draft) {
 
   // We stay in step 'relatedFile' until Skip or Done is pressed.
 }
+
 
 
 
