@@ -6514,31 +6514,58 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     console.error("failed to set engagement locks:", e);
   }
 
-  // 3. if the task had attached file(s), send ALL of them to the doer
+   // 3. if the task had attached file(s), send ALL of them to the doer
   try {
     if (updated?.relatedFile) {
       const rf = updated.relatedFile;
       let fileIds = [];
+      let messageRefs = [];
 
+      // Accept all the legacy shapes for safety
       if (Array.isArray(rf.fileIds)) {
-        // new style: { fileIds: ["...", "..."] }
+        // new style: { fileIds: [".", "."] }
         fileIds = rf.fileIds;
       } else if (rf.fileId) {
-        // new/old style: { fileId: "..." }
+        // new/old style: { fileId: "." }
         fileIds = [rf.fileId];
       } else if (Array.isArray(rf)) {
-        // very old style: ["...", "..."]
+        // very old style: [".", "."]
         fileIds = rf;
       } else if (typeof rf === "string") {
         // oldest style in your DB: just a single file_id string
         fileIds = [rf];
       }
 
-      if (fileIds.length) {
+      // NEW: if we have original message references, use them to copy “as is”
+      if (Array.isArray(rf.messages)) {
+        messageRefs = rf.messages.filter(m => m.chatId && m.messageId);
+      }
+
+      const langForFile = user.language || "en";
+
+      if (messageRefs.length) {
+        // Best case: copy the exact original messages
+        for (const m of messageRefs) {
+          try {
+            await ctx.telegram.copyMessage(
+              user.telegramId,  // to the winner doer
+              m.chatId,         // from the creator's chat with the bot
+              m.messageId       // exact original message
+            );
+          } catch (copyErr) {
+            console.error("Failed to copy related-file message to doer, will fall back:", copyErr);
+          }
+        }
+
+        await ctx.telegram.sendMessage(
+          user.telegramId,
+          TEXT.relatedFileForYou[langForFile]
+        );
+      } else if (fileIds.length) {
+        // Fallback: use your existing fileId-based sending
         for (const fid of fileIds) {
           await sendTaskRelatedFile(ctx.telegram, user.telegramId, fid);
         }
-        const langForFile = user.language || "en";
         await ctx.telegram.sendMessage(
           user.telegramId,
           TEXT.relatedFileForYou[langForFile]
@@ -6548,6 +6575,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   } catch (e) {
     console.error("Failed to send related file(s) to doer:", e);
   }
+
 
 
 
@@ -8483,26 +8511,40 @@ async function handleRelatedFile(ctx, draft) {
   //    - old: { fileId: "." }
   //    - new: { fileIds: [".", "."] }
   if (!draft.relatedFile) {
-    draft.relatedFile = { fileIds: [] };
+    draft.relatedFile = { fileIds: [], messages: [] };
   } else if (draft.relatedFile.fileId && !Array.isArray(draft.relatedFile.fileIds)) {
     // Convert old single-file structure into multi-file
     draft.relatedFile = {
-      fileIds: [draft.relatedFile.fileId]
+      fileIds: [draft.relatedFile.fileId],
+      messages: draft.relatedFile.messages || []
     };
-  } else if (!Array.isArray(draft.relatedFile.fileIds)) {
-    draft.relatedFile.fileIds = [];
+  } else {
+    if (!Array.isArray(draft.relatedFile.fileIds)) {
+      draft.relatedFile.fileIds = [];
+    }
+    if (!Array.isArray(draft.relatedFile.messages)) {
+      draft.relatedFile.messages = [];
+    }
   }
 
   // 3) Append the new file id
   draft.relatedFile.fileIds.push(fileId);
+
+  // 3b) ALSO store the exact original message reference
+  draft.relatedFile.messages.push({
+    chatId: ctx.chat.id,                 // where the file was originally sent (creator chat with bot)
+    messageId: ctx.message.message_id    // which exact message
+  });
+
   await draft.save();
 
-  // 3b) ALSO keep the list in session so Done can trust it
+  // 3c) ALSO keep the list in session so Done can trust it
   ctx.session.taskFlow.fileIds = draft.relatedFile.fileIds.slice();
 
   // No "File added" prompt anymore – UX is handled by the Done/Skip buttons.
   // We stay in step 'relatedFile' until Skip or Done is pressed.
 }
+
 
 
 
@@ -9931,7 +9973,17 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     if (fileIds.length) {
       // canonical "new style" your other code already understands
       relatedFilePayload = { fileIds };
+
+      // NEW: if we also have stored original message references, keep them.
+      if (Array.isArray(rf.messages) && rf.messages.length) {
+        // We just store them as-is; they are simple { chatId, messageId } objects.
+        relatedFilePayload.messages = rf.messages.map(m => ({
+          chatId: m.chatId,
+          messageId: m.messageId
+        })).filter(m => m.chatId && m.messageId);
+      }
     }
+
   }
 
   const task = await Task.create({
@@ -12325,37 +12377,61 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
   } else if (which === 'related') {
     const rf = task.relatedFile;
     let fileIds = [];
+    let messageRefs = [];
 
     if (rf) {
       if (Array.isArray(rf.fileIds)) {
-        // new style: { fileIds: ["...", "..."] }
+        // new style: { fileIds: [".", "."] }
         fileIds = rf.fileIds;
       } else if (rf.fileId) {
-        // new/old style: { fileId: "..." }
+        // new/old style: { fileId: "." }
         fileIds = [rf.fileId];
       } else if (Array.isArray(rf)) {
-        // very old style: ["...", "..."]
+        // very old style: [".", "."]
         fileIds = rf;
       } else if (typeof rf === "string") {
         // oldest style: a single file_id string
         fileIds = [rf];
       }
+
+      // NEW: original message references if present
+      if (Array.isArray(rf.messages)) {
+        messageRefs = rf.messages.filter(m => m.chatId && m.messageId);
+      }
     }
 
-    if (fileIds.length) {
+    if (messageRefs.length || fileIds.length) {
+      // Header in the dispute channel
       await safeTelegramCall(
         ctx.telegram.sendMessage.bind(ctx.telegram),
         channelId,
         "📎 TASK RELATED FILE(S) (from original task post):"
       );
 
-      for (const fid of fileIds) {
-        await safeTelegramCall(
-          sendTaskRelatedFile,
-          ctx.telegram,
-          channelId,
-          fid
-        );
+      if (messageRefs.length) {
+        // First preference: copy the original messages exactly
+        for (const m of messageRefs) {
+          try {
+            await safeTelegramCall(
+              ctx.telegram.copyMessage.bind(ctx.telegram),
+              channelId,       // to dispute channel
+              m.chatId,        // from creator chat
+              m.messageId
+            );
+          } catch (e) {
+            console.error("DP_OPEN related: copyMessage failed, will fall back to fileIds:", e);
+          }
+        }
+      } else {
+        // Fallback: send via fileIds like before
+        for (const fid of fileIds) {
+          await safeTelegramCall(
+            sendTaskRelatedFile,
+            ctx.telegram,
+            channelId,
+            fid
+          );
+        }
       }
     } else {
       await safeTelegramCall(
@@ -12366,6 +12442,8 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
     }
 
   } else if (which === 'fix') {
+    
+
     await forwardMessageLogToDispute(
       ctx.telegram, channelId, creatorUser.telegramId, work.fixRequests,
       `✏️ FIX NOTICE (from Task Creator) — TASK ${task._id}:`
