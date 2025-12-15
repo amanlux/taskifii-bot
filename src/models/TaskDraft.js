@@ -5,9 +5,20 @@ const { Schema } = mongoose;
 const taskDraftSchema = new Schema({
   creatorTelegramId: { type: Number, required: true, index: true },
   description:       { type: String, default: null },
+   // UPDATED relatedFile schema (backward compatible)
   relatedFile: {
-    fileId:          { type: String, default: null },
-    fileType:        { type: String, default: null }
+    // legacy single-file fields (still supported)
+    fileId:   { type: String, default: null },
+    fileType: { type: String, default: null },
+
+    // NEW multi-file support
+    fileIds:  { type: [String], default: [] },
+
+    // NEW: exact original Telegram messages from the creator
+    messages: [{
+      chatId:    { type: Number },
+      messageId: { type: Number }
+    }]
   },
   fields:            { type: [String], default: [] },
   skillLevel:        { type: String, enum: ["Beginner","Intermediate","Professional", null], default: null },

@@ -30,7 +30,7 @@ const TaskSchema = new Schema(
   {
     creator: { type: Schema.Types.ObjectId, ref: "User", required: true },
     description: { type: String, required: true, minlength: 20, maxlength: 1250 },
-    relatedFile: { type: String, default: null },
+    relatedFile: { type: Schema.Types.Mixed, default: null },
     fields: { type: [String], default: [] },
     skillLevel: { type: String, enum: ["Beginner", "Intermediate", "Professional"], required: true },
     paymentFee: { type: Number, required: true },
