@@ -8186,13 +8186,20 @@ bot.on('message', async (ctx) => {
 // Related file: Skip (create)
 // ─────────────────────────────
 bot.action("TASK_SKIP_FILE", async (ctx) => {
-  console.log("DEBUG TASK_SKIP_FILE fired for", ctx.from?.id);
-  await ctx.reply("DEBUG: TASK_SKIP_FILE fired");
+  // Keep a console log, but remove the user-facing debug message
+  console.log("TASK_SKIP_FILE fired for", ctx.from?.id);
+
   // Close spinner quickly
   await ctx.answerCbQuery();
 
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
+
+  // Keep session language in sync so later steps (like fields) use the right language
+  ctx.session = ctx.session || {};
+  ctx.session.user = ctx.session.user || {};
+  ctx.session.user.language = lang;
+
 
   // Use the actual message that contains the buttons
   const promptId = ctx.callbackQuery?.message?.message_id;
@@ -8270,6 +8277,12 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
   const user  = await User.findOne({ telegramId: ctx.from.id });
   const lang  = user?.language || "en";
+
+  // Keep session language in sync so later steps (like fields) use the right language
+  ctx.session = ctx.session || {};
+  ctx.session.user = ctx.session.user || {};
+  ctx.session.user.language = lang;
+
 
   if (!draft) {
     // Draft expired
