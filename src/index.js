@@ -6521,11 +6521,17 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
       let fileIds = [];
 
       if (Array.isArray(rf.fileIds)) {
+        // new style: { fileIds: ["...", "..."] }
         fileIds = rf.fileIds;
       } else if (rf.fileId) {
+        // new/old style: { fileId: "..." }
         fileIds = [rf.fileId];
       } else if (Array.isArray(rf)) {
+        // very old style: ["...", "..."]
         fileIds = rf;
+      } else if (typeof rf === "string") {
+        // oldest style in your DB: just a single file_id string
+        fileIds = [rf];
       }
 
       if (fileIds.length) {
@@ -6533,12 +6539,16 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
           await sendTaskRelatedFile(ctx.telegram, user.telegramId, fid);
         }
         const langForFile = user.language || "en";
-        await ctx.telegram.sendMessage(user.telegramId, TEXT.relatedFileForYou[langForFile]);
+        await ctx.telegram.sendMessage(
+          user.telegramId,
+          TEXT.relatedFileForYou[langForFile]
+        );
       }
     }
   } catch (e) {
     console.error("Failed to send related file(s) to doer:", e);
   }
+
 
 
   // 4. BUILD THE MESSAGE FOR THE DOER (🎉 ... + bank info + penalties + extra)
@@ -12260,18 +12270,22 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
       `📦 COMPLETED TASK (from Winner Task Doer) — TASK ${task._id}:`
     );
   } else if (which === 'related') {
-
-    // related file(s) from task post
     const rf = task.relatedFile;
     let fileIds = [];
 
     if (rf) {
       if (Array.isArray(rf.fileIds)) {
+        // new style: { fileIds: ["...", "..."] }
         fileIds = rf.fileIds;
       } else if (rf.fileId) {
+        // new/old style: { fileId: "..." }
         fileIds = [rf.fileId];
       } else if (Array.isArray(rf)) {
+        // very old style: ["...", "..."]
         fileIds = rf;
+      } else if (typeof rf === "string") {
+        // oldest style: a single file_id string
+        fileIds = [rf];
       }
     }
 
@@ -12297,6 +12311,7 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
         "No related file was attached on the original task."
       );
     }
+
   } else if (which === 'fix') {
     await forwardMessageLogToDispute(
       ctx.telegram, channelId, creatorUser.telegramId, work.fixRequests,
