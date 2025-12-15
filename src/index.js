@@ -8104,9 +8104,55 @@ bot.on('message', async (ctx) => {
     return;
   }
 
-  // Ignore /commands so /start etc still work
   const msg = ctx.message;
-  if (!msg || (msg.text && msg.text.startsWith('/'))) {
+  if (!msg) {
+    return;
+  }
+
+  // ── Special case: /start cancels THIS related-file inquiry ────────────
+  if (msg.text && msg.text.startsWith('/start')) {
+    const user = await User.findOne({ telegramId: ctx.from.id });
+    const lang = user?.language || "en";
+
+    const promptId = ctx.session.taskFlow.relatedFilePromptId;
+    if (promptId) {
+      try {
+        // Make Skip/Done buttons inert but still visible
+        await ctx.telegram.editMessageReplyMarkup(
+          ctx.chat.id,
+          promptId,
+          undefined,
+          {
+            inline_keyboard: [
+              [Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP")],
+              [Markup.button.callback(TEXT.relatedFileDoneBtn[lang], "_DISABLED_DONE")]
+            ]
+          }
+        );
+      } catch (err) {
+        console.error("Failed to edit message reply markup on /start (relatedFile):", err);
+      }
+    }
+
+    // Terminate this specific task draft (both create and edit)
+    const draftId = ctx.session.taskFlow.draftId;
+    if (draftId) {
+      try {
+        await TaskDraft.findByIdAndDelete(draftId);
+      } catch (err) {
+        console.error("Failed to delete draft on /start (relatedFile):", err);
+      }
+    }
+
+    // Stop expecting related files
+    ctx.session.taskFlow = null;
+
+    // We don't reply here, because the global /start handler will answer the user.
+    return;
+  }
+
+  // Ignore OTHER commands (but let /start above handle cancellation)
+  if (msg.text && msg.text.startsWith('/')) {
     return;
   }
 
@@ -8133,6 +8179,7 @@ bot.on('message', async (ctx) => {
   // Save this message as a related file (photo/document/video/audio)
   await handleRelatedFile(ctx, draft);
 });
+
 
 
 // ─────────────────────────────
@@ -8377,14 +8424,15 @@ async function handleRelatedFile(ctx, draft) {
   } else if (ctx.message.audio) {
     fileId = ctx.message.audio.file_id;
   } else {
-    // Text or unsupported → invalid; we don't store it
-    return ctx.reply(TEXT.relatedFileError[lang]);
+    // Text or unsupported → invalid; silently ignore.
+    // The Done button will show a proper alert if no valid file was ever sent.
+    return;
   }
 
   // 2) Normalize draft.relatedFile to a multi-file structure
   //    We support both old (single) and new style:
-  //    - old: { fileId: "..." }
-  //    - new: { fileIds: ["...", "..."] }
+  //    - old: { fileId: "." }
+  //    - new: { fileIds: [".", "."] }
   if (!draft.relatedFile) {
     draft.relatedFile = { fileIds: [] };
   } else if (draft.relatedFile.fileId && !Array.isArray(draft.relatedFile.fileIds)) {
@@ -8403,15 +8451,10 @@ async function handleRelatedFile(ctx, draft) {
   // 3b) ALSO keep the list in session so Done can trust it
   ctx.session.taskFlow.fileIds = draft.relatedFile.fileIds.slice();
 
-  // 4) Acknowledge to the user (but do NOT change buttons or step)
-  await ctx.reply(
-    lang === "am"
-      ? "📎 ፋይሉ ተጨምሯል። ተጨማሪ ፋይሎች መላክ ትችላላችሁ ወይም “ጨርሻለሁ” ይጫኑ።"
-      : "📎 File added. You can send more files or tap Done when you're finished."
-  );
-
+  // No "File added" prompt anymore – UX is handled by the Done/Skip buttons.
   // We stay in step 'relatedFile' until Skip or Done is pressed.
 }
+
 
 
 
@@ -12697,6 +12740,19 @@ bot.action("_DISABLED_NEEDS_FIX", async (ctx) => {
 bot.action("_DISABLED_SEND_FIX_NOTICE", async (ctx) => { 
   await ctx.answerCbQuery(); 
 });
+// Inert handlers for disabled Skip/Done buttons
+bot.action("_DISABLED_SKIP", async (ctx) => {
+  try {
+    await ctx.answerCbQuery(); // just stop the loading spinner
+  } catch (_) {}
+});
+
+bot.action("_DISABLED_DONE", async (ctx) => {
+  try {
+    await ctx.answerCbQuery(); // just stop the loading spinner
+  } catch (_) {}
+});
+
 // Error handling middleware
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
