@@ -8371,21 +8371,25 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
   }
 
   // Fallback to draft.relatedFile if session is empty
-  if (!fileIds.length) {
-    const rf = draft.relatedFile;
-    if (rf) {
-      if (Array.isArray(rf.fileIds)) {
-        fileIds = rf.fileIds;
-      } else if (rf.fileId) {
-        fileIds = [rf.fileId];
-      } else if (Array.isArray(rf)) {
-        fileIds = rf;
-      }
+  let rf = draft.relatedFile;
+  if (!fileIds.length && rf) {
+    if (Array.isArray(rf.fileIds)) {
+      fileIds = rf.fileIds;
+    } else if (rf.fileId) {
+      fileIds = [rf.fileId];
+    } else if (Array.isArray(rf)) {
+      fileIds = rf;
     }
   }
 
-  // ── 2) If still no files → show popup alert, don't advance ────────
-  if (!fileIds.length) {
+  // NEW: also consider saved message references (for link-only related files)
+  const hasMessages =
+    rf &&
+    Array.isArray(rf.messages) &&
+    rf.messages.filter(m => m && m.chatId && m.messageId).length > 0;
+
+  // ── 2) If still nothing at all → show popup alert, don't advance ──
+  if (!fileIds.length && !hasMessages) {
     try {
       await ctx.answerCbQuery(
         TEXT.relatedFileDoneNoFileAlert[lang],
@@ -8396,6 +8400,7 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
     }
     return;
   }
+
 
   // We DO have fileIds → close spinner quietly (no alert text)
   try {
@@ -8481,7 +8486,7 @@ bot.action("TASK_FILE_DONE", async (ctx) => {
 
 
 async function handleRelatedFile(ctx, draft) {
-  // Get user for language
+  // We still fetch the user in case you want lang later
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
 
@@ -8489,81 +8494,72 @@ async function handleRelatedFile(ctx, draft) {
     ctx.session.taskFlow = {};
   }
 
-  const msg = ctx.message;
-  if (!msg) return;
+  const msg = ctx.message || {};
+  const text = msg.text || msg.caption || "";
 
-  // 1) Determine what kind of message this is.
-  // We now support:
-  //   - photo (with caption)
-  //   - document / PDF
-  //   - video
-  //   - audio
-  //   - plain text (so links / extra notes are also preserved)
-  let fileId = null;
-  let hasSupportedContent = false;
+  // Detect if this message contains at least one URL (for link-only related files)
+  const hasUrl =
+    typeof text === "string" && /(https?:\/\/|www\.)\S+/i.test(text);
 
-  if (msg.photo && msg.photo.length) {
+  // 1) Determine file type and ID, if any
+  let fileId;
+  if (msg.photo && Array.isArray(msg.photo) && msg.photo.length) {
+    // photo: use the largest size
     const photos = msg.photo;
     fileId = photos[photos.length - 1].file_id;
-    hasSupportedContent = true;
   } else if (msg.document) {
+    // documents (PDF, etc.)
     fileId = msg.document.file_id;
-    hasSupportedContent = true;
   } else if (msg.video) {
     fileId = msg.video.file_id;
-    hasSupportedContent = true;
   } else if (msg.audio) {
+    // regular audio files
     fileId = msg.audio.file_id;
-    hasSupportedContent = true;
-  } else if (msg.text) {
-    // Treat any text message here as a "related" message.
-    // This way links, instructions, etc. are also forwarded.
-    hasSupportedContent = true;
-  }
-
-  // If it’s something like a sticker, contact, etc. → ignore.
-  if (!hasSupportedContent) {
+  } else if (msg.voice) {
+    // Telegram voice messages
+    fileId = msg.voice.file_id;
+  } else if (msg.video_note) {
+    // Telegram round video notes
+    fileId = msg.video_note.file_id;
+  } else if (!hasUrl) {
+    // Pure text with no URL and no supported media → ignore.
+    // The Done button will show an alert if nothing valid was ever sent.
     return;
   }
 
-  // 2) Normalize draft.relatedFile to the multi-file structure
-  //    (backward compatible with older single-file fields).
-  if (!draft.relatedFile || typeof draft.relatedFile !== "object") {
+  // 2) Normalize draft.relatedFile to a multi-file structure
+  //    We support both old (single) and new style:
+  //    - old: { fileId: "." }
+  //    - new: { fileIds: [".", "."], messages: [...] }
+  if (!draft.relatedFile) {
     draft.relatedFile = { fileIds: [], messages: [] };
   } else {
-    // Ensure fileIds is an array
     if (!Array.isArray(draft.relatedFile.fileIds)) {
-      const legacyId = draft.relatedFile.fileId || null;
-      draft.relatedFile.fileIds = legacyId ? [legacyId] : [];
+      draft.relatedFile.fileIds = [];
     }
-    // Ensure messages is an array
     if (!Array.isArray(draft.relatedFile.messages)) {
       draft.relatedFile.messages = [];
     }
   }
 
-  // 3) If this message has an actual Telegram file (photo/audio/pdf/etc),
-  //    store its file_id too (for legacy fallback).
+  // 3) If there is a real media file, append its file_id
   if (fileId) {
-    if (!draft.relatedFile.fileIds.includes(fileId)) {
-      draft.relatedFile.fileIds.push(fileId);
-    }
-    // Keep legacy single-file field in sync just in case old code reads it
-    draft.relatedFile.fileId = fileId;
+    draft.relatedFile.fileIds.push(fileId);
   }
 
-  // 4) Always store the original Telegram message reference.
-  //    This is the MOST important part: dispute channel and
-  //    winner doer will copy this exact message, including captions.
+  // 4) For BOTH media and URL-only messages, store the exact original message
+  //    so later we can copyMessage(...) and preserve captions, links, etc.
   draft.relatedFile.messages.push({
-    chatId: msg.chat.id,
-    messageId: msg.message_id
+    chatId: ctx.chat.id,           // the creator's chat with the bot
+    messageId: msg.message_id      // this exact message (photo+caption, pdf+caption, link, voice, etc.)
   });
 
   await draft.save();
 
-  // Optional flag – safe and doesn’t break anything
-  ctx.session.taskFlow.hasRelatedFile = true;
+  // 5) Keep fileIds in session so TASK_FILE_DONE can still work as before
+  ctx.session.taskFlow.fileIds = draft.relatedFile.fileIds.slice();
+
+  // No extra reply here: UX is still handled by the Done / Skip buttons.
 }
 
 
