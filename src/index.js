@@ -8326,7 +8326,7 @@ async function cancelRelatedFileDraftIfActive(ctx) {
 
 
 async function handleRelatedFile(ctx, draft) {
-  // Get user for language
+  // Get user for language (even though we don't send an error message now, keep this for future)
   const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
 
@@ -8336,56 +8336,75 @@ async function handleRelatedFile(ctx, draft) {
 
   const msg = ctx.message || {};
 
-  // 1) Detect any non-plain-text payload (files, media, location, etc.)
-  const hasMedia =
-    msg.photo ||
-    msg.document ||
-    msg.video ||
-    msg.audio ||
-    msg.voice ||
-    msg.video_note ||
-    msg.animation ||
-    msg.sticker ||
-    msg.contact ||
-    msg.location ||
-    msg.venue ||
-    msg.poll ||
-    msg.dice ||
-    msg.game;
+  // 1️⃣ Detect whether this message is "plain text only" or actually contains something
+  //    we should treat as a valid related file.
 
-  // 2) Treat "links only" (or text containing a link) as VALID related file
-  const text = msg.text || msg.caption || "";
-  const hasLink =
-    typeof text === "string" &&
-    /\b((https?:\/\/)|www\.)\S+/i.test(text);
+  // Any of these keys mean "this message is more than just plain text"
+  const mediaLikeKeys = [
+    "photo",
+    "document",
+    "video",
+    "audio",
+    "voice",
+    "video_note",
+    "animation",
+    "sticker",
+    "contact",
+    "location",
+    "venue",
+    "poll",
+    "dice",
+    "invoice",
+    "game"
+  ];
 
-  // 3) Anything that is not pure plain text is considered a valid related file
-  const isValidRelated = !!(hasMedia || hasLink);
+  const hasAnyMediaLike = mediaLikeKeys.some((k) => !!msg[k]);
 
-  // ❌ INVALID: pure plain text (no file, no media, no link)
-  // We IGNORE it silently. The alert will show only when they tap Done
-  // without having at least one valid related file.
-  if (!isValidRelated) {
-    return; // <- no TEXT.relatedFileError message anymore
+  // URL / link detection in text or caption
+  const hasLinkEntity =
+    Array.isArray(msg.entities) &&
+    msg.entities.some((e) => e.type === "url" || e.type === "text_link");
+
+  const hasCaptionLink =
+    Array.isArray(msg.caption_entities) &&
+    msg.caption_entities.some((e) => e.type === "url" || e.type === "text_link");
+
+  // "Plain text only" means:
+  // - there IS msg.text
+  // - NO media-like keys
+  // - NO url/text_link entities in text or caption
+  const isPlainTextOnly =
+    !!msg.text && !hasAnyMediaLike && !hasLinkEntity && !hasCaptionLink;
+
+  // ❌ Invalid related file = plain text only → IGNORE it completely.
+  // We do NOT send TEXT.relatedFileError anymore.
+  if (isPlainTextOnly) {
+    return;
   }
 
-  // ✅ VALID: initialize relatedFile object if needed
+  // ✅ Anything that is NOT plain text only is a valid related file:
+  // - any media (photo, doc, video, audio, voice, video_note, animation, sticker, etc.)
+  // - contact, location, poll, dice, etc.
+  // - link-only messages (text that has URL/text_link entities)
+
+  // 2️⃣ Initialize relatedFile object if needed
   if (!draft.relatedFile) {
     draft.relatedFile = {
-      fileId: null,
-      fileType: null,
-      fileIds: [],
-      messages: []
+      fileId: null,       // legacy representative file
+      fileType: null,     // legacy type
+      fileIds: [],        // additional file IDs (mainly for media)
+      messages: []        // ALL original message references (for forwarding)
     };
   }
 
   const rf = draft.relatedFile;
 
-  // Extract a representative fileId + type for backward compatibility
+  // 3️⃣ Extract ONE representative fileId + type for backwards compatibility
   let fileId = null;
   let fileType = null;
 
   if (msg.photo) {
+    // photo is an array; use the highest resolution
     const photos = msg.photo;
     fileId = photos[photos.length - 1].file_id;
     fileType = "photo";
@@ -8410,12 +8429,19 @@ async function handleRelatedFile(ctx, draft) {
   } else if (msg.sticker) {
     fileId = msg.sticker.file_id;
     fileType = "sticker";
+  } else if (hasLinkEntity || hasCaptionLink) {
+    // Link-only or text-with-link message.
+    // We don't have a fileId, but we still want it recognized as a valid related "file".
+    fileId = null;
+    fileType = "link";
+  } else {
+    // e.g. contact, location, venue, poll, dice, invoice, game
+    // No fileId, but still a valid related "file" because it's not plain text.
+    fileId = null;
+    fileType = rf.fileType || null;
   }
-  // For contact/location/venue/poll/dice/game or link-only text
-  // we don't have a fileId, but we still capture the message itself
-  // in rf.messages so it can be forwarded "as is".
 
-  // Primary (legacy) fields only once (first valid file)
+  // 4️⃣ Save primary (legacy) fileId/fileType only once (first valid file)
   if (fileId && !rf.fileId) {
     rf.fileId = fileId;
   }
@@ -8423,13 +8449,13 @@ async function handleRelatedFile(ctx, draft) {
     rf.fileType = fileType;
   }
 
-  // Keep list of fileIds (where we have them)
+  // 5️⃣ Save list of fileIds (for media that has file_id)
   if (!Array.isArray(rf.fileIds)) rf.fileIds = [];
   if (fileId && !rf.fileIds.includes(fileId)) {
     rf.fileIds.push(fileId);
   }
 
-  // Always store exact original message reference so we can forward "as is" later
+  // 6️⃣ Save original message reference so we can forward "as is" later
   if (!Array.isArray(rf.messages)) rf.messages = [];
   rf.messages.push({
     chatId: ctx.chat.id,
@@ -8438,9 +8464,12 @@ async function handleRelatedFile(ctx, draft) {
 
   await draft.save();
 
-  // We still do NOT move steps here.
-  // The creator can send more valid files, then tap Done.
+  // IMPORTANT:
+  // - We do NOT change ctx.session.taskFlow.step here.
+  // - We do NOT touch Skip/Done buttons.
+  // The creator can keep sending more valid related files, then tap Done.
 }
+
 
 
 
