@@ -612,9 +612,10 @@ const TEXT = {
     am: "ተጠናቋል"
   },
   relatedFileDoneError: {
-    en: "Please send at least one valid related file (photo, document, video, audio, etc.) before tapping Done.",
-    am: "እባክዎን ከ\"Done\" በፊት ቢያንስ አንድ ትክክለኛ የተያያዘ ፋይል (ፎቶ፣ ሰነድ፣ ቪዲዮ፣ ኦዲዮ ወዘተ) ይላኩ።"
+    en: "Please send at least one valid related file before tapping Done. Any file, audio, video, photo, voice note or even a message that only contains a link is accepted. Plain text messages without a file or link are not accepted as related files.",
+    am: "እባክዎን \"Done\" ከመጫኑ በፊት ቢያንስ አንድ ትክክለኛ የተያያዘ ፋይል ይላኩ። ፋይሉ ፎቶ፣ ሰነድ፣ ቪዲዮ፣ ኦዲዮ፣ የድምጽ መልዕክት ወይም ብቻውን አገናኝ ያለው መልዕክት ሊሆን ይችላል። በፋይል ወይም አገናኝ ያልተያያዘ ቀለማት ጽሁፍ እንደ ተያያዥ ፋይል አንቀበልም።"
   },
+
 
    skipBtn: {
     en: "Skip",
@@ -5293,49 +5294,8 @@ bot.use(applyGatekeeper);
   bot.start(async (ctx) => {
     // Initialize session
     ctx.session = ctx.session || {};
-    // If we were in the related-file step (create or edit), stop waiting and terminate that draft
-    if (ctx.session.taskFlow?.step === "relatedFile") {
-      try {
-        const me = await User.findOne({ telegramId: ctx.from.id });
-        const lang = me?.language || "en";
+    await cancelRelatedFileDraftIfActive(ctx);
 
-        const promptId = ctx.session.taskFlow.relatedFilePromptId;
-        if (promptId) {
-          try {
-            await ctx.telegram.editMessageReplyMarkup(
-              ctx.chat.id,
-              promptId,
-              undefined,
-              {
-                inline_keyboard: [
-                  [
-                    Markup.button.callback(TEXT.skipBtn[lang], "_DISABLED_SKIP")
-                  ],
-                  [
-                    Markup.button.callback(TEXT.relatedFileDoneBtn[lang], "_DISABLED_DONE_FILE")
-                  ]
-                ]
-              }
-            );
-          } catch (e) {
-            console.error("Failed to disable related-file buttons on /start:", e);
-          }
-        }
-
-        // Terminate ONLY this draft if we know its id
-        if (ctx.session.taskFlow.draftId) {
-          try {
-            await TaskDraft.findByIdAndDelete(ctx.session.taskFlow.draftId);
-          } catch (e) {
-            console.error("Failed to delete draft on /start:", e);
-          }
-        }
-
-        ctx.session.taskFlow = null;
-      } catch (e) {
-        console.error("Error cleaning up related-file flow on /start:", e);
-      }
-    }
 
     // HARD-GUARD: block all menu/apply flows while engagement-locked
     if (await isEngagementLocked(ctx.from.id)) {
@@ -5915,6 +5875,8 @@ bot.action("POST_TASK", async (ctx) => {
 bot.action(/^APPLY_(.+)$/, async ctx => {
   try {
     await ctx.answerCbQuery();
+    await cancelRelatedFileDraftIfActive(ctx);
+
     const taskId = ctx.match[1];
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
@@ -6384,6 +6346,8 @@ bot.action("SET_LANG_AM", async (ctx) => {
 // Works for both: DO_TASK_CONFIRM  and  DO_TASK_CONFIRM_<taskId>
 bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   await ctx.answerCbQuery();
+  // If they were in related-file step for their own draft, terminate it and freeze buttons
+  await cancelRelatedFileDraftIfActive(ctx);
   const user = await User.findOne({ telegramId: ctx.from.id });
   if (!user) return;
 
@@ -8300,6 +8264,65 @@ bot.action("_DISABLED_DONE_FILE", async (ctx) => {
 
 
 
+// Helper: if the user is currently in the "related file" step (create or edit),
+// freeze the Skip/Done buttons and delete that specific draft.
+async function cancelRelatedFileDraftIfActive(ctx) {
+  try {
+    if (!ctx || !ctx.from) return;
+
+    ctx.session = ctx.session || {};
+
+    if (ctx.session.taskFlow?.step !== "relatedFile") {
+      return;
+    }
+
+    const me = await User.findOne({ telegramId: ctx.from.id });
+    const lang = me?.language || "en";
+
+    const promptId = ctx.session.taskFlow.relatedFilePromptId;
+
+    if (promptId && ctx.chat && ctx.chat.id) {
+      try {
+        await ctx.telegram.editMessageReplyMarkup(
+          ctx.chat.id,
+          promptId,
+          undefined,
+          {
+            inline_keyboard: [
+              [
+                Markup.button.callback(
+                  TEXT.skipBtn[lang],
+                  "_DISABLED_SKIP"
+                )
+              ],
+              [
+                Markup.button.callback(
+                  TEXT.relatedFileDoneBtn[lang],
+                  "_DISABLED_DONE_FILE"
+                )
+              ]
+            ]
+          }
+        );
+      } catch (e) {
+        console.error("Failed to disable related-file buttons:", e);
+      }
+    }
+
+    // Terminate ONLY this draft (if we know its id)
+    if (ctx.session.taskFlow.draftId) {
+      try {
+        await TaskDraft.findByIdAndDelete(ctx.session.taskFlow.draftId);
+      } catch (e) {
+        console.error("Failed to delete draft in cancelRelatedFileDraftIfActive:", e);
+      }
+    }
+
+    ctx.session.taskFlow = null;
+  } catch (e) {
+    console.error("Error cleaning up related-file flow:", e);
+  }
+}
 
 
 async function handleRelatedFile(ctx, draft) {
@@ -8311,10 +8334,9 @@ async function handleRelatedFile(ctx, draft) {
     ctx.session.taskFlow = {};
   }
 
-  const promptId = ctx.session.taskFlow.relatedFilePromptId;
-
   const msg = ctx.message || {};
-  // Detect if this message contains ANY non-text media
+
+  // 1) Detect any non-plain-text payload (files, media, location, etc.)
   const hasMedia =
     msg.photo ||
     msg.document ||
@@ -8323,14 +8345,31 @@ async function handleRelatedFile(ctx, draft) {
     msg.voice ||
     msg.video_note ||
     msg.animation ||
-    msg.sticker;
+    msg.sticker ||
+    msg.contact ||
+    msg.location ||
+    msg.venue ||
+    msg.poll ||
+    msg.dice ||
+    msg.game;
 
-  // If no media at all -> invalid related file (plain text, links only, etc.)
-  if (!hasMedia) {
-    return ctx.reply(TEXT.relatedFileError[lang]);
+  // 2) Treat "links only" (or text containing a link) as VALID related file
+  const text = msg.text || msg.caption || "";
+  const hasLink =
+    typeof text === "string" &&
+    /\b((https?:\/\/)|www\.)\S+/i.test(text);
+
+  // 3) Anything that is not pure plain text is considered a valid related file
+  const isValidRelated = !!(hasMedia || hasLink);
+
+  // ❌ INVALID: pure plain text (no file, no media, no link)
+  // We IGNORE it silently. The alert will show only when they tap Done
+  // without having at least one valid related file.
+  if (!isValidRelated) {
+    return; // <- no TEXT.relatedFileError message anymore
   }
 
-  // Initialize relatedFile object if needed
+  // ✅ VALID: initialize relatedFile object if needed
   if (!draft.relatedFile) {
     draft.relatedFile = {
       fileId: null,
@@ -8372,8 +8411,11 @@ async function handleRelatedFile(ctx, draft) {
     fileId = msg.sticker.file_id;
     fileType = "sticker";
   }
+  // For contact/location/venue/poll/dice/game or link-only text
+  // we don't have a fileId, but we still capture the message itself
+  // in rf.messages so it can be forwarded "as is".
 
-  // Save primary (legacy) fields only once (first valid file)
+  // Primary (legacy) fields only once (first valid file)
   if (fileId && !rf.fileId) {
     rf.fileId = fileId;
   }
@@ -8381,13 +8423,13 @@ async function handleRelatedFile(ctx, draft) {
     rf.fileType = fileType;
   }
 
-  // Save full list of fileIds (if available)
+  // Keep list of fileIds (where we have them)
   if (!Array.isArray(rf.fileIds)) rf.fileIds = [];
   if (fileId && !rf.fileIds.includes(fileId)) {
     rf.fileIds.push(fileId);
   }
 
-  // Save original message reference so we can forward "as is" later
+  // Always store exact original message reference so we can forward "as is" later
   if (!Array.isArray(rf.messages)) rf.messages = [];
   rf.messages.push({
     chatId: ctx.chat.id,
@@ -8396,12 +8438,10 @@ async function handleRelatedFile(ctx, draft) {
 
   await draft.save();
 
-  // IMPORTANT: we do NOT move to next step here anymore.
-  // The creator can keep sending more files, then tap "Done".
-  // Buttons (Skip, Done) remain active until Skip or Done is pressed.
-  // Optionally you could send a small confirmation:
-  // await ctx.reply(lang === "am" ? "✅ ፋይል ተቀብሏል. ሌሎችን ልከው ወይም \"Done\" ይጫኑ።" : "✅ File received. You can send more or tap Done.");
+  // We still do NOT move steps here.
+  // The creator can send more valid files, then tap Done.
 }
+
 
 
 
@@ -9994,7 +10034,8 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
           : TEXT.duplicateTaskPaymentNotice.en
       );
     }
-
+    // ✅ Before posting, if we were in the related-file step for some draft, terminate it
+    await cancelRelatedFileDraftIfActive(ctx);
     // ✅ Use same helper to post task now
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
 
@@ -10082,6 +10123,8 @@ bot.on('successful_payment', async (ctx) => {
           : TEXT.duplicateTaskPaymentNotice.en
       );
     }
+    // Before posting, clean up any active related-file draft (if user was in that step)
+    await cancelRelatedFileDraftIfActive(ctx);
 
     // ✅ Use the same unified task-posting helper
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
@@ -11300,6 +11343,7 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
           : TEXT.duplicateTaskPaymentNotice.en
       );
     }
+    await cancelRelatedFileDraftIfActive(ctx);
 
     // ✅ Use your existing post-from-draft helper
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
