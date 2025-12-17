@@ -8059,6 +8059,7 @@ async function handleDescription(ctx, draft) {
   draft.description = text;
   await draft.save();
 
+  // EDIT MODE: just update description and go back to preview
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am" ? "✅ መግለጫው ተዘምኗል" : "✅ Description updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
@@ -8067,9 +8068,10 @@ async function handleDescription(ctx, draft) {
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
         [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-        [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        [
+          locked
+            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -8078,21 +8080,12 @@ async function handleDescription(ctx, draft) {
     return;
   }
 
-  ctx.session.taskFlow.step = "relatedFile";
-  const relPrompt = await ctx.reply(
-    TEXT.relatedFilePrompt[lang],
-    Markup.inlineKeyboard([
-      [Markup.button.callback(TEXT.skipBtn[lang], "TASK_SKIP_FILE")],
-      [Markup.button.callback(TEXT.relatedFileDoneBtn[lang], "TASK_DONE_FILE")]
-    ])
-  );
-    // For new tasks (not editing), skip the related file step
-  // and go directly to the fields selection step.
+  // CREATE FLOW: go directly to task fields selection — no related-file prompt
+  ctx.session.taskFlow = ctx.session.taskFlow || {};
   ctx.session.taskFlow.step = "fields";
   return askFieldsPage(ctx, 0);
-
-
 }
+
 
 
 
