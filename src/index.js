@@ -7288,7 +7288,7 @@ bot.action("TASK_EDIT", async (ctx) => {
   // Present the list of fields that can be edited (in user's language)
   const buttons = [
     [Markup.button.callback(lang === "am" ? "✏️ መግለጫ አርትዕ" : "✏️ Edit Description", "EDIT_description")],
-    [Markup.button.callback(lang === "am" ? "📎 ተያያዥ ፋይል አርትዕ" : "📎 Edit Related File", "EDIT_relatedFile")],
+    
     [Markup.button.callback(lang === "am" ? "🏷️ መስኮች አርትዕ" : "🏷️ Edit Fields", "EDIT_fields")],
     [Markup.button.callback(lang === "am" ? "🎯 የስልጠና ደረጃ አርትዕ" : "🎯 Edit Skill Level", "EDIT_skillLevel")],
     [Markup.button.callback(lang === "am" ? "💰 የክፍያ መጠን አርትዕ" : "💰 Edit Payment Fee", "EDIT_paymentFee")],
@@ -8086,8 +8086,12 @@ async function handleDescription(ctx, draft) {
       [Markup.button.callback(TEXT.relatedFileDoneBtn[lang], "TASK_DONE_FILE")]
     ])
   );
-  ctx.session.taskFlow.relatedFilePromptId = relPrompt.message_id;
-  return;
+    // For new tasks (not editing), skip the related file step
+  // and go directly to the fields selection step.
+  ctx.session.taskFlow.step = "fields";
+  return askFieldsPage(ctx, 0);
+
+
 }
 
 
@@ -9879,7 +9883,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   const task = await Task.create({
     creator: user._id,
     description: draft.description,
-    relatedFile: draft.relatedFile?.fileId || null,
+    relatedFile: draft.relatedFile || null,
+
     fields: draft.fields,
     skillLevel: draft.skillLevel,
     paymentFee: draft.paymentFee,
