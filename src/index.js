@@ -2629,6 +2629,140 @@ function formatHM(totalMinutes, lang = "en") {
   const mTxt = m > 0 ? `${m} minute${m === 1 ? "" : "s"}` : "";
   return [hTxt, mTxt].filter(Boolean).join(" ");
 }
+// Show the same task details the channel sees, but **without** the expiry line
+function formatTaskDetailsForDoer(task, lang = "en") {
+  if (!task) return "";
+
+  const locale = lang === "am" ? "am-ET" : "en-US";
+
+  let postedAtStr = "N/A";
+  try {
+    if (task.postedAt instanceof Date) {
+      postedAtStr =
+        task.postedAt.toLocaleString(locale, {
+          timeZone: "Africa/Addis_Ababa",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        }) + " GMT+3";
+    }
+  } catch (_) {
+    // fallback, do nothing – keep "N/A"
+  }
+
+  const fieldsText =
+    Array.isArray(task.fields) && task.fields.length
+      ? task.fields.join(", ")
+      : "N/A";
+
+  const lines = [];
+
+  if (lang === "am") {
+    lines.push("📝 የተግዳሮቱ ዝርዝሮች:");
+    lines.push(`• መግለጫ፡ ${task.description}`);
+    lines.push(`• የክፍያ መጠን፡ ${task.paymentFee} ብር`);
+    lines.push(`• የመጨረሻ ጊዜ፡ ${task.timeToComplete} ሰዓት`);
+    lines.push(`• የክህሎት ደረጃ፡ ${task.skillLevel}`);
+    lines.push(`• መስኮች፡ ${fieldsText}`);
+    if (task.exchangeStrategy) {
+      lines.push(`• የግብይት መንገድ፡ ${task.exchangeStrategy}`);
+    }
+    if (task.revisionTime != null) {
+      lines.push(`• የማስተካከያ ጊዜ፡ ${task.revisionTime} ሰዓት`);
+    }
+    if (task.latePenalty != null) {
+      lines.push(`• የዘግይቶ ቅጣት በሰዓት፡ ${task.latePenalty} ብር`);
+    }
+    lines.push(`• የተለጠፈበት ጊዜ፡ ${postedAtStr}`);
+  } else {
+    lines.push("📝 TASK DETAILS:");
+    lines.push(`• Description: ${task.description}`);
+    lines.push(`• Payment Fee: ${task.paymentFee} birr`);
+    lines.push(`• Time to Complete: ${task.timeToComplete} hour(s)`);
+    lines.push(`• Skill Level: ${task.skillLevel}`);
+    lines.push(`• Fields: ${fieldsText}`);
+    if (task.exchangeStrategy) {
+      lines.push(`• Exchange Strategy: ${task.exchangeStrategy}`);
+    }
+    if (task.revisionTime != null) {
+      lines.push(`• Revision Time: ${task.revisionTime} hour(s)`);
+    }
+    if (task.latePenalty != null) {
+      lines.push(`• Penalty per Hour: ${task.latePenalty} birr`);
+    }
+    lines.push(`• Posted At: ${postedAtStr}`);
+  }
+
+  return lines.join("\n");
+}
+// Fetch and summarize the banks Chapa supports for ETB payouts
+async function getChapaBanksSummary(lang = "en") {
+  let banksList = [];
+
+  try {
+    const res = await fetch("https://api.chapa.co/v1/banks", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
+      },
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (res.ok && Array.isArray(data?.data)) {
+      // Keep banks that support ETB (or have no currency field)
+      banksList = data.data.filter(
+        (b) => !b.currency || b.currency === "ETB"
+      );
+    } else {
+      console.error(
+        "Failed to fetch Chapa banks for summary:",
+        data || res.statusText
+      );
+    }
+  } catch (err) {
+    console.error("Error fetching Chapa banks for summary:", err);
+  }
+
+  if (!banksList.length) {
+    // Fallback text if API fails – does NOT break the bot
+    return lang === "am"
+      ? "💳 ክፍያ ሲደርስ የሚደገፉትን ባንኮች በኋላ ታዩ፤ ብዙ ዋና የኢትዮጵያ ባንኮችን Chapa ይደግፋል።"
+      : "💳 You’ll choose from supported banks later when we send your payout link. Chapa usually supports the main Ethiopian banks.";
+  }
+
+  // Prefer .name, fall back to other fields if needed
+  const names = banksList
+    .map((b) => b.name || b.bank_name || b.bank || "")
+    .filter(Boolean);
+
+  const MAX = 30; // prevent the message from being too long
+  let listText;
+  if (names.length > MAX) {
+    listText = names.slice(0, MAX).join(", ") + ", ...";
+  } else {
+    listText = names.join(", ");
+  }
+
+  if (lang === "am") {
+    return (
+      "💳 Chapa የሚደግፋቸው ባንኮች ከሚከተሉት መካከል ናቸው፦ " +
+      listText +
+      "\n\n" +
+      "እባክዎ ከእነዚህ መካከል ባንክ ካለዎ ብቻ የ“Do the task” አዝራሩን ይጫኑ።"
+    );
+  }
+
+  return (
+    "💳 Chapa can transfer to banks such as: " +
+    listText +
+    "\n\n" +
+    "Please only click “Do the task” if you have (or can open) an account with one of these banks."
+  );
+}
 
 // Make a neat, structured list of a doer's bank options
 function renderBankDetails(user, lang = "en") {
@@ -6123,32 +6257,51 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
     console.error("Failed to edit message buttons:", err);
   }
 
-  // Notify the doer (same as before)
   const doerLang = user.language || "en";
   const expiryTime = task.expiry.toLocaleString(
     doerLang === "am" ? "am-ET" : "en-US",
-    { timeZone: "Africa/Addis_Ababa", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }
+    {
+      timeZone: "Africa/Addis_Ababa",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }
   ) + " GMT+3";
 
-  const acceptMessage = TEXT.applicationAccepted[doerLang].replace("[expiry time]", expiryTime);
+  // Original message (kept exactly as it was)
+  const acceptMessage = TEXT.applicationAccepted[doerLang]
+    .replace("[expiry time]", expiryTime)          // for English text
+    .replace("[የማብቂያ ጊዜ]", expiryTime);       // for Amharic text
+
+
   // Don't notify an applicant who's already engaged (as doer or creator)
   if (await isEngagementLocked(user.telegramId)) {
-    const msg = lang === "am"
-      ? "ይህ አመልካች አሁን ከሌላ ተግዳሮት ጋር ተጣመረ ነው ወይም ተግዳሮት እየለጠፈ ነው። የማረጋገጫ መልዕክት አይቀርብለውም። እባክዎ ሌላ አመልካች ይምረጡ።"
-      : "This applicant is already committed to another task or is posting a task, so they won’t receive your confirmation. Please choose another applicant.";
+    const msg =
+      lang === "am"
+        ? "ይህ አመልካች አሁን ከሌላ ተግዳሮት ጋር ተጣመረ ነው ወይም ተግዳሮት እየለጠፈ ነው። የማረጋገጫ መልዕክት አይቀርብለውም። እባክዎ ሌላ አመልካች ይምረጡ።"
+        : "This applicant is already committed to another task or is posting a task, so they won’t receive your confirmation. Please choose another applicant.";
     await ctx.reply(msg);
     return;
   }
 
+  // 🔹 NEW: add full task details (no expiry) + list of banks Chapa supports
+  const detailsBlock = formatTaskDetailsForDoer(task, doerLang);
+  const banksNotice = await getChapaBanksSummary(doerLang);
+
+  const fullAcceptMessage = [acceptMessage, "", detailsBlock, "", banksNotice].join("\n");
+
   await ctx.telegram.sendMessage(
     user.telegramId,
-    acceptMessage,
+    fullAcceptMessage,
     Markup.inlineKeyboard([
       [Markup.button.callback(TEXT.doTaskBtn[doerLang], `DO_TASK_CONFIRM_${task._id}`)],
       [Markup.button.callback(TEXT.cancelBtn[doerLang], `DO_TASK_CANCEL_${task._id}`)]
-
     ])
   );
+
 
   // (optional) channel ping you already had
   await sendAcceptedApplicationToChannel(bot, task, user, creator);
@@ -7418,7 +7571,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       
       // NEW: send this valid pitch to the internal channel
       await sendApplicationPitchToChannel(bot, task, user, text);
-      
+
       // Get the task creator's language
       const creator = await User.findById(task.creator);
       if (creator) {
