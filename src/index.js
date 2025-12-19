@@ -6258,8 +6258,10 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   }
 
   const doerLang = user.language || "en";
+
+  // Force English date/time even for Amharic UI (as you requested)
   const expiryTime = task.expiry.toLocaleString(
-    doerLang === "am" ? "am-ET" : "en-US",
+    "en-US",
     {
       timeZone: "Africa/Addis_Ababa",
       month: "short",
@@ -6271,10 +6273,10 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
     }
   ) + " GMT+3";
 
-  // Original message (kept exactly as it was)
+  // Replace BOTH placeholders (English + Amharic)
   const acceptMessage = TEXT.applicationAccepted[doerLang]
-    .replace("[expiry time]", expiryTime)          // for English text
-    .replace("[የማብቂያ ጊዜ]", expiryTime);       // for Amharic text
+    .replace("[expiry time]", expiryTime)
+    .replace("[የማብቂያ ጊዜ]", expiryTime);
 
 
   // Don't notify an applicant who's already engaged (as doer or creator)
