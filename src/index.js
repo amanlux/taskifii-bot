@@ -7410,7 +7410,29 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
     const draft = await TaskDraft.create({
       creatorTelegramId: ctx.from.id,
       description: task.description,
-      relatedFile: task.relatedFile ? { fileId: task.relatedFile } : undefined,
+      // Preserve relatedFile safely (it may be a string, an object, or null)
+      relatedFile: (() => {
+        const rf = task.relatedFile;
+        if (!rf) return undefined;
+
+        // If it's already the "new" object format, sanitize it
+        if (typeof rf === "object") {
+          return {
+            fileId: (typeof rf.fileId === "string" ? rf.fileId : null),
+            fileType: (typeof rf.fileType === "string" ? rf.fileType : null),
+            fileIds: Array.isArray(rf.fileIds) ? rf.fileIds.filter(x => typeof x === "string") : [],
+            messages: Array.isArray(rf.messages) ? rf.messages : []
+          };
+        }
+
+        // If it's the old legacy string format, wrap it correctly
+        if (typeof rf === "string") {
+          return { fileId: rf, fileType: null, fileIds: [rf], messages: [] };
+        }
+
+        return undefined;
+      })(),
+
       fields: task.fields,
       skillLevel: task.skillLevel,
       paymentFee: task.paymentFee,
