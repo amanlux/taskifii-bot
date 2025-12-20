@@ -7688,9 +7688,10 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           phone_number: phone,
           tx_ref: txRef,
           callback_url: `${process.env.PUBLIC_BASE_URL || ""}/chapa/ipn`,
-          return_url:   `${process.env.PUBLIC_BASE_URL || ""}/chapa/return`,
+          // 🔥 IMPORTANT: no return_url here, so Chapa keeps the receipt page
           description:  `Manual punishment fee for ${fullName}`
         });
+
 
         intent.chapaTxRef = txRef;
         intent.reference  = txRef;
