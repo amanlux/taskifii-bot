@@ -2417,6 +2417,167 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   );
 
 }
+// Build a per-user status summary for the admin panel
+async function buildUserStatusSummary(userId) {
+  const user = await User.findById(userId);
+  if (!user) return null;
+
+  const uid = user._id;
+
+  // 1) How many times the user applied to tasks
+  const tasksApplied = await Task.find(
+    { "applicants.user": uid },
+    { applicants: 1 }
+  ).lean();
+
+  let applicationsCount = 0;
+  for (const task of tasksApplied) {
+    if (!Array.isArray(task.applicants)) continue;
+    for (const app of task.applicants) {
+      if (app.user && app.user.toString() === uid.toString()) {
+        applicationsCount += 1;
+      }
+    }
+  }
+
+  // 2) Tasks created by this user
+  const createdTasks = await Task.find({ creator: uid }).select("_id").lean();
+  const createdTaskIds = createdTasks.map((t) => t._id);
+
+  // 3) DoerWork where this user was the winner task doer
+  const doerWorks = await DoerWork.find({ doer: uid }).lean();
+  const doerTaskIds = doerWorks.map((w) => w.task);
+
+  // DoerWork for tasks this user created (so they were the creator)
+  let creatorWorks = [];
+  if (createdTaskIds.length) {
+    creatorWorks = await DoerWork.find({
+      task: { $in: createdTaskIds },
+    }).lean();
+  }
+
+  // --- Doer-side stats (when this user is the winner task doer) ---
+
+  // 2) Times user became a winner task doer
+  const winnerDoerCount = doerWorks.length;
+
+  // 4) Didn't send completed task within original time-to-complete
+  const missedInitialDeadlineCount = doerWorks.filter(
+    (w) => w.timeUpNotifiedAt
+  ).length;
+
+  // 5) Didn't send completed task before penaltyEndAt / 35% limit
+  const missedPenaltyWindowCount = doerWorks.filter(
+    (w) => w.punishmentStartedAt
+  ).length;
+
+  // 8) As doer – didn't click "Report this" or "Send corrected version"
+  // before enforcement (second-half revision)
+  const doerNoFeedbackSecondHalfCount = doerWorks.filter(
+    (w) => w.secondHalfEnforcedAt
+  ).length;
+
+  // 9) As winner doer – creator clicked "Send fix notice"
+  // *before* half of the revision time
+  let fixNoticeBeforeHalfCount = 0;
+  if (doerWorks.length) {
+    const uniqueDoerTaskIds = [
+      ...new Set(doerTaskIds.map((id) => id.toString())),
+    ];
+    const taskDocs = await Task.find(
+      { _id: { $in: uniqueDoerTaskIds } },
+      { _id: 1, revisionTime: 1 }
+    ).lean();
+
+    const taskMap = new Map(
+      taskDocs.map((t) => [t._id.toString(), t])
+    );
+
+    for (const work of doerWorks) {
+      if (!work.fixNoticeSentAt || !work.completedAt) continue;
+      const task = taskMap.get(work.task.toString());
+      if (!task || !task.revisionTime) continue;
+
+      const halfMs =
+        (Number(task.revisionTime) * 60 * 60 * 1000) / 2;
+      const deltaMs =
+        new Date(work.fixNoticeSentAt).getTime() -
+        new Date(work.completedAt).getTime();
+
+      if (deltaMs <= halfMs) {
+        fixNoticeBeforeHalfCount += 1;
+      }
+    }
+  }
+
+  // 10) As winner task doer – creator clicked "Reject" on this task
+  let rejectedByCreatorsCount = 0;
+  if (doerTaskIds.length) {
+    rejectedByCreatorsCount = await Escalation.countDocuments({
+      task: { $in: doerTaskIds },
+      role: "creator",
+    });
+  }
+
+  // --- Creator-side stats (when this user is the task creator) ---
+
+  // 3) How many tasks the user created
+  const createdCount = createdTasks.length;
+
+  // 6) Number of times the user has been reported by a winner task doer
+  let reportedByDoersCount = 0;
+  if (createdTaskIds.length) {
+    reportedByDoersCount = await Escalation.countDocuments({
+      task: { $in: createdTaskIds },
+      role: "doer",
+    });
+  }
+
+  // 7) As creator – didn't click "Valid" / "Needs fixing" /
+  //    "Send fix notice" before half of revision time
+  const creatorNoEarlyFeedbackCount = creatorWorks.filter(
+    (w) => w.halfWindowEnforcedAt
+  ).length;
+
+  // 12) As creator – didn't click "Approve" or "Reject"
+  //     before half of the (final) revision time
+  const creatorNoFinalDecisionCount = creatorWorks.filter(
+    (w) => w.finalDecisionEnforcedAt
+  ).length;
+
+  // --- Other stats ---
+
+  // 11) One-star reviews received
+  const oneStarCount = await Rating.countDocuments({
+    to: uid,
+    score: 1,
+  });
+
+  // 13) Times user (as winner task doer) successfully reached payout
+  //     → counted via CreditLog entries of type 'doerEarned'
+  const payoutCount = await CreditLog.countDocuments({
+    user: uid,
+    type: "doerEarned",
+  });
+
+  return {
+    user,
+    applicationsCount,
+    winnerDoerCount,
+    createdCount,
+    missedInitialDeadlineCount,
+    missedPenaltyWindowCount,
+    reportedByDoersCount,
+    creatorNoEarlyFeedbackCount,
+    doerNoFeedbackSecondHalfCount,
+    fixNoticeBeforeHalfCount,
+    rejectedByCreatorsCount,
+    oneStarCount,
+    creatorNoFinalDecisionCount,
+    payoutCount,
+  };
+}
+
 // ---- BEGIN: unified post-payment follow-ups ----
 // ---- REPLACE your afterTaskPosted with this safe version ----
 async function afterTaskPosted({ ctx, task, me, draft }) {
@@ -7186,6 +7347,77 @@ bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
 
 });
 
+// Admin: show detailed status for this user
+bot.action(/^ADMIN_STATUS_([a-f0-9]{24})$/, async (ctx) => {
+  await ctx.answerCbQuery();
+
+  const userId = ctx.match[1];
+
+  let stats;
+  try {
+    stats = await buildUserStatusSummary(userId);
+  } catch (e) {
+    console.error("Error computing user status:", e);
+    return ctx.reply("Could not compute status for this user. Please try again.");
+  }
+
+  if (!stats || !stats.user) {
+    return ctx.reply("User not found for status.");
+  }
+
+  const { user } = stats;
+
+  const displayName =
+    user.fullName ||
+    user.username ||
+    (user.firstName && user.lastName
+      ? `${user.firstName} ${user.lastName}`
+      : user.telegramId);
+
+  const lines = [
+    "📊 *User Status Summary*",
+    "",
+    `Taskifii User ID: \`${user._id.toString()}\``,
+    `Name: ${displayName}`,
+    "",
+    `1) Applications submitted: *${stats.applicationsCount}*`,
+    `2) Times selected as winner task doer: *${stats.winnerDoerCount}*`,
+    `3) Tasks created (as task creator): *${stats.createdCount}*`,
+    "",
+    `4) As winner doer – didn't send completed task within the original time-to-complete: *${stats.missedInitialDeadlineCount}*`,
+    `5) As winner doer – didn't send completed task before penaltyEndAt / before fee hit 35%: *${stats.missedPenaltyWindowCount}*`,
+    "",
+    `6) As task creator – number of times reported by a winner task doer: *${stats.reportedByDoersCount}*`,
+    "",
+    `7) As task creator – didn't click Valid / Needs fixing / Send fix notice before half of revision time: *${stats.creatorNoEarlyFeedbackCount}*`,
+    `8) As winner task doer – didn't click Report this / Send corrected version before enforcement: *${stats.doerNoFeedbackSecondHalfCount}*`,
+    "",
+    `9) As winner task doer – task creator clicked Send fix notice before half of revision time: *${stats.fixNoticeBeforeHalfCount}*`,
+    `10) As winner task doer – task creator clicked Reject: *${stats.rejectedByCreatorsCount}*`,
+    "",
+    `11) One-star (⭐ 1-star) reviews received: *${stats.oneStarCount}*`,
+    `12) As task creator – didn't click Approve or Reject before half of the final decision revision time: *${stats.creatorNoFinalDecisionCount}*`,
+    "",
+    `13) As winner task doer – successfully reached the payout stage (bank info / payment recorded): *${stats.payoutCount}*`,
+  ];
+
+  // Same channel ID you already use for admin profile posts
+  const ADMIN_CHANNEL = "-1002310380363";
+
+  try {
+    await ctx.telegram.sendMessage(ADMIN_CHANNEL, lines.join("\n"), {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+    });
+  } catch (e) {
+    console.error("Failed to send status to admin channel:", e);
+    // Fallback: send where the callback was pressed
+    await ctx.reply(lines.join("\n"), {
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
+    });
+  }
+});
 
 
 // Update the DO_TASK_CANCEL handler
@@ -9654,20 +9886,21 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
     // Fallback: Send a new message and store its ID
     try {
       const adminText = buildAdminProfileText(user);
-      const adminButtons = Markup.inlineKeyboard([
+      const adminButtons = [
         [
-          Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
-          Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
+          Markup.button.callback("Ban User", `ADMIN_BAN_${user._id.toString()}`),
+          Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id.toString()}`),
         ],
         [
-          Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
-          Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
+          Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id.toString()}`),
+          Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id.toString()}`),
         ],
         [
-          // NEW: manual punishment flow
-          Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id}`)
-        ]
-      ]);
+          Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id.toString()}`),
+          Markup.button.callback("Status", `ADMIN_STATUS_${user._id.toString()}`),
+        ],
+      ];
+
 
 
       const sent = await ctx.telegram.sendMessage(
@@ -9691,20 +9924,21 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
 
   // Update existing message
   const adminText = buildAdminProfileText(user);
-  const adminButtons = Markup.inlineKeyboard([
+  const adminButtons = [
     [
-      Markup.button.callback("Ban User", `ADMIN_BAN_${user._id}`),
-      Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id}`)
+      Markup.button.callback("Ban User", `ADMIN_BAN_${user._id.toString()}`),
+      Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id.toString()}`),
     ],
     [
-      Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id}`),
-      Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
+      Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id.toString()}`),
+      Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id.toString()}`),
     ],
     [
-      // NEW: manual punishment flow
-      Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id}`)
-    ]
-  ]);
+      Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id.toString()}`),
+      Markup.button.callback("Status", `ADMIN_STATUS_${user._id.toString()}`),
+    ],
+  ];
+
 
 
   console.log(`Attempting to update admin message ${messageId} for user ${user._id}`);
@@ -10848,6 +11082,7 @@ function buildProfileText(user, showCongrats = false) {
 
   return profileLines.join("\n");
 }
+
 function buildAdminProfileText(user) {
   const skillsList = user.skills && user.skills.length
     ? user.skills.map((s, i) => `${i + 1}. ${s}`).join("\n")
