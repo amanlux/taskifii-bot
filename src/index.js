@@ -10800,8 +10800,12 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
 });
 
 function buildProfileText(user, showCongrats = false) {
+  // ✅ Safely derive language once
+  const lang = user?.language || "en";
+
   const skillsList = user.skills && user.skills.length
     ? user.skills.map((s, i) => `${i + 1}. ${s}`).join("\n")
+    // ✅ Use lang we just defined instead of an undefined variable
     : (lang === "am" ? "አልተመረጡም" : "N/A");
   
   const profileLines = user.language === "am" 
