@@ -151,15 +151,35 @@ BanlistSchema.index({ telegramId: 1 }, { unique: true, sparse: true });
 
 const Banlist = mongoose.models.Banlist
   || mongoose.model('Banlist', BanlistSchema);
-// Main admin who decides manual punishment amounts
-const MASTER_ADMIN_ID = 806525520;
+// --- Manual punishment started by admin (not tied to a specific task) ---
+const ManualPunishmentSchema = new mongoose.Schema({
+  targetUser:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  targetTelegramId: { type: Number, required: true, index: true },
+  adminTelegramId:  { type: Number, required: true, index: true },
 
-// Simple in-memory store for "manual punishment" flows
-// Key: admin Telegram ID (MASTER_ADMIN_ID)
-// Value: { targetUserId, targetTelegramId, createdAt }
-if (!global._taskifiiManualPunish) {
-  global._taskifiiManualPunish = new Map();
-}
+  // "awaiting_amount" → admin hasn’t entered a birr amount yet
+  // "invoice_created" → payment link already sent to user
+  // "paid" / "canceled" are just for future auditing
+  status: {
+    type: String,
+    enum: ["awaiting_amount", "invoice_created", "paid", "canceled"],
+    default: "awaiting_amount",
+    index: true
+  },
+
+  paymentIntent: { type: mongoose.Schema.Types.ObjectId, ref: "PaymentIntent" },
+
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+}, { versionKey: false });
+
+ManualPunishmentSchema.pre("save", function (next) {
+  this.updatedAt = new Date();
+  next();
+});
+
+const ManualPunishment = mongoose.models.ManualPunishment
+  || mongoose.model("ManualPunishment", ManualPunishmentSchema);
 
 
 
@@ -1231,6 +1251,9 @@ const ALL_FIELDS = [
 const FIELDS_PER_PAGE = 10;
 // --- Report/Escalation constants ---
 const BAN_GROUP_ID = -1002239730204;        // group to ban/unban users in
+// Admin who decides manual punishment amounts
+const SUPER_ADMIN_TG_ID = 806525520;
+
 const ESCALATION_CHANNEL_ID = -1002432632907; // channel for giant escalation message
 
 function buildPreviewText(draft, user) {
@@ -6968,57 +6991,74 @@ bot.action(/^ADMIN_BAN_(.+)$/, async (ctx) => {
   await banUserEverywhere(ctx, u);
   await ctx.reply(`User ${u.fullName || u.username || u.telegramId} has been banned.`);
 });
-// Manual punishment: ban user + ask main admin for punishment amount
+// Manual punishment: ban user + ask main admin for amount
 bot.action(/^ADMIN_PUNISH_(.+)$/, async (ctx) => {
-  try {
-    await ctx.answerCbQuery().catch(() => {});
-    const userId = ctx.match[1];
+  await ctx.answerCbQuery();
 
-    const user = await User.findById(userId);
-    if (!user) {
-      await ctx.reply("❌ User not found.");
-      return;
-    }
-
-    // 1) Immediately ban the user from Taskifii (bot + group)
-    try {
-      await banUserEverywhere(ctx, user);
-    } catch (e) {
-      console.error("ADMIN_PUNISH banUserEverywhere failed:", e);
-    }
-
-    // 2) Store punishment state so the main admin can send the amount later
-    if (!global._taskifiiManualPunish) {
-      global._taskifiiManualPunish = new Map();
-    }
-    global._taskifiiManualPunish.set(MASTER_ADMIN_ID, {
-      targetUserId: String(user._id),
-      targetTelegramId: user.telegramId,
-      createdAt: Date.now()
-    });
-
-    // 3) Notify the admin (806525520) to send the punishment amount (positive integer)
-    const adminIntro = [
-      "⚖️ Manual punishment started.",
-      "",
-      `User: ${user.fullName || user.username || user.telegramId}`,
-      `Telegram ID: ${user.telegramId}`,
-      `User ID: ${user._id}`,
-      "",
-      "➡️ Please reply to this chat with the punishment amount in birr.",
-      "Send ONLY a positive integer, for example: 150"
-    ].join("\n");
-
-    await ctx.telegram.sendMessage(MASTER_ADMIN_ID, adminIntro);
-
-    // Let whoever clicked the button know that the flow started
-    await ctx.reply("✅ User has been banned. I’ve asked the main admin to send the punishment amount in private chat.");
-  } catch (e) {
-    console.error("ADMIN_PUNISH handler failed:", e);
-    try {
-      await ctx.reply("❌ Something went wrong while starting the punishment flow.");
-    } catch (_) {}
+  const userId = ctx.match[1];
+  const user = await User.findById(userId);
+  if (!user) {
+    return ctx.reply("Target user not found.");
   }
+
+  // 1) Immediately ban the user from bot + group (reuses your existing helper)
+  try {
+    await banUserEverywhere(ctx, user);
+  } catch (e) {
+    console.error("Failed to ban user in manual punishment:", e);
+  }
+
+  // 2) Create a ManualPunishment record so the next number the admin sends is tied to THIS user
+  try {
+    const mp = new ManualPunishment({
+      targetUser:       user._id,
+      targetTelegramId: user.telegramId,
+      adminTelegramId:  SUPER_ADMIN_TG_ID,
+      status:           "awaiting_amount"
+    });
+    await mp.save();
+  } catch (e) {
+    console.error("Failed to create ManualPunishment record:", e);
+    return ctx.reply("Could not start punishment flow. Please try again.");
+  }
+
+  // 3) Notify the main admin (chat id 806525520) to send a birr amount
+  const name = user.fullName || user.username || String(user.telegramId);
+
+  const msgEn = [
+    "⚖️ *Manual punishment started for this user:*",
+    `• Name: ${name}`,
+    `• Telegram ID: ${user.telegramId}`,
+    `• User ID: ${user._id}`,
+    "",
+    "Reply in *this chat* with the punishment fee in birr (positive whole number, for example 150).",
+    "",
+    "After you reply, the bot will send a Chapa payment link to this user. When they pay, they will be unbanned from Taskifii and the group automatically."
+  ].join("\n");
+
+  const msgAm = [
+    "⚖️ ለዚህ ተጠቃሚ የቅጣት እርምጃ ተጀምሯል።",
+    `• ስም፡ ${name}`,
+    `• የቴሌግራም መለያ፡ ${user.telegramId}`,
+    `• የተጠቃሚ መለያ (User ID)፡ ${user._id}`,
+    "",
+    "እባክዎ በዚህ ቻት ውስጥ ቅጣቱን የሚያመለክተውን የክፍያ መጠን በብር ያስገቡ (ከ0 በላይ የሆነ ኢንቲጀር፣ ምሳሌ፡ 150).",
+    "",
+    "ተጠቃሚው በChapa ክፍያውን ከጨረሰ በኋላ ከTaskifii እና ከቡድኑ በራስሰር ይፈታል።"
+  ].join("\n");
+
+  try {
+    await ctx.telegram.sendMessage(
+      SUPER_ADMIN_TG_ID,
+      `${msgEn}\n\n${msgAm}`,
+      { parse_mode: "Markdown" }
+    );
+  } catch (e) {
+    console.error("Failed to notify SUPER_ADMIN_TG_ID about punishment:", e);
+  }
+
+  // Let whoever pressed the button know something happened
+  return ctx.reply(`User ${name} has been banned and the main admin has been asked to set a punishment fee.`);
 });
 
 bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
@@ -7582,132 +7622,136 @@ bot.action("TASK_EDIT", async (ctx) => {
 bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
   // Initialize session
   ctx.session = ctx.session || {};
-    // ─────────────────────────────────────────────────────────────────
-  // Manual punishment amount flow (main admin sends a positive integer)
-  // ─────────────────────────────────────────────────────────────────
-  if (ctx.from && ctx.from.id === MASTER_ADMIN_ID && global._taskifiiManualPunish && ctx.message?.text) {
-    const pending = global._taskifiiManualPunish.get(ctx.from.id);
-    if (pending) {
-      const raw = (ctx.message.text || "").trim();
-      const amount = parseInt(raw, 10);
+    // ─────────────────────────────────────────────────────────────
+  // Manual punishment: SUPER_ADMIN enters the punishment amount
+  // ─────────────────────────────────────────────────────────────
+  const fromId = ctx.from?.id;
+  let rawText = "";
+  if (ctx.message) {
+    rawText = (ctx.message.text || ctx.message.caption || "").trim();
+  }
 
-      // Validate: must be a positive integer
-      if (!/^\d+$/.test(raw) || !Number.isFinite(amount) || amount <= 0) {
-        await ctx.reply("❌ Please send only a positive integer amount in birr (for example: 150).");
-        return; // do not continue with other handlers
+  // Only handle if it's the designated admin and it's a plain positive integer
+  if (fromId === SUPER_ADMIN_TG_ID && rawText && /^[0-9]+$/.test(rawText)) {
+    const amount = parseInt(rawText, 10);
+
+    // Find the most recent punishment waiting for an amount
+    const pending = await ManualPunishment.findOne({
+      adminTelegramId: SUPER_ADMIN_TG_ID,
+      status: "awaiting_amount"
+    }).sort({ createdAt: -1 });
+
+    if (!pending) {
+      // No manual punishment is waiting; let the message go through to normal logic
+    } else {
+      if (!Number.isFinite(amount) || amount <= 0) {
+        await ctx.reply(
+          "Please send a positive punishment amount in birr (for example 150).\n" +
+          "እባክዎ ከ0 በላይ ያለ የቅጣት መጠን በብር ያስገቡ (ምሳሌ፡ 150)."
+        );
+        return;
+      }
+
+      const user = await User.findById(pending.targetUser);
+      if (!user) {
+        pending.status = "canceled";
+        await pending.save();
+        await ctx.reply("The punished user could not be found any more, so this punishment was canceled.");
+        return;
       }
 
       try {
-        // Find the punished user again (by id or telegramId)
-        let targetUser = await User.findById(pending.targetUserId);
-        if (!targetUser) {
-          targetUser = await User.findOne({ telegramId: pending.targetTelegramId });
-        }
-
-        if (!targetUser) {
-          await ctx.reply("⚠️ Target user not found anymore. Punishment flow canceled.");
-          global._taskifiiManualPunish.delete(ctx.from.id);
-          return;
-        }
-
-        // Void any previous *manual* punishment intents (those without a task)
-        await PaymentIntent.updateMany(
-          {
-            user: targetUser._id,
-            type: "punishment",
-            status: "pending",
-            task: { $exists: false }
-          },
-          {
-            $set: {
-              status: "voided",
-              voidedAt: new Date()
-            }
-          }
-        );
-
-        // Create a new punishment PaymentIntent for this user
+        // Create PaymentIntent (punishment type) – reuses same model and IPN logic
         const intent = await PaymentIntent.create({
-          user: targetUser._id,
-          amount,
+          user:     user._id,
+          type:     "punishment",
+          task:     null,               // manual; not tied to a specific task
+          amount:   amount,
           currency: "ETB",
-          type: "punishment",
-          status: "pending",
+          status:   "pending",
           provider: "chapa",
-          createdAt: new Date()
+          createdAt:new Date()
         });
 
-        // IMPORTANT: tx_ref format must stay "punish_<intentId>" so your IPN handler works
         const txRef = `punish_${intent._id}`;
 
-        // Create Chapa checkout link (similar to existing punishment fee flow)
+        const fullName = user.fullName || user.username || String(user.telegramId);
+        const email    = user.email || "no-email@taskifii.local";
+        const phone    = user.phone || "";
+
         const checkout = await createChapaCheckoutLink({
           amount,
           currency: "ETB",
-          email: targetUser.email || "noemail@taskifii.local",
-          first_name: targetUser.fullName || targetUser.username || String(targetUser.telegramId),
+          email,
+          first_name: fullName,
+          last_name: "",
+          phone_number: phone,
           tx_ref: txRef,
-          callback_url: `${process.env.PUBLIC_BASE_URL || ""}/chapa/ipn`
+          callback_url: `${process.env.PUBLIC_BASE_URL || ""}/chapa/ipn`,
+          return_url:   `${process.env.PUBLIC_BASE_URL || ""}/chapa/return`,
+          description:  `Manual punishment fee for ${fullName}`
         });
 
-        const checkoutUrl = checkout?.data?.checkout_url || null;
+        intent.chapaTxRef = txRef;
+        intent.reference  = txRef;
+        intent.checkoutUrl = checkout?.data?.checkout_url || checkout?.checkout_url || "";
+        await intent.save();
 
-        await PaymentIntent.updateOne(
-          { _id: intent._id },
+        pending.status = "invoice_created";
+        pending.paymentIntent = intent._id;
+        await pending.save();
+
+        // Message to the punished user (English + Amharic version)
+        const lang = user.language || "en";
+        const amountStr = String(amount);
+
+        const textEn = [
+          "🚫 You have been banned from using Taskifii.",
+          "",
+          `To regain access, you must pay a punishment fee of *${amountStr} birr*.`,
+          "",
+          "Tap the payment button below and complete the payment.",
+          "After a successful payment you will automatically be unbanned from Taskifii and from the group."
+        ].join("\n");
+
+        const textAm = [
+          "🚫 ከTaskifii መጠቀም ታግዷችሁ ነው።",
+          "",
+          `ወደ Taskifii እና ወደ ቡድኑ እንደገና ለመመለስ የቅጣት ክፍያ *${amountStr} ብር* መክፈል ያስፈልግዎታል።`,
+          "",
+          "ከታች ያለውን የክፍያ ቁልፍ ይጫኑና ክፍያውን ያጠናቁ።",
+          "ክፍያው ከተሳካ በኋላ ከTaskifii እና ከቡድኑ በራስሰር ይፈታሉ።"
+        ].join("\n");
+
+        await ctx.telegram.sendMessage(
+          user.telegramId,
+          lang === "am" ? textAm : textEn,
           {
-            $set: {
-              reference: txRef,
-              chapaTxRef: txRef,
-              checkoutUrl
+            parse_mode: "Markdown",
+            reply_markup: {
+              inline_keyboard: [[
+                {
+                  text: lang === "am"
+                    ? "🔗 የቅጣት ክፍያ መክፈቻ"
+                    : "🔗 Open punishment payment",
+                  url: intent.checkoutUrl
+                }
+              ]]
             }
           }
         );
 
-        if (!checkoutUrl) {
-          await ctx.reply("⚠️ Could not generate Chapa payment link. Please try again or contact the developer.");
-          global._taskifiiManualPunish.delete(ctx.from.id);
-          return;
-        }
-
-        // Bilingual punishment message to the user
-        const lang = targetUser.language === "am" ? "am" : "en";
-        const userText =
-          lang === "am"
-            ? [
-                "🚫 ከTaskifii መጠቀም ታግዷችሁ ነው።",
-                `ወደ ቦቱ እንደገና ለመመለስ የቅጣት ክፍያ ብር ${amount} መክፈል ያስፈልግዎታል።`,
-                "እባክዎ ከታች ያለውን የክፍያ ሊንክ በመጫን ይክፈሉ እና ወደ Taskifii መግባት እንደገና ይችላሉ።",
-                "",
-                checkoutUrl
-              ].join("\n")
-            : [
-                "🚫 You’ve been banned from using Taskifii.",
-                `To regain access, you must pay a punishment fee of ${amount} birr.`,
-                "Please tap the payment link below to pay and unlock your Taskifii account again:",
-                "",
-                checkoutUrl
-              ].join("\n");
-
-        // Send to punished user
-        await ctx.telegram.sendMessage(targetUser.telegramId, userText, {
-          disable_web_page_preview: false
-        });
-
-        // Confirm to admin
-        await ctx.reply(
-          `✅ Punishment payment link sent to the user.\n\nAmount: ${amount} birr\nUser Telegram ID: ${targetUser.telegramId}`
-        );
+        await ctx.reply(`✅ Sent a ${amountStr} birr punishment payment link to ${fullName}.`);
+        return; // don't run the rest of the flow for this message
       } catch (e) {
-        console.error("Manual punishment flow failed:", e);
-        await ctx.reply("❌ Something went wrong while creating the punishment payment link. Please try again.");
-      } finally {
-        // Clear the pending punishment state for this admin
-        global._taskifiiManualPunish.delete(ctx.from.id);
+        console.error("Failed to create/send manual punishment payment:", e);
+        await ctx.reply("Something went wrong while creating the punishment payment link. Please try again.");
+        return;
       }
-
-      return; // important: stop further text handling
     }
   }
+  // ─────────────────────────────────────────────────────────────
+  // (the rest of your existing handler continues below)
 
   // ─────────── 1. Check if this is part of an application flow ───────────
   // In the application flow section of the consolidated handler:
@@ -9619,10 +9663,11 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
           Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
         ],
         [
-          // NEW: manual punishment button
+          // NEW: manual punishment flow
           Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id}`)
         ]
       ]);
+
 
       const sent = await ctx.telegram.sendMessage(
         ADMIN_CHANNEL,
@@ -9655,10 +9700,11 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
       Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id}`)
     ],
     [
-      // NEW: manual punishment button
+      // NEW: manual punishment flow
       Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id}`)
     ]
   ]);
+
 
   console.log(`Attempting to update admin message ${messageId} for user ${user._id}`);
   
