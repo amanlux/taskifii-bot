@@ -2481,9 +2481,8 @@ async function buildUserStatusSummary(userId) {
   // *before* half of the revision time
   let fixNoticeBeforeHalfCount = 0;
   if (doerWorks.length) {
-    const uniqueDoerTaskIds = [
-      ...new Set(doerTaskIds.map((id) => id.toString())),
-    ];
+    const uniqueDoerTaskIds = [...new Set(doerTaskIds.map(id => id.toString()))];
+
     const taskDocs = await Task.find(
       { _id: { $in: uniqueDoerTaskIds } },
       { _id: 1, revisionTime: 1 }
@@ -9880,51 +9879,10 @@ async function handleExpiryHours(ctx, draft) {
 async function updateAdminProfilePost(ctx, user, adminMessageId) {
   const ADMIN_CHANNEL = "-1002310380363"; // Make sure this is correct
   const messageId = adminMessageId || user.adminMessageId;
-  
-  if (!messageId) {
-    console.error("No adminMessageId found for user:", user._id);
-    // Fallback: Send a new message and store its ID
-    try {
-      const adminText = buildAdminProfileText(user);
-      const adminButtons = [
-        [
-          Markup.button.callback("Ban User", `ADMIN_BAN_${user._id.toString()}`),
-          Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id.toString()}`),
-        ],
-        [
-          Markup.button.callback("Contact User", `ADMIN_CONTACT_${user._id.toString()}`),
-          Markup.button.callback("Give Reviews", `ADMIN_REVIEW_${user._id.toString()}`),
-        ],
-        [
-          Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id.toString()}`),
-          Markup.button.callback("Status", `ADMIN_STATUS_${user._id.toString()}`),
-        ],
-      ];
 
-
-
-      const sent = await ctx.telegram.sendMessage(
-        ADMIN_CHANNEL,
-        adminText,
-        {
-          // Removed parse_mode: "Markdown" to avoid errors with special characters
-          reply_markup: adminButtons.reply_markup
-        }
-      );
-      
-      user.adminMessageId = sent.message_id;
-      await user.save();
-      console.log(`Created new admin message ${sent.message_id} for user ${user._id}`);
-      return sent;
-    } catch (err) {
-      console.error("Failed to create new admin message:", err);
-      throw new Error("Failed to create new admin message");
-    }
-  }
-
-  // Update existing message
+  // Build the text + buttons once
   const adminText = buildAdminProfileText(user);
-  const adminButtons = [
+  const adminButtons = Markup.inlineKeyboard([
     [
       Markup.button.callback("Ban User", `ADMIN_BAN_${user._id.toString()}`),
       Markup.button.callback("Unban User", `ADMIN_UNBAN_${user._id.toString()}`),
@@ -9937,12 +9895,36 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
       Markup.button.callback("Punishment", `ADMIN_PUNISH_${user._id.toString()}`),
       Markup.button.callback("Status", `ADMIN_STATUS_${user._id.toString()}`),
     ],
-  ];
+  ]);
 
+  // If we don't have a stored message id yet, send a new profile post
+  if (!messageId) {
+    console.error("No adminMessageId found for user:", user._id);
 
+    try {
+      const sent = await ctx.telegram.sendMessage(
+        ADMIN_CHANNEL,
+        adminText,
+        {
+          // If you want Markdown later, uncomment this:
+          // parse_mode: "Markdown",
+          ...adminButtons, // includes reply_markup
+        }
+      );
 
+      user.adminMessageId = sent.message_id;
+      await user.save();
+      console.log(`Created new admin message ${sent.message_id} for user ${user._id}`);
+      return sent;
+    } catch (err) {
+      console.error("Failed to create new admin message:", err);
+      throw new Error("Failed to create new admin message");
+    }
+  }
+
+  // We already have a message – try to edit it
   console.log(`Attempting to update admin message ${messageId} for user ${user._id}`);
-  
+
   try {
     const result = await ctx.telegram.editMessageText(
       ADMIN_CHANNEL,
@@ -9950,51 +9932,50 @@ async function updateAdminProfilePost(ctx, user, adminMessageId) {
       null,
       adminText,
       {
-        // Removed parse_mode: "Markdown" here too
-        reply_markup: adminButtons.reply_markup
+        // parse_mode: "Markdown",
+        ...adminButtons, // includes reply_markup
       }
     );
     console.log("Successfully updated admin message");
     return result;
   } catch (err) {
     console.error("Failed to edit admin message:", err.message);
-    
-    // If the message is too old to edit, send a new one and delete the old
-    if (err.description && (
-          err.description.includes("message to edit not found") || 
-          err.description.includes("message is too old")
-        )) {
-      console.log("Message too old, sending new one");
-      
-      // Send new message
-      const sent = await ctx.telegram.sendMessage(
-        ADMIN_CHANNEL,
-        adminText,
-        {
-          // Removed parse_mode: "Markdown" here as well
-          reply_markup: adminButtons.reply_markup
-        }
-      );
-      
-      // Try to delete the old message if it exists
-      if (messageId) {
-        try {
-          await ctx.telegram.deleteMessage(ADMIN_CHANNEL, messageId);
-          console.log("Deleted old admin message");
-        } catch (deleteErr) {
-          console.error("Failed to delete old admin message:", deleteErr.message);
-        }
+
+    // If the message is too old or not found, send a fresh one instead
+    if (
+      err.description &&
+      (
+        err.description.includes("message to edit not found") ||
+        err.description.includes("message is too old")
+      )
+    ) {
+      console.log("Message too old or not found, sending new one");
+
+      try {
+        const sent = await ctx.telegram.sendMessage(
+          ADMIN_CHANNEL,
+          adminText,
+          {
+            // parse_mode: "Markdown",
+            ...adminButtons,
+          }
+        );
+
+        user.adminMessageId = sent.message_id;
+        await user.save();
+        console.log(`Created replacement admin message ${sent.message_id} for user ${user._id}`);
+        return sent;
+      } catch (e2) {
+        console.error("Failed to send replacement admin message:", e2);
+        throw new Error("Failed to replace admin message");
       }
-      
-      // Update user with new message ID
-      user.adminMessageId = sent.message_id;
-      await user.save();
-      return sent;
     }
-    
-    throw err; // Re-throw other errors
+
+    // Any other error bubbles up
+    throw err;
   }
 }
+
 
 
 
