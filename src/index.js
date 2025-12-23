@@ -13271,8 +13271,9 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     creatorUser.telegramId,
     infoText,
     Markup.inlineKeyboard([
-      Markup.button.callback(approveLabel, `CREATOR_APPROVE_CORRECTED_${taskId}`),
-      Markup.button.callback(rejectLabel,  `CREATOR_REJECT_CORRECTED_${taskId}`)
+      Markup.button.callback(approveLabel, `CREATOR_APPROVE_REVISION_${taskId}`),
+      Markup.button.callback(rejectLabel,  `CREATOR_REJECT_REVISION_${taskId}`)
+
     ])
   );
 
