@@ -12824,17 +12824,60 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   // If valid, acknowledge the button tap normally
   await ctx.answerCbQuery();
 
-  // ✅ NOW (and only now) record fix notice as sent
-  try {
-    work.fixNoticeSentAt = new Date();
-    await work.save();
-  } catch (_) {}
+  
 
   // Keep your existing behavior the same from here onward:
   // - edit button to ✔ Fix Notice Sent
   // - forward all fixRequests to doer
   // - notify doer with report / send corrected options, etc.
 
+  
+
+  // Try forwarding; if ALL were deleted, treat as "no fix notice was sent"
+  let forwardedCount = 0;
+  const stillValidFixRequests = [];
+
+  for (const req of (work.fixRequests || [])) {
+    try {
+      await ctx.telegram.forwardMessage(doerTid, creator.telegramId, req.messageId);
+      forwardedCount += 1;
+      stillValidFixRequests.push(req);
+    } catch (err) {
+      console.error("Failed to forward fix request message:", err);
+    }
+  }
+
+  // ✅ If nothing could be forwarded, creator probably deleted them.
+  // Treat as if they NEVER sent a fix notice.
+  if (forwardedCount === 0) {
+    // Clear the stored fix requests so next click behaves correctly
+    work.fixRequests = [];
+    work.fixNoticeSentAt = undefined;
+    // Optional safety: also revert revision status if you use it elsewhere
+    if (work.currentRevisionStatus === 'awaiting_fix') {
+      work.currentRevisionStatus = 'none';
+    }
+
+    try { await work.save(); } catch (e) { console.error("Failed to clear deleted fixRequests:", e); }
+
+    const alertMsg = (lang === 'am')
+      ? "❌ ያላኩት ማስተካከል መልዕክቶች ተሰርዘዋል ወይም አልተገኙም። እባክዎ እንደገና ቢያንስ አንድ መልዕክት/ፋይል ይላኩ፣ ከዚያ ቁልፉን ይጫኑ።"
+      : "❌ Your fix notice messages were deleted or could not be found. Please send at least one fix message/file again, then tap the button.";
+
+    return ctx.answerCbQuery(alertMsg, { show_alert: true });
+  }
+
+  // If some were deleted but some are still valid, keep only the valid ones
+  if (stillValidFixRequests.length !== (work.fixRequests || []).length) {
+    work.fixRequests = stillValidFixRequests;
+    try { await work.save(); } catch (e) { console.error("Failed to trim invalid fixRequests:", e); }
+  }
+  // ✅ NOW (and only now) record fix notice as sent
+  try {
+    work.fixNoticeSentAt = new Date();
+    await work.save();
+  } catch (_) {}
+  // ✅ NOW update the creator button to ✔ (ONLY after success)
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[ Markup.button.callback(
@@ -12843,14 +12886,6 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
       ) ]]
     });
   } catch {}
-
-  for (const req of work.fixRequests) {
-    try {
-      await ctx.telegram.forwardMessage(doerTid, creator.telegramId, req.messageId);
-    } catch (err) {
-      console.error("Failed to forward fix request message:", err);
-    }
-  }
   // Notify the doer with options to report or send corrected work
   const doerLang = doerUser.language || 'en';
   const doerMsgText = (doerLang === 'am')
