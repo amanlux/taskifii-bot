@@ -12765,70 +12765,54 @@ bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
 
 // ─── CREATOR “Send Fix Notice” Action ───────────────────────────
 bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
   const taskId = ctx.match[1];
   const creator = await User.findOne({ telegramId: ctx.from.id });
   const lang = creator?.language || 'en';
+
   // Load the work and any collected fix request messages
   const work = await DoerWork.findOne({ task: taskId }).populate('doer');
   if (!work) return;
+
   const doerUser = work.doer;
   const doerTid = work.doerTelegramId;
-  const now = new Date();
+
   // Load the task once so we can reuse it below
   const task = await Task.findById(taskId);
   if (!task) {
     return ctx.answerCbQuery("Error: task not found.", { show_alert: true });
   }
 
-  // First-half deadline = completedAt + (revisionTime / 2)
-  const halfDeadline = new Date(
-    work.completedAt.getTime() + (task.revisionTime * 60 * 60 * 1000) / 2
-  );
-
-  // ❗ VALIDATION: creator must have listed at least one fix item
+  // ✅ VALIDATION FIRST (so NOTHING ELSE happens if invalid)
   if (!work.fixRequests || work.fixRequests.length === 0) {
-    // No messages listed – show error with remaining time
-    const remainingMs = halfDeadline.getTime() - now.getTime();
-    const minsLeft = Math.max(0, Math.ceil(remainingMs / 60000));
-    let timeLeftStr;
-    if (minsLeft >= 60) {
-      const hrs = Math.floor(minsLeft / 60);
-      const mins = minsLeft % 60;
-      timeLeftStr = (hrs > 0)
-        ? `${hrs} hour${hrs>1?'s':''}${mins>0?` ${mins} min${mins>1?'s':''}`:''}`
-        : `${mins} minute${mins!==1?'s':''}`;
-    } else {
-      timeLeftStr = `${minsLeft} minute${minsLeft!==1?'s':''}`;
-    }
-
     const alertMsg = (lang === 'am')
-      ? `❌ ማስተካከል ምንም ነገር አልጻፉም። እባክዎን ለተግዳሮቱ አከናዋይ ምን እንደሚታረም ቢያንስ አንድ ነጥብ ይጻፉ። ቀሪ ጊዜ፡ ${minsLeft} ደቂቃ።`
-      : `❌ You haven't listed any issues to fix. Please add at least one line explaining what the doer must correct. Time remaining: ${timeLeftStr}.`;
-
+      ? "❌ እባክዎ ቢያንስ አንድ ነገር ይላኩ ወይም ይጻፉ—ተግዳሮቱን አድራጊ ትክክል ምን እንዲያስተካክል እንዲያውቅ።"
+      : "❌ Please send at least one thing that explains to the task doer what to fix.";
     return ctx.answerCbQuery(alertMsg, { show_alert: true });
   }
 
-  // ✅ At this point we have at least one fix request:
-  // mark that a proper fix notice has been sent
+  // If valid, acknowledge the button tap normally
+  await ctx.answerCbQuery();
+
+  // ✅ NOW (and only now) record fix notice as sent
   try {
     work.fixNoticeSentAt = new Date();
     await work.save();
   } catch (_) {}
 
-  // Update the creator’s button to “Fix Notice Sent”
+  // Keep your existing behavior the same from here onward:
+  // - edit button to ✔ Fix Notice Sent
+  // - forward all fixRequests to doer
+  // - notify doer with report / send corrected options, etc.
+
   try {
     await ctx.editMessageReplyMarkup({
-      inline_keyboard: [[
-        Markup.button.callback(
-          lang === 'am' ? "✔ ማስተካከል ማሳወቂያ ተልኳል" : "✔ Fix Notice Sent",
-          `_DISABLED_SEND_FIX_NOTICE`
-        )
-      ]]
+      inline_keyboard: [[ Markup.button.callback(
+        lang === 'am' ? "✔ ማስተካከል ማሳወቂያ ተልኳል" : "✔ Fix Notice Sent",
+        `_DISABLED_SEND_FIX_NOTICE`
+      ) ]]
     });
-  } catch (_) {}
+  } catch {}
 
-  // Creator provided fix requests: forward all to the task doer
   for (const req of work.fixRequests) {
     try {
       await ctx.telegram.forwardMessage(doerTid, creator.telegramId, req.messageId);
@@ -12836,13 +12820,12 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
       console.error("Failed to forward fix request message:", err);
     }
   }
-
   // Notify the doer with options to report or send corrected work
   const doerLang = doerUser.language || 'en';
   const doerMsgText = (doerLang === 'am')
     ? "⚠️ ተግዳሮቱን ፈጣሪ ማስተካከል እንዳለበት ጠይቋል። እባክዎን የተጠየቁትን ነገሮች አስተካክሏቸው የተስተካከለውን ስራ ይላኩ። የተሳሳቱ ጥያቄዎች እንዳሉ ቢያስቡ ሪፖርት ማድረግ ይችላሉ።"
     : "⚠️ The client has requested some revisions. Please address the issues and send the corrected work. If any request seems out of scope, you may report it.";
-
+  // capture the buttons message id so we can inactivate later without deleting it
   const sentToDoer = await ctx.telegram.sendMessage(
     doerUser.telegramId,
     doerMsgText,
@@ -12872,34 +12855,58 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
     if (revisionHours > 0 && work.completedAt) {
       const firstHalfMillis = (revisionHours * 60 * 60 * 1000) / 2;
       const revisionStart = new Date(work.completedAt);
-      const halfDeadline2 = new Date(revisionStart.getTime() + firstHalfMillis);
-      const now2 = new Date();
+      const halfDeadline = new Date(revisionStart.getTime() + firstHalfMillis);
+      const now = new Date();
 
-      if (now2 < halfDeadline2) {
+      if (now < halfDeadline) {
         // stop any future "creator first-half enforcement"
         await DoerWork.updateOne(
           { _id: work._id },
-          { $set: { halfWindowCanceledAt: now2 } }
+          { $set: { halfWindowCanceledAt: now } }
         );
 
         // arm the second-half timer (a fresh half of the revision time starting now)
-        const secondHalfEnd = new Date(now2.getTime() + firstHalfMillis);
-        await DoerWork.updateOne(
-          { _id: work._id },
-          {
-            $set: {
-              revisionStartedAt: now2,
-              revisionDeadlineAt: secondHalfEnd
-            }
-          }
-        );
+        const secondHalfEnd = new Date(now.getTime() + firstHalfMillis);
+        const delay = Math.max(0, secondHalfEnd.getTime() - now.getTime());
+        scheduleDoerSecondHalfEnforcement(String(task._id), delay); // function added in section 3
+
       }
     }
-  } catch (e) {
-    console.error("Failed to adjust revision windows after fix notice:", e);
-  }
-});
+  } catch (e) { console.error("second-half arming failed:", e); }
 
+  
+
+  // Mark fix notice as sent and track revision status
+  work.fixNoticeSentAt = new Date();
+  work.currentRevisionStatus = 'awaiting_fix';
+
+  // Also store revision start/end so timers survive restarts
+  // (use the moment the Fix Notice is sent + HALF of task.revisionTime hours)
+  try {
+    if (work.fixNoticeSentAt && task && Number(task.revisionTime || 0) > 0) {
+      const revisionHours = Number(task.revisionTime || 0);
+      const secondHalfMillis = (revisionHours * 60 * 60 * 1000) / 2;
+
+      const revisionStart = new Date(work.fixNoticeSentAt);
+      const revisionEnd = new Date(
+        revisionStart.getTime() + secondHalfMillis
+      );
+
+      work.revisionStartedAt = revisionStart;
+      work.revisionDeadlineAt = revisionEnd;
+    }
+  } catch (e) {
+    console.error("Failed to set revision window:", e);
+  }
+
+
+  await work.save();
+
+  
+  
+  // Clear the creator's session fix mode
+  ctx.session.fixingTaskId = null;
+});
 bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
   try {
     await ctx.answerCbQuery();
@@ -13166,6 +13173,27 @@ bot.action("_DISABLED_GENERIC", async (ctx) => {
 // arrived after the fix notice to the creator and shows the creator
 // Approve/Reject buttons.
 bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
+  // highlight the clicked button and disable both buttons
+  try {
+    const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
+    if (currentKeyboard && currentKeyboard[0]) {
+      const newRow = currentKeyboard[0].map(btn => {
+        if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
+          // disable report, keep label
+          return Markup.button.callback(btn.text, "_DISABLED_DOER_REPORT");
+        }
+        if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
+          const highlighted = btn.text.startsWith("✔") ? btn.text : (`✔ ${btn.text}`);
+          return Markup.button.callback(highlighted, "_DISABLED_DOER_SEND_CORRECTED");
+        }
+        return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
+      });
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
+    }
+  } catch (err) {
+    console.error("Failed to edit inline keyboard on send corrected:", err);
+  }
+
   const taskId = ctx.match[1];
   const work = await DoerWork.findOne({ task: taskId });
   const task = await Task.findById(taskId);
@@ -13193,6 +13221,7 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     }
   }
 
+
   // messages sent after the fix notice are considered corrections
   const cutOff   = work.fixNoticeSentAt || work.completedAt;
   const correctedEntries = (work.messages || []).filter(
@@ -13206,27 +13235,6 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
       { show_alert: true }
     );
     return;
-  }
-
-  // ✅ ONLY NOW, after we know the corrected work is valid, lock the buttons
-  try {
-    const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
-    if (currentKeyboard && currentKeyboard[0]) {
-      const newRow = currentKeyboard[0].map(btn => {
-        if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
-          // disable report, keep label
-          return Markup.button.callback(btn.text, "_DISABLED_DOER_REPORT");
-        }
-        if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
-          const highlighted = btn.text.startsWith("✔") ? btn.text : (`✔ ${btn.text}`);
-          return Markup.button.callback(highlighted, "_DISABLED_DOER_SEND_CORRECTED");
-        }
-        return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
-      });
-      await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
-    }
-  } catch (err) {
-    console.error("Failed to edit inline keyboard on send corrected:", err);
   }
 
   // forward each corrected message to the creator preserving type and caption
@@ -13266,7 +13274,7 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     ])
   );
 
-  // store this message id so we can later make Approve/Reject inert
+  // store this message id so we can later make Approve/Reject inert (difference A)
   try {
     await DoerWork.updateOne(
       { _id: work._id },
@@ -13282,6 +13290,7 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   }
 
   // Start a fresh post-correction timer equal to HALF of the revision time.
+  // This only runs because we already checked that we are still within the second revision window.
   try {
     const revisionHoursLocal = task.revisionTime || 0;
     if (revisionHoursLocal > 0) {
@@ -13292,11 +13301,13 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     console.error("Failed to schedule creator final decision enforcement:", e);
   }
 
-  // update revision state
+
+  // update revision state (optional but harmless)
   try {
     work.currentRevisionStatus = 'fix_received';
     work.revisionCount = (work.revisionCount || 0) + 1;
     work.doerCorrectedClickedAt = new Date();
+
     await work.save();
   } catch (err) {
     console.error("Failed to update work after corrected send:", err);
@@ -13304,7 +13315,6 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
 
   await ctx.answerCbQuery();
 });
-
 // Creator clicked Approve on a corrected submission.
 // Visually behaves like before, but now also finalizes exactly like "Valid".
 bot.action(/^CREATOR_APPROVE_REVISION_(.+)$/, async (ctx) => {
