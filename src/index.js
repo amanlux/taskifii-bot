@@ -5460,9 +5460,20 @@ function startBot() {
         return next();
       }
 
-      // 2) Skip the "Punishment fee" button even in user chats
+      // Current button’s callback data
       const data = ctx.callbackQuery.data || "";
-      if (data.startsWith("PUNISH_PAY_")) {
+
+      // 2) Skip special callbacks that must NOT use "first button wins"
+      //    - Punishment fee payment
+      //    - Completed task sent
+      //    - Send corrected version
+      //    - Send Fix Notice
+      if (
+        data.startsWith("PUNISH_PAY_") ||
+        data.startsWith("COMPLETED_SENT_") ||
+        data.startsWith("DOER_SEND_CORRECTED_") ||
+        data.startsWith("CREATOR_SEND_FIX_NOTICE_")
+      ) {
         return next();
       }
 
@@ -5502,6 +5513,7 @@ function startBot() {
       return next();
     }
   });
+
 
 
 
