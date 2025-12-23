@@ -13173,28 +13173,8 @@ bot.action("_DISABLED_GENERIC", async (ctx) => {
 // arrived after the fix notice to the creator and shows the creator
 // Approve/Reject buttons.
 bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
-  // highlight the clicked button and disable both buttons
-  try {
-    const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
-    if (currentKeyboard && currentKeyboard[0]) {
-      const newRow = currentKeyboard[0].map(btn => {
-        if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
-          // disable report, keep label
-          return Markup.button.callback(btn.text, "_DISABLED_DOER_REPORT");
-        }
-        if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
-          const highlighted = btn.text.startsWith("✔") ? btn.text : (`✔ ${btn.text}`);
-          return Markup.button.callback(highlighted, "_DISABLED_DOER_SEND_CORRECTED");
-        }
-        return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
-      });
-      await ctx.editMessageReplyMarkup({ inline_keyboard: [ newRow ] });
-    }
-  } catch (err) {
-    console.error("Failed to edit inline keyboard on send corrected:", err);
-  }
-
   const taskId = ctx.match[1];
+
   const work = await DoerWork.findOne({ task: taskId });
   const task = await Task.findById(taskId);
   if (!work || !task) {
@@ -13221,12 +13201,13 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     }
   }
 
-
   // messages sent after the fix notice are considered corrections
-  const cutOff   = work.fixNoticeSentAt || work.completedAt;
+  const cutOff = work.fixNoticeSentAt || work.completedAt;
   const correctedEntries = (work.messages || []).filter(
     entry => entry.date && entry.date > cutOff
   );
+
+  // ✅ If no corrected work, DO NOT disable/highlight buttons.
   if (!correctedEntries.length) {
     await ctx.answerCbQuery(
       (work.doer?.language || 'en') === 'am'
@@ -13237,12 +13218,35 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     return;
   }
 
+  // ✅ NOW (and only now) highlight "Send corrected version" + disable both buttons
+  try {
+    const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
+    if (currentKeyboard && currentKeyboard[0]) {
+      const newRow = currentKeyboard[0].map(btn => {
+        if (btn.callback_data && btn.callback_data.startsWith("DOER_REPORT_")) {
+          // disable report, keep label (not highlighted)
+          return Markup.button.callback(btn.text, "_DISABLED_DOER_REPORT");
+        }
+        if (btn.callback_data && btn.callback_data.startsWith("DOER_SEND_CORRECTED_")) {
+          const highlighted = btn.text.startsWith("✔") ? btn.text : (`✔ ${btn.text}`);
+          return Markup.button.callback(highlighted, "_DISABLED_DOER_SEND_CORRECTED");
+        }
+        return Markup.button.callback(btn.text, "_DISABLED_GENERIC");
+      });
+
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [newRow] });
+    }
+  } catch (err) {
+    console.error("Failed to edit inline keyboard on send corrected:", err);
+  }
+
   // forward each corrected message to the creator preserving type and caption
   const creatorUser = await User.findById(task.creator);
   if (!creatorUser) {
     await ctx.answerCbQuery("Error: creator not found.", { show_alert: true });
     return;
   }
+
   for (const entry of correctedEntries) {
     try {
       await ctx.telegram.copyMessage(
@@ -13261,60 +13265,33 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   const rejectLabel  = creatorLang === 'am' ? "❌ እስት ፍቀድ" : "❌ Reject";
   const infoText = creatorLang === 'am'
     ? "የተስተካከለው ስራ ተልኳል። እባክዎ ይመልከቱና ለመቀበል ወይም ለመካከል ቁልፍ ይጫኑ።"
-    : "The corrected work has been submitted. Please review it and tap Approve or Reject below.";
+    : "The corrected work has been submitted. Please review and approve or reject.";
 
-  const creatorPrompt = await ctx.telegram.sendMessage(
+  const sent = await ctx.telegram.sendMessage(
     creatorUser.telegramId,
     infoText,
     Markup.inlineKeyboard([
-      [
-        Markup.button.callback(approveLabel, `CREATOR_APPROVE_REVISION_${taskId}`),
-        Markup.button.callback(rejectLabel,  `CREATOR_REJECT_REVISION_${taskId}`)
-      ]
+      Markup.button.callback(approveLabel, `CREATOR_APPROVE_CORRECTED_${taskId}`),
+      Markup.button.callback(rejectLabel,  `CREATOR_REJECT_CORRECTED_${taskId}`)
     ])
   );
 
-  // store this message id so we can later make Approve/Reject inert (difference A)
+  // store creator final decision message id (if your code already uses this field)
   try {
-    await DoerWork.updateOne(
-      { _id: work._id },
-      {
-        $set: {
-          creatorFinalDecisionMessageId: creatorPrompt.message_id,
-          finalDecisionCanceledAt: null
-        }
-      }
-    );
-  } catch (e) {
-    console.error("Failed to store creatorFinalDecisionMessageId:", e);
-  }
-
-  // Start a fresh post-correction timer equal to HALF of the revision time.
-  // This only runs because we already checked that we are still within the second revision window.
-  try {
-    const revisionHoursLocal = task.revisionTime || 0;
-    if (revisionHoursLocal > 0) {
-      const halfMillis = (revisionHoursLocal * 60 * 60 * 1000) / 2;
-      scheduleCreatorFinalDecisionEnforcement(String(taskId), halfMillis);
-    }
-  } catch (e) {
-    console.error("Failed to schedule creator final decision enforcement:", e);
-  }
-
-
-  // update revision state (optional but harmless)
-  try {
-    work.currentRevisionStatus = 'fix_received';
-    work.revisionCount = (work.revisionCount || 0) + 1;
+    work.creatorFinalDecisionMessageId = sent.message_id;
     work.doerCorrectedClickedAt = new Date();
-
+    work.currentRevisionStatus = 'fix_received';
     await work.save();
-  } catch (err) {
-    console.error("Failed to update work after corrected send:", err);
+  } catch (e) {
+    console.error("Failed saving revision metadata:", e);
   }
 
-  await ctx.answerCbQuery();
+  // Optional: silent acknowledgment
+  try {
+    await ctx.answerCbQuery();
+  } catch (e) {}
 });
+
 // Creator clicked Approve on a corrected submission.
 // Visually behaves like before, but now also finalizes exactly like "Valid".
 bot.action(/^CREATOR_APPROVE_REVISION_(.+)$/, async (ctx) => {
