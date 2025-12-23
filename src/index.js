@@ -12417,19 +12417,47 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
 
     const doerUser = await User.findById(work.doer);
     const doerLang = doerUser?.language || 'en';
+    // Load the task creator's user (to get their Telegram ID and language)
+    const creatorUser = await User.findById(task.creator);
+    if (!creatorUser) return;
+    const lang = creatorUser.language || 'en';
+    // 1️⃣ VALIDATION SAFEGUARD (UPGRADED):
+    // The doer might have sent messages earlier, but then deleted them.
+    // So we only treat it as a "valid submission" if we can still copy at least ONE message.
+    const entries = Array.isArray(work.messages) ? work.messages : [];
+    let firstCopiedIndex = -1;
 
-    // 1️⃣ VALIDATION SAFEGUARD:
-    // Has this doer actually sent at least ONE valid message/file?
-    const hasAnyValidSubmission = work.messages?.length > 0;
-    if (!hasAnyValidSubmission) {
-      // Use the localized button text in the error message
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry?.messageId) continue;
+
+      try {
+        // Try copying ONE message to the creator. If this succeeds,
+        // it proves at least one submission still exists.
+        await ctx.telegram.copyMessage(
+          creatorUser.telegramId,
+          work.doerTelegramId,
+          entry.messageId
+        );
+        firstCopiedIndex = i;
+        break;
+      } catch (err) {
+        // If it's deleted/invalid, Telegram throws an error. We just try the next one.
+        continue;
+      }
+    }
+
+    if (firstCopiedIndex === -1) {
+      // None of the stored messages could be copied -> treat as "no submission"
       const btnText = TEXT.completedSentBtn[doerLang] || TEXT.completedSentBtn.en;
       const errText = (doerLang === 'am')
-        ? `እባክዎ የተጠናቀቀውን ስራ ወይም የተግባሩን የተጠናቀቀ ማረጋገጫ በመላክ በኋላ ብቻ "${btnText}" ይጫኑ።`
+        ? `እባክዎ የተጠናቀቀውን ስራ ወይም ግልጽ ማረጋገጫ ከላኩ በኋላ ብቻ "${btnText}" ይጫኑ።`
         : `Please send the completed task or clear proof of completion first, then press "${btnText}."`;
+
       await ctx.reply(errText);
-      return; // 🔒 DO NOT mark completed or notify creator
+      return; // 🔒 stop: DO NOT mark completed, DO NOT send creator buttons
     }
+
 
     
 
@@ -12440,10 +12468,7 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     // const creatorUser = await User.findById(task.creator);
     // ...
     
-    // Load the task creator's user (to get their Telegram ID and language)
-    const creatorUser = await User.findById(task.creator);
-    if (!creatorUser) return;
-    const lang = creatorUser.language || 'en';
+    
     
     // Flip the doer's control button to checked (✔ Completed task sent)
     
@@ -12462,18 +12487,24 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     work.status = 'completed';
     await work.save();
     
-    // Forward all doer’s messages/files to the task creator, preserving format
-    for (const entry of work.messages) {
+    // Forward remaining doer messages/files to the task creator (skip the one already copied in validation)
+    for (let i = firstCopiedIndex + 1; i < entries.length; i++) {
+      const entry = entries[i];
+      if (!entry?.messageId) continue;
+
       try {
         await ctx.telegram.copyMessage(
-          creatorUser.telegramId,   // target: creator
-          work.doerTelegramId,      // from: doer's chat
-          entry.messageId           // message to copy
+          creatorUser.telegramId,  // target: creator
+          work.doerTelegramId,     // from: doer's chat
+          entry.messageId          // message to copy
         );
       } catch (err) {
+        // If deleted/invalid, skip silently (or keep your console log if you want)
         console.error("Failed to forward doer message:", err);
+        continue;
       }
     }
+
     
     // Send the creator a decision prompt with "Valid" and "Needs Fixing" options
     const decisionMsg = (lang === 'am')
