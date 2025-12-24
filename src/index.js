@@ -13284,6 +13284,41 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     return;
   }
 
+  
+
+  // forward each corrected message to the creator preserving type and caption
+  const creatorUser = await User.findById(task.creator);
+  if (!creatorUser) {
+    await ctx.answerCbQuery("Error: creator not found.", { show_alert: true });
+    return;
+  }
+
+  let successCount = 0;
+
+  for (const entry of correctedEntries) {
+    try {
+      await ctx.telegram.copyMessage(
+        creatorUser.telegramId,
+        work.doerTelegramId,
+        entry.messageId
+      );
+      successCount += 1;
+    } catch (err) {
+      // This is expected if the doer deleted the message after sending it
+      console.error("Failed to forward corrected message:", err);
+    }
+  }
+
+  // ✅ NEW: if ALL corrected messages were deleted (or otherwise failed), treat as "none sent"
+  if (successCount === 0) {
+    await ctx.answerCbQuery(
+      (work.doer?.language || "en") === "am"
+        ? "አስተካክሏት ያላኩት ምንም መልእክት አልተገኘም። እባክዎን የተስተካከለውን ስራ እንደገና ላኩ።"
+        : "No corrected work was detected (the messages may have been deleted). Please send the corrected files/messages again before tapping this button.",
+      { show_alert: true }
+    );
+    return;
+  }
   // ✅ NOW (and only now) highlight "Send corrected version" + disable both buttons
   try {
     const currentKeyboard = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard;
@@ -13304,25 +13339,6 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     }
   } catch (err) {
     console.error("Failed to edit inline keyboard on send corrected:", err);
-  }
-
-  // forward each corrected message to the creator preserving type and caption
-  const creatorUser = await User.findById(task.creator);
-  if (!creatorUser) {
-    await ctx.answerCbQuery("Error: creator not found.", { show_alert: true });
-    return;
-  }
-
-  for (const entry of correctedEntries) {
-    try {
-      await ctx.telegram.copyMessage(
-        creatorUser.telegramId,
-        work.doerTelegramId,
-        entry.messageId
-      );
-    } catch (err) {
-      console.error("Failed to forward corrected message:", err);
-    }
   }
 
   // send a prompt to the creator to approve or reject the corrected work
