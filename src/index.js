@@ -4031,7 +4031,11 @@ async function banUserEverywhere(ctx, userDoc) {
   ); } catch(e) { console.error("banlist upsert failed", e); }
 
   try { await ctx.telegram.banChatMember(BAN_GROUP_ID, userDoc.telegramId); }
-  catch (e) { console.warn("banChatMember failed (ignore):", e?.description || e?.message); }
+  catch (e) {
+    console.warn("banChatMember failed:", e?.description || e?.message);
+    console.warn("Make sure the bot is ADMIN in the group and has 'Ban users' + 'Delete messages'.");
+  }
+
 }
 async function unbanUserEverywhere(ctx, userDoc) {
   try { await Banlist.deleteOne({ $or: [{ user: userDoc._id }, { telegramId: userDoc.telegramId }] }); }
@@ -12078,6 +12082,36 @@ bot.on('message', async (ctx, next) => {
   try {
     const fromId = ctx.from?.id;
     if (!fromId) return next();
+    // 🔒 Group ban enforcement: if a banned user posts in the Taskifii group,
+    // delete their message immediately and re-apply the ban.
+    // (Does NOT affect private chats or other bot flows.)
+    if (ctx.chat?.id === BAN_GROUP_ID) {
+      try {
+        const bannedRow = await Banlist.findOne({ telegramId: fromId }).lean();
+        if (bannedRow) {
+          // 1) Delete the message so it won't remain visible in the group
+          try {
+            await ctx.telegram.deleteMessage(BAN_GROUP_ID, ctx.message.message_id);
+          } catch (_) {
+            // ignore: bot may lack delete permission or message may be too old
+          }
+
+          // 2) Re-apply the ban as a safety net (in case ban didn't stick)
+          try {
+            await ctx.telegram.banChatMember(BAN_GROUP_ID, fromId);
+          } catch (_) {
+            // ignore: bot may lack ban permission or user is admin
+          }
+
+          // Stop here: don't run the rest of your message pipeline for this update
+          return;
+        }
+      } catch (e) {
+        console.error("Group ban enforcement error:", e);
+        // If something goes wrong, DO NOT break the rest of your bot
+        return next();
+      }
+    }
 
     // Is this user an active doer on some task?
     // We also capture messages during the revision window when a fix notice
