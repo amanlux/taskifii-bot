@@ -1143,7 +1143,11 @@ const TEXT = {
     en: "⚠️ You can only have one task active at a time. This payment link was for an older task draft, so the money you just paid will be refunded back to your original payment method shortly.",
     am: "⚠️ በአንድ ጊዜ አንድ ንቁ ተግዳሮት ብቻ ማስቀመጥ ትችላላችሁ። ይህ የክፍያ ሊንክ ለቀድሞ የተተወ ረቂቅ ነበር፣ ስለዚህ አሁን የከፈሉት ገንዘብ ወደ መጀመሪያው የክፍያ መንገድዎ በቅርቡ ይመለሳል።"
   },
-  
+  bannedGuard: {
+    en: "You’re currently banned. Ask anyone to click “Unban User” under your profile post to restore access.",
+    am: "አሁን ከTaskifii ታግደዋል። መዳረሻዎን ለመመለስ ከፕሮፋይልዎ ስር ያለውን “Unban User” እንዲጫን ማንኛውንም ሰው ይጠይቁ።"
+  }
+
 
 
 
@@ -5494,13 +5498,23 @@ function startBot() {
 
 
     if (banned && !isUnbanClick) {
+      // Try to detect language; fall back safely
+      const lang =
+        ctx.session?.user?.language ||
+        (await User.findOne({ telegramId: tgId }).select("language").lean())?.language ||
+        "en";
+
+      // Multilingual message (always includes BOTH languages so it works even if language is unknown)
+      const bannedMsg = `${TEXT.bannedGuard.en}\n\n${TEXT.bannedGuard.am}`;
+
       if (ctx.updateType === 'callback_query') {
-        await ctx.answerCbQuery("You’re currently banned. Ask anyone to click “Unban User” under your profile post to restore access.", { show_alert: true });
+        await ctx.answerCbQuery(bannedMsg, { show_alert: true });
         return;
       }
-      await ctx.reply("You’re currently banned. Ask anyone to click “Unban User” under your profile post to restore access.");
+      await ctx.reply(bannedMsg);
       return;
     }
+
     return next();
   });
 
