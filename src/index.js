@@ -8159,14 +8159,16 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
                 `ጠቅላላ የተሰሩ ተግዳሮቶች: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
                 `ተደጋጋሚ የስራ መስኮች: ${topFields}\n` +
                 `ደረጃ: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)\n` +
-                `መልእክት: ${text.substring(0, 100)}...`
+                `መልእክት: ${text}`
+
               : `📩 New applicant for your task!\n\n` +
                 `Task: ${task.description.substring(0, 50)}...\n\n` +
                 `Applicant: ${applicantName}\n` +
                 `Total earned: ${user.stats.totalEarned.toFixed(2)} birr\n` +
                 `Frequent fields: ${topFields}\n` +
                 `Rating: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ratings)\n` + 
-                `Message: ${text.substring(0, 100)}...`;
+                `Message: ${text}`;
+
 
           const buttons = Markup.inlineKeyboard([
               [
