@@ -8154,7 +8154,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           // Build the notification message
           const notificationText = creatorLang === "am"
               ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\n` +
-                `ተግዳሮት: ${task.description.substring(0, 50)}...\n\n` +
+                `ተግዳሮት:  ${task.description}\n\n` +
                 `አመልካች: ${applicantName}\n` +
                 `ጠቅላላ የተሰሩ ተግዳሮቶች: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
                 `ተደጋጋሚ የስራ መስኮች: ${topFields}\n` +
@@ -8162,7 +8162,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
                 `መልእክት: ${text}`
 
               : `📩 New applicant for your task!\n\n` +
-                `Task: ${task.description.substring(0, 50)}...\n\n` +
+                `Task: ${task.description}\n\n` +
                 `Applicant: ${applicantName}\n` +
                 `Total earned: ${user.stats.totalEarned.toFixed(2)} birr\n` +
                 `Frequent fields: ${topFields}\n` +
