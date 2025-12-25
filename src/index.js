@@ -1251,6 +1251,45 @@ const ALL_FIELDS = [
 const FIELDS_PER_PAGE = 10;
 // --- Report/Escalation constants ---
 const BAN_GROUP_ID = -1002239730204;        // group to ban/unban users in
+// --- Group "mute" permissions (keeps user in group, but they can't send anything) ---
+const GROUP_MUTE_PERMS = {
+  can_send_messages: false,
+  can_send_audios: false,
+  can_send_documents: false,
+  can_send_photos: false,
+  can_send_videos: false,
+  can_send_video_notes: false,
+  can_send_voice_notes: false,
+  can_send_polls: false,
+  can_send_other_messages: false,
+  can_add_web_page_previews: false,
+  can_change_info: false,
+  can_invite_users: false,
+  can_pin_messages: false
+};
+
+// "Unmute" (restore ability to send)
+const GROUP_UNMUTE_PERMS = {
+  can_send_messages: true,
+  can_send_audios: true,
+  can_send_documents: true,
+  can_send_photos: true,
+  can_send_videos: true,
+  can_send_video_notes: true,
+  can_send_voice_notes: true,
+  can_send_polls: true,
+  can_send_other_messages: true,
+  can_add_web_page_previews: true,
+  can_change_info: true,
+  can_invite_users: true,
+  can_pin_messages: true
+};
+
+// Use a far-future date to simulate "permanent" mute
+function muteUntilFarFutureUnix() {
+  return Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 365 * 10); // ~10 years
+}
+
 // Admin who decides manual punishment amounts
 const SUPER_ADMIN_TG_ID = 806525520;
 
@@ -4030,19 +4069,35 @@ async function banUserEverywhere(ctx, userDoc) {
     { upsert: true }
   ); } catch(e) { console.error("banlist upsert failed", e); }
 
-  try { await ctx.telegram.banChatMember(BAN_GROUP_ID, userDoc.telegramId); }
-  catch (e) {
-    console.warn("banChatMember failed:", e?.description || e?.message);
-    console.warn("Make sure the bot is ADMIN in the group and has 'Ban users' + 'Delete messages'.");
+  try {
+    await ctx.telegram.restrictChatMember(
+      BAN_GROUP_ID,
+      userDoc.telegramId,
+      GROUP_MUTE_PERMS,
+      { until_date: muteUntilFarFutureUnix() }
+    );
+  } catch (e) {
+    console.warn("restrictChatMember failed:", e?.description || e?.message);
+    console.warn("Make sure the bot is ADMIN in the group and has 'Restrict members' + 'Delete messages'.");
   }
+
 
 }
 async function unbanUserEverywhere(ctx, userDoc) {
   try { await Banlist.deleteOne({ $or: [{ user: userDoc._id }, { telegramId: userDoc.telegramId }] }); }
   catch (e) { console.error("banlist delete failed", e); }
 
-  try { await ctx.telegram.unbanChatMember(BAN_GROUP_ID, userDoc.telegramId); }
-  catch (e) { console.warn("unbanChatMember failed (ignore):", e?.description || e?.message); }
+  try {
+    await ctx.telegram.restrictChatMember(
+      BAN_GROUP_ID,
+      userDoc.telegramId,
+      GROUP_UNMUTE_PERMS,
+      { until_date: 0 }
+    );
+  } catch (e) {
+    console.warn("unmute(restrictChatMember) failed (ignore):", e?.description || e?.message);
+  }
+
 
   // also release any engagement locks so menus/post/apply are usable again
   try { await EngagementLock.updateMany({ user: userDoc._id, active: true }, { $set: { active: false, releasedAt: new Date() } }); }
@@ -4877,7 +4932,13 @@ async function runDoerWorkTimers(bot) {
 
     try {
       // Kick from the group (ignore errors if not a member)
-      await bot.telegram.banChatMember("-1002239730204", fresh.doerTelegramId).catch(()=>{});
+      await bot.telegram.restrictChatMember(
+        BAN_GROUP_ID,
+        fresh.doerTelegramId,
+        GROUP_MUTE_PERMS,
+        { until_date: muteUntilFarFutureUnix() }
+      ).catch(()=>{});
+
     } catch (e) {
       console.error("Group ban failed:", e);
     }
@@ -12096,12 +12157,18 @@ bot.on('message', async (ctx, next) => {
             // ignore: bot may lack delete permission or message may be too old
           }
 
-          // 2) Re-apply the ban as a safety net (in case ban didn't stick)
+          // 2) Re-apply the mute as a safety net (in case restriction didn't stick)
           try {
-            await ctx.telegram.banChatMember(BAN_GROUP_ID, fromId);
+            await ctx.telegram.restrictChatMember(
+              BAN_GROUP_ID,
+              fromId,
+              GROUP_MUTE_PERMS,
+              { until_date: muteUntilFarFutureUnix() }
+            );
           } catch (_) {
-            // ignore: bot may lack ban permission or user is admin
+            // ignore: bot may lack restrict permission or user is admin
           }
+
 
           // Stop here: don't run the rest of your message pipeline for this update
           return;
