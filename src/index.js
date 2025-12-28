@@ -1688,20 +1688,52 @@ async function releasePaymentAndFinalize(taskId, reason) {
     const creator = task.creator;
     
     
-    // ----- BEGIN: commission + payout calculation (replace your old block with this) -----
+    // ----- BEGIN: commission + payout calculation (UPDATED: include late-penalty deduction) -----
     const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
 
-    // We always base the commission on the full task fee (not net of any gateway fees).
-    // Use intent.amount if present (from the Chapa payment that funded escrow), else fall back to task.paymentFee.
+    // Full original fee (what creator funded)
     const totalAmountRaw = intent ? intent.amount : (task.paymentFee || 0);
     const totalAmount = Number(totalAmountRaw) || 0;
 
     // Platform commission: 5% of the task fee.
     const commission = round2(totalAmount * 0.05);
 
-    // Amount to *send* to the doer (before Chapa recipient fee): task fee - platform commission
-    // You explicitly want the doer transfer to be this amount, and let Chapa charge the recipient from this amount.
-    const payoutAmount = round2(totalAmount - commission);
+    // ---- NEW: compute late penalty already deducted during the "time-up" penalty window ----
+    // We use DoerWork.penaltyStartAt (when penalty started) and DoerWork.completedAt (when doer clicked "Completed task sent").
+    // If any of these fields are missing, penalty is 0 (so it won't break anything).
+    let latePenaltyDeduction = 0;
+
+    try {
+      const work = await DoerWork.findOne({ task: task._id })
+        .select("penaltyStartAt completedAt")
+        .lean();
+
+      const penaltyPerHour = Number((task.penaltyPerHour ?? task.latePenalty) || 0);
+
+      if (work?.penaltyStartAt && work?.completedAt && penaltyPerHour > 0) {
+        const start = new Date(work.penaltyStartAt);
+        const end   = new Date(work.completedAt);
+
+        if (end > start) {
+          // Per-hour deduction (counts partial hours as a full hour, matching your use of Math.ceil in timers)
+          const hoursLate = Math.ceil((end.getTime() - start.getTime()) / 3600000);
+
+          // Cap so fee never goes below 35% (i.e., max deduction is 65% of original)
+          const maxDeduct = Math.max(0, totalAmount * 0.65);
+
+          latePenaltyDeduction = Math.min(maxDeduct, hoursLate * penaltyPerHour);
+          latePenaltyDeduction = round2(latePenaltyDeduction);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to compute late penalty deduction:", e);
+      latePenaltyDeduction = 0; // safest fallback
+    }
+
+    // Amount to send to the doer: task fee - platform commission - late penalty already accumulated
+    const payoutAmount = round2(Math.max(0, totalAmount - commission - latePenaltyDeduction));
+
+    // ----- END: commission + payout calculation (UPDATED) -----
 
     // (Keep using payoutAmount exactly as you already do later: store in global.pendingPayouts, etc.)
 
@@ -1749,7 +1781,11 @@ async function releasePaymentAndFinalize(taskId, reason) {
       selectedBankId: null,
       accountPromptMessageId: null,
       // NEW: persist the user's language for localization in later steps
-      language: doer.language || "en"
+      language: doer.language || "en",
+      totalAmount: totalAmount.toFixed(2),
+      commission: commission.toFixed(2),
+      latePenaltyDeduction: latePenaltyDeduction.toFixed(2),
+
     };
 
     // Prompt the doer to choose a bank from the fetched list
@@ -8162,7 +8198,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           const topFieldsArr = await getFrequentFieldsForDoer(user._id);
           const topFields = topFieldsArr.length > 0
             ? topFieldsArr.join(", ")
-            : (creatorLang === "am" ? "የተሰሩ ተግዳሮቶች የሉም" : "No completed tasks");
+            : (creatorLang === "am" ? "አዝወትሮ የሰሩት የስራ ዘርፍ እስከ አሁን የላቸውም" : "No frequently done tasks yet");
 
           
           // Build the notification message
@@ -12429,9 +12465,29 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
 
   // Prompt user for the account number of the selected bank
   const lang = (await User.findOne({ telegramId: userId }))?.language || "en";
-  const promptText = (lang === "am") 
-    ? `🏦 ${bank.name} ን ይመርጡ። አሁን የአካውንት ቁጥርዎን ያስገቡ።` 
-    : `🏦 *${bank.name}* selected. Please enter the account number:`;
+  const payout = Number(pending.payoutAmount || 0);
+  const total = Number(pending.totalAmount || 0);
+  const commission = Number(pending.commission || 0);
+  const latePenalty = Number(pending.latePenaltyDeduction || 0);
+
+  const promptText = (lang === "am")
+    ? (
+        `🏦 ${bank.name} ተመርጧል።\n\n` +
+        `💰 የሚቀበሉት: ${payout.toFixed(2)} ETB\n` +
+        `🧾 የመጀመሪያ ክፍያ: ${total.toFixed(2)} ETB\n` +
+        `🏷 ኮሚሽን: -${commission.toFixed(2)} ETB\n` +
+        (latePenalty > 0 ? `⏳ የዘግይታ ቅጣት: -${latePenalty.toFixed(2)} ETB\n` : ``) +
+        `\nአሁን የአካውንት ቁጥርዎን ያስገቡ።`
+      )
+    : (
+        `🏦 *${bank.name}* selected.\n\n` +
+        `💰 *You will receive:* ${payout.toFixed(2)} ETB\n` +
+        `🧾 Original fee: ${total.toFixed(2)} ETB\n` +
+        `🏷 Platform commission: -${commission.toFixed(2)} ETB\n` +
+        (latePenalty > 0 ? `⏳ Late penalty: -${latePenalty.toFixed(2)} ETB\n` : ``) +
+        `\nPlease enter the account number:`
+      );
+
   // If a prompt message was sent before, edit it; otherwise, send a new prompt
   if (pending.accountPromptMessageId) {
     try {
