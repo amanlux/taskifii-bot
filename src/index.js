@@ -1782,14 +1782,25 @@ async function releasePaymentAndFinalize(taskId, reason) {
       accountPromptMessageId: null,
       // NEW: persist the user's language for localization in later steps
       language: doer.language || "en",
-      
+      latePenaltyBirr: latePenaltyDeduction, // number (already rounded to 2dp above)
+
     };
 
     // Prompt the doer to choose a bank from the fetched list
     const lang = doer.language || "en";
-    const chooseBankText = (lang === "am") 
-      ? "እባክዎ የእርስዎን ባንክ ይምረጡ።" 
-      : "Please choose your bank for payout:";
+
+    const penaltyLine =
+      (latePenaltyDeduction && latePenaltyDeduction > 0)
+        ? (lang === "am"
+            ? `\n\n⚠️ ስራውን በዘገይተው ስለላኩ፣ ከTaskifii እና Chapa ኮሚሽን በተጨማሪ *${latePenaltyDeduction} ብር* ቅጣት ከክፍያዎ ይቀነሳል።`
+            : `\n\n⚠️ Because you submitted late, in addition to Taskifii + Chapa commission, a total penalty of *${latePenaltyDeduction} birr* will be deducted from your task fee.`)
+        : "";
+
+    const chooseBankText =
+      (lang === "am")
+        ? `እባክዎ የእርስዎን ባንክ ይምረጡ።${penaltyLine}`
+        : `Please choose your bank for payout:${penaltyLine}`;
+
     const firstPageButtons = buildBankKeyboard(String(task._id), banksList, 0, null);
     
     await globalThis.TaskifiiBot.telegram.sendMessage(
@@ -12425,7 +12436,17 @@ bot.action(/^PAYOUT_PAGE_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
         ? "ባንኮች አልተገኙም።"
         : "No banks available.";
   }
+  
+  // ✅ NEW: append late-penalty notice to whatever promptText became
+  const latePenalty = Number(pending.latePenaltyBirr || 0);
+  const penaltyLine =
+    latePenalty > 0
+      ? (lang === "am"
+          ? `\n\n⚠️ ስራውን በዘገይተው ስለላኩ፣ ከTaskifii እና Chapa ኮሚሽን በተጨማሪ *${latePenalty} ብር* ቅጣት ከክፍያዎ ይቀነሳል።`
+          : `\n\n⚠️ Because you submitted late, in addition to Taskifii + Chapa commission, a total penalty of *${latePenalty} birr* will be deducted from your task fee.`)
+      : "";
 
+  promptText = `${promptText}${penaltyLine}`;
   // Send the localized prompt with the new keyboard
   return ctx.reply(promptText, keyboardMarkup);
 });
