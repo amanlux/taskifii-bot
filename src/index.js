@@ -1782,10 +1782,7 @@ async function releasePaymentAndFinalize(taskId, reason) {
       accountPromptMessageId: null,
       // NEW: persist the user's language for localization in later steps
       language: doer.language || "en",
-      totalAmount: totalAmount.toFixed(2),
-      commission: commission.toFixed(2),
-      latePenaltyDeduction: latePenaltyDeduction.toFixed(2),
-
+      
     };
 
     // Prompt the doer to choose a bank from the fetched list
@@ -12465,29 +12462,9 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
 
   // Prompt user for the account number of the selected bank
   const lang = (await User.findOne({ telegramId: userId }))?.language || "en";
-  const payout = Number(pending.payoutAmount || 0);
-  const total = Number(pending.totalAmount || 0);
-  const commission = Number(pending.commission || 0);
-  const latePenalty = Number(pending.latePenaltyDeduction || 0);
-
-  const promptText = (lang === "am")
-    ? (
-        `🏦 ${bank.name} ተመርጧል።\n\n` +
-        `💰 የሚቀበሉት: ${payout.toFixed(2)} ETB\n` +
-        `🧾 የመጀመሪያ ክፍያ: ${total.toFixed(2)} ETB\n` +
-        `🏷 ኮሚሽን: -${commission.toFixed(2)} ETB\n` +
-        (latePenalty > 0 ? `⏳ የዘግይታ ቅጣት: -${latePenalty.toFixed(2)} ETB\n` : ``) +
-        `\nአሁን የአካውንት ቁጥርዎን ያስገቡ።`
-      )
-    : (
-        `🏦 *${bank.name}* selected.\n\n` +
-        `💰 *You will receive:* ${payout.toFixed(2)} ETB\n` +
-        `🧾 Original fee: ${total.toFixed(2)} ETB\n` +
-        `🏷 Platform commission: -${commission.toFixed(2)} ETB\n` +
-        (latePenalty > 0 ? `⏳ Late penalty: -${latePenalty.toFixed(2)} ETB\n` : ``) +
-        `\nPlease enter the account number:`
-      );
-
+  const promptText = (lang === "am") 
+    ? `🏦 ${bank.name} ን ይመርጡ። አሁን የአካውንት ቁጥርዎን ያስገቡ።` 
+    : `🏦 *${bank.name}* selected. Please enter the account number:`;
   // If a prompt message was sent before, edit it; otherwise, send a new prompt
   if (pending.accountPromptMessageId) {
     try {
