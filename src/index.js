@@ -233,97 +233,6 @@ async function sendRefundAudit(bot, {
     console.error("Failed to send refund audit message:", e);
   }
 }
-async function sendPayoutAuditOnce(bot, { tag, job, task }) {
-  // tag: "#payout_failed_first_try" or "#payout_success"
-  const lines = [
-    `#taskPayout ${tag}`,
-    `Task ID: ${task?._id || job.task}`,
-    `Task Description: ${task?.description || "-"}`,
-    `Fee (ETB): ${job.amount}`,
-    `Reference: ${job.reference}`,
-    `Attempts: ${job.attempts}`,
-    `Doer User ID: ${job.doer}`,
-    `Creator User ID: ${job.creator}`,
-  ];
-  if (job.lastError) lines.push(`Last Error: ${job.lastError}`);
-  if (job.chapaTransferId) lines.push(`Chapa Transfer ID: ${job.chapaTransferId}`);
-
-  try {
-    await bot.telegram.sendMessage(AUDIT_CHANNEL_ID, lines.join("\n"), { disable_web_page_preview: true });
-  } catch (e) {
-    console.error("Failed to send payout audit:", e);
-  }
-}
-
-async function chapaVerifyTransfer(reference) {
-  const url = `https://api.chapa.co/v1/transfers/verify/${encodeURIComponent(reference)}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}` }
-  });
-  const data = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, data };
-}
-
-async function chapaCreateTransfer(payload) {
-  const res = await fetch("https://api.chapa.co/v1/transfers", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-  const data = await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, data };
-}
-function isInvalidDestinationError(msg) {
-  const s = String(msg || "").toLowerCase();
-  return (
-    s.includes("does not exist") ||
-    s.includes("not exist") ||
-    s.includes("account not found") ||
-    s.includes("invalid account") ||
-    s.includes("unknown account") ||
-    (s.includes("account") && s.includes("not found")) ||
-    (s.includes("recipient") && s.includes("not found"))
-  );
-}
-
-function cancelRetryKeyboard(taskId) {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback("Cancel retry", `CANCEL_PAYOUT_RETRY_${taskId}`)]
-  ]);
-}
-
-async function sendPayoutDestinationAudit(bot, { tag, job, task, reason }) {
-  // tag examples: "#invalid_destination" or "#pending_48h"
-  const lines = [
-    `#taskPayout ${tag}`,
-    `Task ID: ${task?._id || job.task}`,
-    `Task Description: ${task?.description || "-"}`,
-    `Fee (ETB): ${job.amount}`,
-    `Reference: ${job.reference}`,
-    `Doer Taskifii User ID: ${job.doer}`,
-    `Creator Taskifii User ID: ${job.creator}`,
-    `Bank Name: ${job.bank_name || "-"}`,
-    `Bank Code: ${job.bank_code}`,
-    `Account/Walet Input: ${job.account_number}`,
-    reason ? `Reason: ${reason}` : null,
-    job.lastError ? `Last Error: ${job.lastError}` : null,
-    job.chapaTransferId ? `Chapa Transfer ID: ${job.chapaTransferId}` : null
-  ].filter(Boolean);
-
-  try {
-    await bot.telegram.sendMessage(
-      AUDIT_CHANNEL_ID,
-      lines.join("\n"),
-      { disable_web_page_preview: true, ...cancelRetryKeyboard(String(job.task)) }
-    );
-  } catch (e) {
-    console.error("Failed to send payout destination audit:", e);
-  }
-}
 
 const FinalizationSchema = new mongoose.Schema({
   task: { type: Schema.Types.ObjectId, ref: 'Task', unique: true, required: true },
@@ -359,54 +268,6 @@ const CreditLogSchema = new mongoose.Schema({
 }, { versionKey: false });
 CreditLogSchema.index({ task:1, type:1 }, { unique: true });
 const CreditLog = mongoose.models.CreditLog || mongoose.model('CreditLog', CreditLogSchema);
-// ---------------------------
-// Payout Retry Job (DB-backed)
-// ---------------------------
-const PayoutJobSchema = new mongoose.Schema({
-  taskId:  { type: mongoose.Schema.Types.ObjectId, ref: "Task", index: true }, // backward-compat for old DB index taskId_1
-
-  task:    { type: mongoose.Schema.Types.ObjectId, ref: "Task", required: true, unique: true, index: true },
-  doer:    { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
-  creator: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
-
-  amount:   { type: Number, required: true }, // birr
-  currency: { type: String, default: "ETB" },
-
-  bank_code:       { type: String, required: true },
-  account_number:  { type: String, required: true },
-  account_name:    { type: String },
-  bank_name: { type: String }, // store chosen bank name for audits
-
-  // IMPORTANT: stable reference for verify-first idempotency
-  reference: { type: String, required: true, unique: true, index: true },
-
-  status:   { type: String, enum: ["pending", "succeeded"], default: "pending", index: true },
-  attempts: { type: Number, default: 0 },
-
-  nextAttemptAt: { type: Date, default: Date.now, index: true },
-  lastError:     { type: String },
-
-  // Audit flags (so we only send once)
-  firstFailureAuditSent: { type: Boolean, default: false },
-  successAuditSent:      { type: Boolean, default: false },
-  invalidDestinationAuditSent: { type: Boolean, default: false }, // “account doesn't exist” type
-  timeout48hAuditSent:         { type: Boolean, default: false }, // still pending after 48h
-  retryCanceled:               { type: Boolean, default: false },
-  retryCanceledAt:             { type: Date },
-
-  // store any useful provider refs if returned
-  chapaTransferId: { type: String },
-
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now }
-}, { versionKey: false });
-
-PayoutJobSchema.pre("save", function (next) {
-  this.updatedAt = new Date();
-  next();
-});
-
-const PayoutJob = mongoose.models.PayoutJob || mongoose.model("PayoutJob", PayoutJobSchema);
 
 // ---------------------------
 // Doer Work / Submissions
@@ -5611,154 +5472,6 @@ async function retryQueuedRefunds() {
     console.error("retryQueuedRefunds error:", e);
   }
 }
-const PAYOUT_RETRY_MS = 10 * 60 * 1000; // 10 minutes
-
-async function processDuePayoutJobs() {
-  const botInstance = globalThis.TaskifiiBot;
-  if (!botInstance) return;
-
-  const now = new Date();
-  // 48h pending audit (silent provider / endless retry safety net)
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000);
-
-  const overdue = await PayoutJob.find({
-    status: "pending",
-    retryCanceled: { $ne: true },
-    createdAt: { $lte: cutoff },
-    timeout48hAuditSent: { $ne: true }
-  }).limit(10).lean();
-
-  for (const job of overdue) {
-    const task = await Task.findById(job.task).select("description").lean();
-    await sendPayoutDestinationAudit(botInstance, {
-      tag: "#pending_48h",
-      job,
-      task,
-      reason: "Still pending after 48 hours (provider may be silently ignoring or failing)."
-    });
-    await PayoutJob.updateOne({ _id: job._id }, { $set: { timeout48hAuditSent: true } });
-  }
-
-  // grab a small batch to avoid flooding if many are pending
-  const jobs = await PayoutJob.find({
-    status: "pending",
-    retryCanceled: { $ne: true },
-    nextAttemptAt: { $lte: now }
-  }).limit(10).lean();
-
-
-  for (const job of jobs) {
-    try {
-      // 1) VERIFY FIRST (prevents double-paying if previous attempt actually went through)
-      const verify = await chapaVerifyTransfer(job.reference);
-
-      // If verify says "success", mark succeeded + audit once
-      const verifyStatus =
-        verify?.data?.status ||
-        verify?.data?.data?.status ||
-        verify?.data?.data?.transfer_status;
-
-      if (verify.ok && String(verifyStatus).toLowerCase().includes("success")) {
-        const task = await Task.findById(job.task).select("description").lean();
-        await PayoutJob.updateOne(
-          { _id: job._id, status: "pending" },
-          { $set: { status: "succeeded" } }
-        );
-
-        // success audit once
-        const fresh = await PayoutJob.findById(job._id).lean();
-        if (fresh && !fresh.successAuditSent) {
-          await sendPayoutAuditOnce(botInstance, { tag: "#payout_success", job: fresh, task });
-          await PayoutJob.updateOne({ _id: job._id }, { $set: { successAuditSent: true } });
-        }
-        continue;
-      }
-
-      // 2) Not verified as success -> attempt transfer
-      const payload = {
-        account_number: job.account_number,
-        bank_code: job.bank_code,
-        amount: job.amount,
-        currency: job.currency,
-        reference: job.reference
-      };
-      if (job.account_name) payload.account_name = job.account_name;
-
-      const attemptNumber = (job.attempts || 0) + 1;
-      const created = await chapaCreateTransfer(payload);
-
-      if (created.ok) {
-        const task = await Task.findById(job.task).select("description").lean();
-
-        await PayoutJob.updateOne(
-          { _id: job._id, status: "pending" },
-          {
-            $set: {
-              status: "succeeded",
-              chapaTransferId: created?.data?.data?.id || created?.data?.data?.transfer_id || job.chapaTransferId
-            },
-            $inc: { attempts: 1 }
-          }
-        );
-
-        // success audit once
-        const fresh = await PayoutJob.findById(job._id).lean();
-        if (fresh && !fresh.successAuditSent) {
-          await sendPayoutAuditOnce(botInstance, { tag: "#payout_success", job: fresh, task });
-          await PayoutJob.updateOne({ _id: job._id }, { $set: { successAuditSent: true } });
-        }
-      } else {
-        // failed -> schedule retry in 10 minutes
-        const errorMessage = created?.data?.message || created?.data?.data || `HTTP ${created.status}`;
-        // Invalid destination audit (only once)
-        if (isInvalidDestinationError(errorMessage) && !job.invalidDestinationAuditSent) {
-          const task = await Task.findById(job.task).select("description").lean();
-          await sendPayoutDestinationAudit(botInstance, {
-            tag: "#invalid_destination",
-            job: { ...job, lastError: String(errorMessage) },
-            task,
-            reason: String(errorMessage)
-          });
-          await PayoutJob.updateOne({ _id: job._id }, { $set: { invalidDestinationAuditSent: true } });
-        }
-
-        // if this is the FIRST failure, send audit ONCE
-        if ((job.attempts || 0) === 0 && !job.firstFailureAuditSent) {
-          const task = await Task.findById(job.task).select("description").lean();
-          await sendPayoutAuditOnce(botInstance, { tag: "#payout_failed_first_try", job: { ...job, attempts: 1, lastError: errorMessage }, task });
-          await PayoutJob.updateOne({ _id: job._id }, { $set: { firstFailureAuditSent: true } });
-        }
-
-        await PayoutJob.updateOne(
-          { _id: job._id, status: "pending" },
-          {
-            $set: {
-              lastError: String(errorMessage),
-              nextAttemptAt: new Date(Date.now() + PAYOUT_RETRY_MS)
-            },
-            $inc: { attempts: 1 }
-          }
-        );
-      }
-    } catch (e) {
-      console.error("Payout retry worker error:", e);
-
-      // schedule retry anyway
-      await PayoutJob.updateOne(
-        { _id: job._id, status: "pending" },
-        {
-          $set: { lastError: String(e?.message || e), nextAttemptAt: new Date(Date.now() + PAYOUT_RETRY_MS) },
-          $inc: { attempts: 1 }
-        }
-      );
-    }
-  }
-}
-
-  // Run worker every 60s (it only processes jobs whose nextAttemptAt is due)
-  setInterval(() => {
-    processDuePayoutJobs().catch(err => console.error("processDuePayoutJobs interval error:", err));
-  }, 60 * 1000);
 
 
 
@@ -8615,30 +8328,22 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     
     const accountNumber = ctx.message.text.trim();
     
-    // Flexible validation (some banks have 18 digits, some allow letters)
-    const raw = accountNumber;
-
-    // 1) Reasonable length guard
-    if (raw.length < 5 || raw.length > 34) {
-      const errMsg = pending.selectedBankName
-        ? `❌ That ${pending.selectedBankName} banking info looks too short/long. Please enter 5–34 characters.`
-        : "❌ That banking info looks too short/long. Please enter 5–34 characters.";
+    // Basic validation: account number should be numeric
+    if (!/^\d+$/.test(accountNumber)) {
+      const errMsg = (pending.selectedBankName) 
+        ? `❌ Invalid account number format. Please enter only digits for your ${pending.selectedBankName} account.` 
+        : "❌ Invalid account number format. Please enter only digits.";
       await ctx.reply(errMsg);
       return;
     }
-
-    // 2) Allow letters/numbers + a few common separators (space, -, _, /)
-    if (!/^[A-Za-z0-9][A-Za-z0-9 _\\-\\/]*$/.test(raw)) {
-      const errMsg = pending.selectedBankName
-        ? `❌ Please use only letters, numbers, spaces, and these symbols: - _ /. (${pending.selectedBankName})`
-        : "❌ Please use only letters, numbers, spaces, and these symbols: - _ /.";
+    
+    // If bank info includes expected length, validate length
+    const bankInfo = pending.banks.find(b => b.id === pending.selectedBankId);
+    if (bankInfo?.acct_length && accountNumber.length !== bankInfo.acct_length) {
+      const errMsg = `❌ The account number should be ${bankInfo.acct_length} digits long. Please re-enter the correct number.`;
       await ctx.reply(errMsg);
       return;
     }
-
-    // OPTIONAL (soft guidance only): do NOT block by acct_length anymore
-    // const bankInfo = pending.banks.find(b => b.id === pending.selectedBankId);
-
 
     // Prepare transfer payload
     const payload = {
@@ -8653,154 +8358,31 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     const user = await User.findOne({ telegramId: userId });
     if (user?.fullName) payload.account_name = user.fullName;
 
-    // -------------------------------
-    // NEW: Queue payout + infinite retry (no user-facing failure)
-    // -------------------------------
-    const stableReference = pending.reference; // MUST stay stable per task payout (you already have this)
-
-    // 1) Save/Upsert a payout job so retries survive restarts
-    await PayoutJob.updateOne(
-      { task: pending.taskId },
-      {
-        $setOnInsert: {
-          task: pending.taskId,
-          doer: pending.doerId,
-          creator: pending.creatorId,
-          currency: "ETB",
-          reference: stableReference,
-          createdAt: new Date(),
-          bank_name: pending.selectedBankName,
-          taskId: pending.taskId, // ✅ add this
+    // Call Chapa Transfers API to initiate the payout
+    let transferData;
+    try {
+      const res = await fetch("https://api.chapa.co/v1/transfers", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.CHAPA_SECRET_KEY}`,
+          "Content-Type": "application/json"
         },
-        $set: {
-          amount: Number(pending.payoutAmount),
-          bank_code: pending.selectedBankId,
-          account_number: accountNumber,
-          account_name: user?.fullName || undefined,
-          status: "pending",
-          nextAttemptAt: new Date(), // due now
-          lastError: null
-        }
-      },
-      { upsert: true }
-    );
-
-    // 2) Try ONCE immediately (quietly). If it fails, the worker retries every 10 min.
-    //    IMPORTANT: we do NOT reply any error to the user here.
-    (async () => {
-      try {
-        // Verify-first = prevents double-pay if a previous attempt actually succeeded
-        const v = await chapaVerifyTransfer(stableReference);
-        const vStatus =
-          v?.data?.status ||
-          v?.data?.data?.status ||
-          v?.data?.data?.transfer_status;
-
-        if (v.ok && String(vStatus).toLowerCase().includes("success")) {
-          await PayoutJob.updateOne(payoutTaskFilter(pending.taskId), { $set: { status: "succeeded" } });
-
-          const taskDoc = await Task.findById(pending.taskId).select("description").lean();
-          const fresh = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
-
-          if (fresh && !fresh.successAuditSent) {
-            await sendPayoutAuditOnce(globalThis.TaskifiiBot, {
-              tag: "#payout_success",
-              job: fresh,
-              task: taskDoc
-            });
-            await PayoutJob.updateOne({ _id: fresh._id }, { $set: { successAuditSent: true } });
-          }
-          return;
-        }
-
-        // Not verified as success -> attempt transfer
-        const created = await chapaCreateTransfer(payload);
-
-        if (created.ok) {
-          const taskDoc = await Task.findById(pending.taskId).select("description").lean();
-
-          await PayoutJob.updateOne(
-            { task: pending.taskId },
-            {
-              $set: {
-                status: "succeeded",
-                chapaTransferId: created?.data?.data?.id || created?.data?.data?.transfer_id || undefined
-              }
-            }
-          );
-
-          const fresh = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
-          if (fresh && !fresh.successAuditSent) {
-            await sendPayoutAuditOnce(globalThis.TaskifiiBot, {
-              tag: "#payout_success",
-              job: fresh,
-              task: taskDoc
-            });
-            await PayoutJob.updateOne({ _id: fresh._id }, { $set: { successAuditSent: true } });
-          }
-        } else {
-          const errorMessage = created?.data?.message || created?.data?.data || `HTTP ${created.status}`;
-          
-          const job = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
-          // If destination is invalid (bank acct doesn't exist), alert audit channel + add Cancel retry button
-          if (isInvalidDestinationError(errorMessage)) {
-            const taskDoc = await Task.findById(pending.taskId).select("description").lean();
-            const freshJob = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
-
-            if (freshJob && !freshJob.invalidDestinationAuditSent) {
-              await sendPayoutDestinationAudit(globalThis.TaskifiiBot, {
-                tag: "#invalid_destination",
-                job: freshJob,
-                task: taskDoc,
-                reason: String(errorMessage)
-              });
-              await PayoutJob.updateOne({ _id: freshJob._id }, { $set: { invalidDestinationAuditSent: true } });
-            }
-          }
-
-
-          // FAILED-FIRST-TRY audit ONCE only
-          if (job && (job.attempts || 0) === 0 && !job.firstFailureAuditSent) {
-            const taskDoc = await Task.findById(pending.taskId).select("description").lean();
-            await sendPayoutAuditOnce(globalThis.TaskifiiBot, {
-              tag: "#payout_failed_first_try",
-              job: { ...job, attempts: 1, lastError: String(errorMessage) },
-              task: taskDoc
-            });
-            await PayoutJob.updateOne({ _id: job._id }, { $set: { firstFailureAuditSent: true } });
-          }
-
-          await PayoutJob.updateOne(
-            { task: pending.taskId, status: "pending" },
-            {
-              $set: {
-                lastError: String(errorMessage),
-                nextAttemptAt: new Date(Date.now() + PAYOUT_RETRY_MS)
-              },
-              $inc: { attempts: 1 }
-            }
-          );
-        }
-      } catch (e) {
-        console.error("Immediate payout attempt error:", e);
-
-        // Still retry forever via worker; do not message user
-        await PayoutJob.updateOne(
-          { task: pending.taskId, status: "pending" },
-          {
-            $set: {
-              lastError: String(e?.message || e),
-              nextAttemptAt: new Date(Date.now() + PAYOUT_RETRY_MS)
-            },
-            $inc: { attempts: 1 }
-          }
-        );
+        body: JSON.stringify(payload)
+      });
+      transferData = await res.json().catch(() => null);
+      if (!res.ok) {
+        const errorMessage = transferData?.message || transferData?.data || res.statusText;
+        console.error("Chapa payout failed:", errorMessage);
+        await ctx.reply(`❌ Payout failed: ${errorMessage}\n🔁 Please double-check the account details and try again.`);
+        return;
       }
-    })();
+    } catch (err) {
+      console.error("Chapa transfer API error:", err);
+      await ctx.reply("❌ An error occurred while initiating the payout. Please try again.");
+      return;
+    }
 
-
-    console.log("✅ Payout queued (async retries enabled). Reference:", pending.reference);
-
+    console.log("✅ Escrow payout initiated via Chapa:", transferData?.data || transferData);
     
     // Disable all bank buttons now that payout is initiated
     try {
@@ -13663,34 +13245,6 @@ bot.action(/^DP_OPEN_(.+)_(completed|related|fix)$/, async (ctx) => {
     );
   }
 });
-bot.action(/^CANCEL_PAYOUT_RETRY_([a-f0-9]{24})$/, async (ctx) => {
-  await ctx.answerCbQuery();
-
-  // Optional safety: only allow clicks inside the audit channel
-  if (String(ctx.chat?.id) !== String(AUDIT_CHANNEL_ID)) {
-    return;
-  }
-
-  const taskId = ctx.match[1];
-
-  await PayoutJob.updateOne(
-    { task: taskId, status: "pending" },
-    {
-      $set: {
-        retryCanceled: true,
-        retryCanceledAt: new Date(),
-        nextAttemptAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // push far future (worker won't pick it)
-        lastError: "Retry canceled manually from audit channel"
-      }
-    }
-  );
-
-  // Remove the button after cancel so you see it's done
-  try {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  } catch (_) {}
-});
-
 // From the dispute channel: send ONLY the corrected version of the completed work.
 bot.action(/^DP_SEND_CORRECTIONS_(.+)$/, async (ctx) => {
   try { await ctx.answerCbQuery(); } catch {}
