@@ -5671,7 +5671,27 @@ async function retryQueuedPayouts() {
         const data = await res.json().catch(() => null);
 
         if (!res.ok) {
-          const errorMessage = data?.message || data?.data || res.statusText;
+          // Try to extract a useful human-readable error from Chapa
+          let errorMessageRaw =
+            (data && typeof data.message === "string" && data.message.trim())
+              ? data.message
+              : (data && data.data && typeof data.data.message === "string" && data.data.message.trim())
+                ? data.data.message
+                : (data && data.data)
+                  ? data.data
+                  : res.statusText;
+
+          let errorMessage;
+          if (typeof errorMessageRaw === "string") {
+            errorMessage = errorMessageRaw;
+          } else {
+            try {
+              errorMessage = JSON.stringify(errorMessageRaw);
+            } catch (_) {
+              errorMessage = String(errorMessageRaw);
+            }
+          }
+
           console.error("Queued payout attempt failed:", payout._id.toString(), errorMessage);
 
           await TaskPayout.updateOne(
@@ -5714,7 +5734,7 @@ async function retryQueuedPayouts() {
                       : "Initial payout attempt failed",
                     chapaReference: payout.reference,
                     error: String(errorMessage || ""),
-                    showCancelRetryButton: looksLikeAccountMissing   // only show button for the банк-account problem case
+                    showCancelRetryButton: looksLikeAccountMissing   // only show button for the bank-account problem case
                   }
                 });
               } catch (auditErr) {
@@ -5731,6 +5751,7 @@ async function retryQueuedPayouts() {
           // Keep retrying forever (unless you hit "Cancel retry")
           continue;
         }
+
 
 
         // Provider accepted the payout request – wait for webhook to confirm final success
@@ -8782,6 +8803,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           // already succeeded, just log and continue (no double payout)
           console.log("Payout already marked succeeded for task", String(task._id));
         }
+
 
       }
     } catch (e) {
