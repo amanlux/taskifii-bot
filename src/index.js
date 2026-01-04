@@ -363,6 +363,8 @@ const CreditLog = mongoose.models.CreditLog || mongoose.model('CreditLog', Credi
 // Payout Retry Job (DB-backed)
 // ---------------------------
 const PayoutJobSchema = new mongoose.Schema({
+  taskId:  { type: mongoose.Schema.Types.ObjectId, ref: "Task", index: true }, // backward-compat for old DB index taskId_1
+
   task:    { type: mongoose.Schema.Types.ObjectId, ref: "Task", required: true, unique: true, index: true },
   doer:    { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
   creator: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
@@ -8667,7 +8669,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           currency: "ETB",
           reference: stableReference,
           createdAt: new Date(),
-          bank_name: pending.selectedBankName
+          bank_name: pending.selectedBankName,
+          taskId: pending.taskId, // ✅ add this
         },
         $set: {
           amount: Number(pending.payoutAmount),
@@ -8694,10 +8697,10 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           v?.data?.data?.transfer_status;
 
         if (v.ok && String(vStatus).toLowerCase().includes("success")) {
-          await PayoutJob.updateOne({ task: pending.taskId }, { $set: { status: "succeeded" } });
+          await PayoutJob.updateOne(payoutTaskFilter(pending.taskId), { $set: { status: "succeeded" } });
 
           const taskDoc = await Task.findById(pending.taskId).select("description").lean();
-          const fresh = await PayoutJob.findOne({ task: pending.taskId }).lean();
+          const fresh = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
 
           if (fresh && !fresh.successAuditSent) {
             await sendPayoutAuditOnce(globalThis.TaskifiiBot, {
@@ -8726,7 +8729,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
             }
           );
 
-          const fresh = await PayoutJob.findOne({ task: pending.taskId }).lean();
+          const fresh = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
           if (fresh && !fresh.successAuditSent) {
             await sendPayoutAuditOnce(globalThis.TaskifiiBot, {
               tag: "#payout_success",
@@ -8738,11 +8741,11 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
         } else {
           const errorMessage = created?.data?.message || created?.data?.data || `HTTP ${created.status}`;
           
-          const job = await PayoutJob.findOne({ task: pending.taskId }).lean();
+          const job = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
           // If destination is invalid (bank acct doesn't exist), alert audit channel + add Cancel retry button
           if (isInvalidDestinationError(errorMessage)) {
             const taskDoc = await Task.findById(pending.taskId).select("description").lean();
-            const freshJob = await PayoutJob.findOne({ task: pending.taskId }).lean();
+            const freshJob = await PayoutJob.findOne(payoutTaskFilter(pending.taskId)).lean();
 
             if (freshJob && !freshJob.invalidDestinationAuditSent) {
               await sendPayoutDestinationAudit(globalThis.TaskifiiBot, {
