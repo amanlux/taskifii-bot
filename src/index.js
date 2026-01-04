@@ -242,7 +242,7 @@ async function sendPayoutAudit(bot, {
   creator,
   doer,
   payout,
-  extra = {}       // { reason, chapaReference, error }
+  extra = {}       // { reason, chapaReference, error, showCancelRetryButton }
 }) {
   const creatorName = creator?.fullName || creator?.username || String(creator?.telegramId || "");
   const creatorUserId = creator?._id ? String(creator._id) : "-";
@@ -254,6 +254,7 @@ async function sendPayoutAudit(bot, {
 
   const messageLines = [
     `#taskPayout ${tag}`,
+    `Task ID: ${task?._id ? String(task._id) : "-"}`,
     `Task Description: ${task?.description || "-"}`,
     `Expiry (as shown): ${formatExpiresAtForAudit(task?.expiry)}`,
     `Fee (ETB): ${task?.paymentFee ?? payout?.amount ?? "-"}`,
@@ -262,13 +263,14 @@ async function sendPayoutAudit(bot, {
     `Creator Telegram ID: ${creatorTelegramId}`,
     `Creator Name: ${creatorName}`,
     "",
-    `Doer User ID: ${doerUserId}`,
+    `Doer User ID: ${doerUserId}`,      // ← this is the “Taskifii user id” of the winner task doer
     `Doer Telegram ID: ${doerTelegramId}`,
     `Doer Name: ${doerName}`,
   ];
 
   if (payout?.amount != null) messageLines.push(`Payout Amount (ETB): ${payout.amount}`);
   if (payout?.bankCode)       messageLines.push(`Bank Code: ${payout.bankCode}`);
+  if (payout?.bankName)       messageLines.push(`Bank Name: ${payout.bankName}`);
   if (payout?.accountNumber)  messageLines.push(`Account Number: ${payout.accountNumber}`);
   if (extra.reason)           messageLines.push(`Reason: ${extra.reason}`);
   if (extra.chapaReference)   messageLines.push(`Chapa Reference: ${extra.chapaReference}`);
@@ -276,12 +278,27 @@ async function sendPayoutAudit(bot, {
 
   const text = messageLines.join("\n");
   try {
-    // Use the same audit channel as refunds
-    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, text, { disable_web_page_preview: true });
+    const options = {
+      disable_web_page_preview: true,
+    };
+
+    // When requested, attach a "Cancel retry" button under the audit message
+    if (extra.showCancelRetryButton && payout?._id) {
+      const callbackData = `PAYOUT_CANCEL_RETRY_${payout._id}`;
+      options.reply_markup = {
+        inline_keyboard: [
+          [{ text: "🚫 Cancel retry", callback_data: callbackData }]
+        ]
+      };
+    }
+
+    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, text, options);
   } catch (e) {
     console.error("Failed to send payout audit message:", e);
   }
 }
+
+
 
 // Model to track payouts and retries safely (no double payout)
 const TaskPayoutSchema = new mongoose.Schema({
@@ -292,6 +309,7 @@ const TaskPayoutSchema = new mongoose.Schema({
   amount:          { type: Number, required: true },
 
   bankCode:        { type: String },
+  bankName:        { type: String },   // NEW: store bank name as well
   accountNumber:   { type: String },
   accountName:     { type: String },
 
@@ -301,9 +319,13 @@ const TaskPayoutSchema = new mongoose.Schema({
   lastError:       { type: String },
   lastAttemptAt:   { type: Date },
 
-  firstFailureAuditSentAt: { type: Date },
-  successAuditSentAt:      { type: Date },
+  // Flags & timestamps for audits / retry control
+  retryCanceled:          { type: Boolean, default: false, index: true },  // NEW: for "Cancel retry"
+  firstFailureAuditSentAt:{ type: Date },
+  successAuditSentAt:     { type: Date },
+  delayedAuditSentAt:     { type: Date },  // NEW: 48h “still not successful” audit
 }, { versionKey: false, timestamps: true });
+
 
 const TaskPayout = mongoose.models.TaskPayout
   || mongoose.model('TaskPayout', TaskPayoutSchema);
@@ -5542,17 +5564,71 @@ async function retryQueuedPayouts() {
     const secret = process.env.CHAPA_SECRET_KEY;
     if (!secret) {
       console.warn("CHAPA_SECRET_KEY is not set — cannot process queued payouts.");
+      // Even if we cannot call Chapa, we still exit here;
+      // payouts will remain queued and the 48h audit will run next time once the key is set.
       return;
     }
 
+    // 1) First, find payouts that have been stuck (not succeeded) for > 48 hours
+    const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48 hours ago
+
+    try {
+      const stale = await TaskPayout.find({
+        createdAt: { $lte: cutoff },
+        status: { $ne: "succeeded" },
+        retryCanceled: { $ne: true },
+        delayedAuditSentAt: { $exists: false }
+      })
+        .limit(25)
+        .populate("task")
+        .populate("creator")
+        .populate("doer");
+
+      if (stale.length) {
+        const bot = globalThis.TaskifiiBot;
+        if (bot) {
+          for (const payout of stale) {
+            if (!payout.task || !payout.creator || !payout.doer) continue;
+
+            try {
+              await sendPayoutAudit(bot, {
+                tag: "#payout_delayed_48h",
+                task: payout.task,
+                creator: payout.creator,
+                doer: payout.doer,
+                payout,
+                extra: {
+                  reason: "Payout not marked succeeded within 48 hours. Please investigate bank details or Chapa status.",
+                  chapaReference: payout.reference,
+                  showCancelRetryButton: true
+                }
+              });
+
+              await TaskPayout.updateOne(
+                { _id: payout._id },
+                { $set: { delayedAuditSentAt: new Date() } }
+              );
+            } catch (auditErr) {
+              console.error("Delayed payout audit send failed:", auditErr);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error checking delayed payouts for audit:", e);
+    }
+
+    // 2) Now process queued/requested payouts (still unlimited retries)
     const queued = await TaskPayout.find({
-      status: { $in: ["queued", "requested"] }
+      status: { $in: ["queued", "requested"] },
+      retryCanceled: { $ne: true }  // NEW: skip ones where you hit "Cancel retry"
     })
       .sort({ createdAt: 1 })
       .limit(25)
       .populate("task")
       .populate("creator")
       .populate("doer");
+
 
     if (!queued.length) return;
 
@@ -5609,21 +5685,36 @@ async function retryQueuedPayouts() {
             }
           );
 
+          // Try to detect when Chapa is telling us the bank account doesn't exist / is invalid
+          const msgLower = String(errorMessage || "").toLowerCase();
+          const looksLikeAccountMissing =
+            msgLower.includes("account") &&
+            (
+              msgLower.includes("does not exist") ||
+              msgLower.includes("doesn't exist") ||
+              msgLower.includes("not exist") ||
+              msgLower.includes("not found") ||
+              msgLower.includes("invalid")
+            );
+
           // On FIRST failure only → audit once
           if (isFirstAttempt && !payout.firstFailureAuditSentAt) {
             const bot = globalThis.TaskifiiBot;
             if (bot && payout.task && payout.creator && payout.doer) {
               try {
                 await sendPayoutAudit(bot, {
-                  tag: "#payoutfailed_first_try",
+                  tag: looksLikeAccountMissing ? "#payout_bank_issue" : "#payoutfailed_first_try",
                   task: payout.task,
                   creator: payout.creator,
                   doer: payout.doer,
                   payout,
                   extra: {
-                    reason: "Initial payout attempt failed",
+                    reason: looksLikeAccountMissing
+                      ? "Chapa reported that the destination bank account does not exist or is invalid."
+                      : "Initial payout attempt failed",
                     chapaReference: payout.reference,
-                    error: String(errorMessage || "")
+                    error: String(errorMessage || ""),
+                    showCancelRetryButton: looksLikeAccountMissing   // only show button for the банк-account problem case
                   }
                 });
               } catch (auditErr) {
@@ -5637,9 +5728,10 @@ async function retryQueuedPayouts() {
             );
           }
 
-          // Keep retrying forever
+          // Keep retrying forever (unless you hit "Cancel retry")
           continue;
         }
+
 
         // Provider accepted the payout request – wait for webhook to confirm final success
         await TaskPayout.updateOne(
@@ -8605,24 +8697,32 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       return next();
     }
 
-    const accountNumber = ctx.message.text.trim();
+    const accountRaw = ctx.message.text || "";
+    const accountNumber = accountRaw.trim();
 
-    // Basic validation: account number should be numeric
-    if (!/^\d+$/.test(accountNumber)) {
+    // NEW flexible validation:
+    // 1) Length between 5 and 30 characters (so it's not too short or insane)
+    if (accountNumber.length < 5 || accountNumber.length > 30) {
       const errMsg = (pending.selectedBankName)
-        ? `❌ Invalid account number format. Please enter only digits for your ${pending.selectedBankName} account.`
-        : "❌ Invalid account number format. Please enter only digits.";
+        ? `❌ The account number for your ${pending.selectedBankName} account looks unusual. Please enter between 5 and 30 characters.`
+        : "❌ The account number looks unusual. Please enter between 5 and 30 characters.";
       await ctx.reply(errMsg);
       return;
     }
 
-    // If bank info includes expected length, validate length
-    const bankInfo = pending.banks.find(b => b.id === pending.selectedBankId);
-    if (bankInfo?.acct_length && accountNumber.length !== bankInfo.acct_length) {
-      const errMsg = `❌ The account number should be ${bankInfo.acct_length} digits long. Please re-enter the correct number.`;
+    // 2) Allow letters, numbers, spaces and dashes.
+    //    This supports things like Abyssinia accounts with letters.
+    if (!/^[A-Za-z0-9\- ]+$/.test(accountNumber)) {
+      const errMsg = (pending.selectedBankName)
+        ? `❌ The account number for your ${pending.selectedBankName} account looks unusual. Please use only letters, numbers, spaces, or dashes.`
+        : "❌ The account number looks unusual. Please use only letters, numbers, spaces, or dashes.";
       await ctx.reply(errMsg);
       return;
     }
+
+    // Bank info (we’ll reuse this later for bankName)
+    const bankInfo = pending.banks.find(b => b.id === pending.selectedBankId) || null;
+
 
     // Look up the user (for account_name + language)
     const userDoc = await User.findOne({ telegramId: userId });
@@ -8650,10 +8750,12 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           doerTelegramId: doer.telegramId,
           amount: amountNumber,
           bankCode: pending.selectedBankId,
+          bankName: bankInfo?.name || bankInfo?.bank_name || null,   // NEW
           accountNumber,
           accountName: userDoc?.fullName || null,
           reference: pending.reference,
         };
+
 
         if (!existing) {
           await TaskPayout.create({
@@ -8680,6 +8782,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           // already succeeded, just log and continue (no double payout)
           console.log("Payout already marked succeeded for task", String(task._id));
         }
+
       }
     } catch (e) {
       console.error("Error queuing payout for retry:", e);
@@ -12877,6 +12980,40 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
   const lead = (TEXT.punishLinkReady?.[lang] || TEXT.punishLinkReady.en);
   const link = checkout?.data?.checkout_url || "(link unavailable)";
   await ctx.reply(`${lead}\n${link}`);
+});
+// Admin/audit action: cancel automatic retry for a specific payout
+bot.action(/^PAYOUT_CANCEL_RETRY_(.+)$/, async (ctx) => {
+  const payoutId = ctx.match[1];
+
+  await ctx.answerCbQuery("Retry cancelled for this payout.");
+
+  try {
+    const payout = await TaskPayout.findById(payoutId);
+    if (!payout) {
+      await ctx.reply("⚠️ Could not find this payout document anymore.");
+      return;
+    }
+
+    if (payout.retryCanceled) {
+      await ctx.reply("ℹ️ Automatic retry for this payout was already cancelled.");
+      return;
+    }
+
+    payout.retryCanceled = true;
+    await payout.save();
+
+    // Remove the button so it's visually clear that retry is off
+    try {
+      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+    } catch (_) {
+      // ignore edit errors
+    }
+
+    await ctx.reply("🔕 Automatic retry has been cancelled for this payout.");
+  } catch (e) {
+    console.error("Failed to cancel payout retry:", e);
+    await ctx.reply("⚠️ Something went wrong while cancelling retry. Please check the logs.");
+  }
 });
 
 // ─── When Doer Marks Task as Completed ───────────────────────────
