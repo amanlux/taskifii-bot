@@ -5252,14 +5252,98 @@ app.use(express.json());
 
 
 // put near your other Express routes / app.use(...) lines
+// Shared handler for Chapa payout.success events (used by both /chapa/ipn and /chapa/payout)
+async function processTaskPayoutSuccess(referenceRaw) {
+  try {
+    const reference = String(referenceRaw || "");
+    const prefix = "task_payout_";
+
+    if (!reference || !reference.startsWith(prefix)) {
+      return;
+    }
+
+    const taskId = reference.slice(prefix.length);
+    if (!taskId) {
+      return;
+    }
+
+    // Mark the task as paid in the database
+    const update = { paidAt: new Date() };
+    const result = await Task.updateOne({ _id: taskId }, { $set: update });
+
+    if (result.matchedCount) {
+      console.log(`Chapa payout webhook: marked Task ${taskId} as paid.`);
+    } else {
+      console.warn(`Chapa payout webhook: no Task found with id ${taskId}.`);
+    }
+
+    // Also mark the payout as succeeded and send a single success audit
+    try {
+      const payout = await TaskPayout.findOne({ reference }).populate("doer");
+      if (!payout) {
+        console.warn("Payout webhook: no TaskPayout found for reference", reference);
+        return;
+      }
+
+      // Only send the success audit once
+      if (!payout.successAuditSentAt) {
+        payout.status = "succeeded";
+        payout.lastError = null;
+        payout.successAuditSentAt = new Date();
+        await payout.save();
+
+        const bot = globalThis.TaskifiiBot;
+        if (bot) {
+          const taskDoc = await Task.findById(taskId).populate("creator");
+          const creatorUser = taskDoc?.creator
+            ? (taskDoc.creator._id ? taskDoc.creator : await User.findById(taskDoc.creator))
+            : null;
+          const doerUser = payout.doer;
+
+          if (taskDoc && creatorUser && doerUser) {
+            await sendPayoutAudit(bot, {
+              tag: "#payout successful",
+              task: taskDoc,
+              creator: creatorUser,
+              doer: doerUser,
+              payout,
+              extra: {
+                reason: "Chapa payout webhook: payout.success",
+                chapaReference: reference
+              }
+            });
+          } else {
+            console.warn("Payout webhook: missing creator/doer for audit", {
+              taskId,
+              reference
+            });
+          }
+        }
+      } else {
+        // Already audited as successful; ignore duplicate webhook
+        console.log("Payout webhook: success already audited for reference", reference);
+      }
+    } catch (auditErr) {
+      console.error("Error updating TaskPayout or sending payout audit:", auditErr);
+    }
+  } catch (err) {
+    console.error("Error in processTaskPayoutSuccess:", err);
+  }
+}
 
 // Accept BOTH form posts and JSON on the same route
 app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()], async (req, res) => {
   try {
-    // Ignore payout webhooks here. Those are handled in /chapa/payout
+    // Handle payout.success events here as well (some providers send them to the same IPN URL)
     if (req.body?.event === "payout.success" && String(req.body?.reference || "").startsWith("task_payout_")) {
+      try {
+        await processTaskPayoutSuccess(req.body.reference);
+      } catch (e) {
+        console.error("Error handling payout.success inside /chapa/ipn:", e);
+      }
       return res.status(200).send("ok");
     }
+
 
     // Chapa typically includes at least tx_ref (and sometimes reference/status) in the POST.
     const txRef = String(
@@ -5438,65 +5522,7 @@ app.post("/chapa/payout", async (req, res) => {
   try {
     const { event, reference } = req.body || {};
     if (event === "payout.success" && typeof reference === "string") {
-      const prefix = "task_payout_";
-      if (reference.startsWith(prefix)) {
-        const taskId = reference.slice(prefix.length);
-        if (taskId) {
-          // Mark the task as paid in the database
-          const update = { paidAt: new Date() };
-          const result = await Task.updateOne({ _id: taskId }, { $set: update });
-
-          if (result.matchedCount) {
-            console.log(`Chapa payout webhook: marked Task ${taskId} as paid.`);
-          } else {
-            console.warn(`Chapa payout webhook: no Task found with id ${taskId}.`);
-          }
-
-          // Also mark the payout as succeeded and send a single success audit
-          try {
-            const payout = await TaskPayout.findOne({ reference }).populate("doer");
-            if (!payout) {
-              console.warn("Payout webhook: no TaskPayout found for reference", reference);
-            } else if (!payout.successAuditSentAt) {
-              payout.status = "succeeded";
-              payout.lastError = null;
-              payout.successAuditSentAt = new Date();
-              await payout.save();
-
-              const bot = globalThis.TaskifiiBot;
-              if (bot) {
-                const taskDoc = await Task.findById(taskId).populate("creator");
-                const creatorUser = taskDoc?.creator ? (taskDoc.creator._id ? taskDoc.creator : await User.findById(taskDoc.creator)) : null;
-                const doerUser = payout.doer;
-
-                if (taskDoc && creatorUser && doerUser) {
-                  await sendPayoutAudit(bot, {
-                    tag: "#payout successful",
-                    task: taskDoc,
-                    creator: creatorUser,
-                    doer: doerUser,
-                    payout,
-                    extra: {
-                      reason: "Chapa payout webhook: payout.success",
-                      chapaReference: reference
-                    }
-                  });
-                } else {
-                  console.warn("Payout webhook: missing creator/doer for audit", {
-                    taskId,
-                    reference
-                  });
-                }
-              }
-            } else {
-              // Already audited as successful; ignore duplicate webhook
-              console.log("Payout webhook: success already audited for reference", reference);
-            }
-          } catch (auditErr) {
-            console.error("Error updating TaskPayout or sending payout audit:", auditErr);
-          }
-        }
-      }
+      await processTaskPayoutSuccess(reference);
     }
   } catch (err) {
     console.error("Error handling Chapa payout webhook:", err);
@@ -5505,6 +5531,7 @@ app.post("/chapa/payout", async (req, res) => {
   // Always ack so Chapa doesn't keep retrying the webhook
   res.sendStatus(200);
 });
+
 
 
 
@@ -5670,7 +5697,17 @@ async function retryQueuedPayouts() {
 
         const data = await res.json().catch(() => null);
 
-        if (!res.ok) {
+        // Determine whether this response represents an error
+        let isError = !res.ok;
+        if (!isError && data && typeof data.status === "string") {
+          const statusLower = data.status.toLowerCase();
+          // Treat anything that is not a clear "success" as an error
+          if (statusLower !== "success" && statusLower !== "successful") {
+            isError = true;
+          }
+        }
+
+        if (isError) {
           // Try to extract a useful human-readable error from Chapa
           let errorMessageRaw =
             (data && typeof data.message === "string" && data.message.trim())
@@ -5734,7 +5771,8 @@ async function retryQueuedPayouts() {
                       : "Initial payout attempt failed",
                     chapaReference: payout.reference,
                     error: String(errorMessage || ""),
-                    showCancelRetryButton: looksLikeAccountMissing   // only show button for the bank-account problem case
+                    // For your use-case, ALWAYS show the cancel button on first failure
+                    showCancelRetryButton: true
                   }
                 });
               } catch (auditErr) {
@@ -5751,6 +5789,7 @@ async function retryQueuedPayouts() {
           // Keep retrying forever (unless you hit "Cancel retry")
           continue;
         }
+
 
 
 
