@@ -2038,21 +2038,7 @@ function buildPreviewText(draft, user) {
     lines.push("");
   }
 
-  // Exchange Strategy
-  if (draft.exchangeStrategy) {
-    let desc = "";
-    if (draft.exchangeStrategy === "100%") {
-      desc = TEXT.exchangeStrategyDesc100[lang];
-    } else if (draft.exchangeStrategy === "30:40:30") {
-      desc = TEXT.exchangeStrategyDesc304030[lang];
-    } else {
-      desc = TEXT.exchangeStrategyDesc5050[lang];
-    }
-    lines.push(lang === "am" 
-      ? `*የክፍያ-ተግዳሮት ልውውጥ ስልት:* ${desc}` 
-      : `*Exchange Strategy:* ${desc}`);
-    lines.push("");
-  }
+  
 
   
 
@@ -2062,14 +2048,14 @@ function buildPreviewText(draft, user) {
     : `N/A ★ (0 ${lang === "am" ? "ግምገማዎች" : "ratings"})`;
   
   lines.push(lang === "am" 
-    ? `*hhhhhhh:* ${user.stats.totalEarned.toFixed(2)} ብር` 
-    : `*Creator's Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
+    ? `*አሰሪው እስከ አሁን በኛ ፕላትፎርም የሰራው ብር:* ${user.stats.totalEarned.toFixed(2)} ብር` 
+    : `*The Creator's Total Earned Birr:* ${user.stats.totalEarned.toFixed(2)} birr`);
   lines.push(lang === "am" 
-    ? `*ፈጣሪ አጠቃላይ የተከፈለው:* ${user.stats.totalSpent.toFixed(2)} ብር` 
-    : `*Creator Total Spent:* ${user.stats.totalSpent.toFixed(2)} birr`);
+    ? `*አሰሪው እስከ አሁን በኛ ፕላትፎርም ያወጣው ብር:* ${user.stats.totalSpent.toFixed(2)} ብር` 
+    : `*The Creator's Total Spent Birr:* ${user.stats.totalSpent.toFixed(2)} birr`);
   lines.push(lang === "am" 
-    ? `*ፈጣሪ ደረጃ:* ${ratingText}` 
-    : `*Creator Rating:* ${ratingText}`);
+    ? `*የአሰሪው ግምገማዎች :* ${ratingText}` 
+    : `*The Creator's Ratings:* ${ratingText}`);
   lines.push("");
 
   // ⚠️ New: explain why "Post Task" might not do anything
@@ -2154,19 +2140,7 @@ function buildChannelPostText(draft, user) {
     lines.push("");
   }
 
-  // Exchange Strategy
-  if (draft.exchangeStrategy) {
-    let desc = "";
-    if (draft.exchangeStrategy === "100%") {
-      desc = TEXT.exchangeStrategyDesc100["en"];
-    } else if (draft.exchangeStrategy === "30:40:30") {
-      desc = TEXT.exchangeStrategyDesc304030["en"];
-    } else {
-      desc = TEXT.exchangeStrategyDesc5050["en"];
-    }
-    lines.push(`*Exchange Strategy:* ${desc}`);
-    lines.push("");
-  }
+  
 
   
 
@@ -2632,7 +2606,7 @@ function buildDisputeChunks({ task, creatorUser, doerUser, winnerApp }) {
     `• Time to Complete: ${task.timeToComplete} hour(s)`,
     `• Skill Level: ${task.skillLevel}`,
     `• Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : (task.fields || 'N/A')}`,
-    `• Exchange Strategy: ${task.exchangeStrategy || 'N/A'}`,
+    
     `• Revision Time: ${task.revisionTime} hour(s)`,
     `• Penalty per Hour: ${task.latePenalty} birr`,
     `• Posted At: ${formatGmt3(task.postedAt)}`,
@@ -3402,7 +3376,7 @@ async function sendWinnerTaskDoerToChannel(bot, task, doer, creator) {
       `• Time to Complete: ${task.timeToComplete} hour(s)`,
       `• Skill Level: ${task.skillLevel}`,
       `• Fields: ${task.fields.join(', ')}`,
-      `• Exchange Strategy: ${task.exchangeStrategy}`,
+      
       `• Revision Time: ${task.revisionTime} hour(s)`,
       `• Penalty per Hour: ${task.latePenalty} birr`,
       `• Posted At: ${task.postedAt.toLocaleString("en-US", {
@@ -3461,7 +3435,7 @@ async function sendAcceptedApplicationToChannel(bot, task, applicant, creator) {
       `• Time to Complete: ${task.timeToComplete} hour(s)`,
       `• Skill Level: ${task.skillLevel}`,
       `• Fields: ${task.fields.join(', ')}`,
-      `• Exchange Strategy: ${task.exchangeStrategy}`,
+      
       `• Revision Time: ${task.revisionTime} hour(s)`,
       `• Penalty per Hour: ${task.latePenalty} birr`,
       `• Posted At: ${task.postedAt.toLocaleString("en-US", {
@@ -3621,9 +3595,7 @@ function formatTaskDetailsForDoer(task, lang = "en") {
     lines.push(`• Time to Complete: ${task.timeToComplete} hour(s)`);
     lines.push(`• Skill Level: ${task.skillLevel}`);
     lines.push(`• Fields: ${fieldsText}`);
-    if (task.exchangeStrategy) {
-      lines.push(`• Exchange Strategy: ${task.exchangeStrategy}`);
-    }
+    
     if (task.revisionTime != null) {
       lines.push(`• Revision Time: ${task.revisionTime} hour(s)`);
     }
@@ -4099,7 +4071,7 @@ function renderTaskSummary(t, lang="en") {
   lines.push(`• Time to complete: ${t.timeToComplete || 0} h`);
   lines.push(`• Revision window: ${revMins} min`);
   lines.push(`• Penalty / hour: ${t.penaltyPerHour ?? t.latePenalty ?? 0} birr`);
-  lines.push(`• Exchange strategy: ${(t.exchangeStrategy || '').trim() || (lang==='am' ? 'የለም' : 'N/A')}`);
+  
   lines.push(`• Total window (including runway): ${totalNice}`);
   return lines.join("\n");
 }
@@ -4836,7 +4808,7 @@ async function sendEscalationSummaryToChannel(botOrTelegram, task, creator, doer
       `• Time to Complete: ${task.timeToComplete} hour(s)`,
       `• Skill Level: ${task.skillLevel}`,
       `• Fields: ${Array.isArray(task.fields) ? task.fields.join(', ') : (task.fields || 'N/A')}`,
-      `• Exchange Strategy: ${task.exchangeStrategy}`,
+      
       `• Revision Time: ${task.revisionTime} hour(s)`,
       `• Penalty per Hour: ${(task.penaltyPerHour ?? task.latePenalty) || 0} birr/hour`,
       `• Posted At: ${task.postedAt?.toLocaleString("en-US", { timeZone: "Africa/Addis_Ababa", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true })} GMT+3`,
@@ -8967,8 +8939,7 @@ bot.action("TASK_EDIT", async (ctx) => {
     [Markup.button.callback(lang === "am" ? "⏳ የማጠናቀቂያ ጊዜ አርትዕ" : "⏳ Edit Time to Complete", "EDIT_timeToComplete")],
     [Markup.button.callback(lang === "am" ? "🔄 የማሻሻል ጊዜ አርትዕ" : "🔄 Edit Revision Time", "EDIT_revisionTime")],
     [Markup.button.callback(lang === "am" ? "⏱️ በሰዓት ቅጣት አርትዕ" : "⏱️ Edit Penalty per Hour", "EDIT_penaltyPerHour")],
-    [Markup.button.callback(lang === "am" ? "⌛ የማብቂያ ጊዜ አርትዕ" : "⌛ Edit Expiry Hours", "EDIT_expiryHours")],
-    [Markup.button.callback(lang === "am" ? "🔀 የልውውጥ ስልት አርትዕ" : "🔀 Edit Exchange Strat.", "EDIT_exchangeStrategy")]
+    [Markup.button.callback(lang === "am" ? "⌛ የማብቂያ ጊዜ አርትዕ" : "⌛ Edit Expiry Hours", "EDIT_expiryHours")]
   ];
 
   return ctx.reply(
@@ -11030,17 +11001,34 @@ async function handleExpiryHours(ctx, draft) {
     ctx.session.taskFlow = null;
     return;
   }
-  
-  ctx.session.taskFlow.step = "exchangeStrategy";
+
+  // 🔁 NEW: for normal flow, go straight to preview (no exchange strategy step)
+  const locked = await isEngagementLocked(ctx.from.id);
+  let preview = buildPreviewText(draft, user);
+
+  // Optional: show “Expires In” instead of “Expires At” if you want
+  preview = preview
+    .split("\n")
+    .map(line =>
+      line.startsWith("*Expires At:*")
+        ? `*Expires In:* ${hrs} hour(s)`
+        : line
+    )
+    .join("\n");
+
+  ctx.session.taskFlow = null;
   return ctx.reply(
-    TEXT.askExchangeStrategy[lang], // Use translation
+    preview,
     Markup.inlineKeyboard([
-      [Markup.button.callback(TEXT.exchangeStrategy100[lang], "TASK_EX_100%")],
-      [Markup.button.callback(TEXT.exchangeStrategy304030[lang], "TASK_EX_30:40:30")],
-      [Markup.button.callback(TEXT.exchangeStrategy5050[lang], "TASK_EX_50:50")]
-    ])
+      [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+      [ locked
+        ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+        : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+      ]
+    ], { parse_mode: "Markdown" })
   );
 }
+
 
 
 async function updateAdminProfilePost(ctx, user, adminMessageId) {
@@ -11461,31 +11449,7 @@ bot.action("EDIT_expiryHours", async (ctx) => {
   const lang = user?.language || "en";
   return ctx.reply(TEXT.askExpiryHours[lang]);
 });
-bot.action("EDIT_exchangeStrategy", async (ctx) => {
-  await ctx.answerCbQuery();
-  try { await ctx.deleteMessage(); } catch (_) {}
-  const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) {
-    const user = await User.findOne({ telegramId: ctx.from.id });
-    const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
-  }
-  ctx.session.taskFlow = {
-    step: "exchangeStrategy",
-    draftId: draft._id.toString(),
-    isEdit: true
-  };
-  const user = await User.findOne({ telegramId: ctx.from.id });
-  const lang = user?.language || "en";
-  return ctx.reply(
-    TEXT.askExchangeStrategy[lang],
-    Markup.inlineKeyboard([
-      [Markup.button.callback(TEXT.exchangeStrategy100[lang], "TASK_EX_100%")],
-      [Markup.button.callback(TEXT.exchangeStrategy304030[lang], "TASK_EX_30:40:30")],
-      [Markup.button.callback(TEXT.exchangeStrategy5050[lang], "TASK_EX_50:50")]
-    ])
-  );
-});
+
 
 bot.action("TASK_POST_CONFIRM", async (ctx) => {
   await ctx.answerCbQuery();
