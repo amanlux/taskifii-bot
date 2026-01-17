@@ -590,19 +590,19 @@ const TEXT = {
   },
   setupProfileBtn: {
     en: "Setup Profile",
-    am: "ፕሮፋይል ያቀናብሩ"
+    am: "ፕሮፋይል መረጃ ልስጥ"
   },
   askFullName: {
     en: "What is your full name? (minimum 3 characters)",
-    am: "ሙሉ ስምዎን ያስገቡ። (አንስተው 3 ቁምፊ መሆን አለበት)"
+    am: "ሙሉ ስምዎን ያስገቡ። (ቢያንስ እስከ 3 ቁምፊዎች መሆን አለበት)"
   },
   fullNameError: {
     en: "Full name must be at least 3 characters. Try again.",
-    am: "ሙሉ ስም አንስተው 3 ቁምፊ መሆን አለበት። ድጋፍ ይሁን።"
+    am: "ሙሉ ስም ቢያንስ እስከ 3 ቁምፊዎች መሆን አለበት። ድጋሚ ይሞክሩ።"
   },
   askPhone: {
-    en: "What is your phone number? (digits only, 5–14 digits)",
-    am: "የስልክ ቁጥርዎን ያስገቡ። (ቁጥሮች ብቻ፣ 5–14 ቁጥር)"
+    en: "What is your phone number? ",
+    am: "የስልክ ቁጥርዎን ያስገቡ። "
   },
   phoneErrorFormat: {
     en: "Please enter a valid phone number (5–14 digits)!",
@@ -610,7 +610,7 @@ const TEXT = {
   },
   phoneErrorTaken: {
     en: "Sorry, this phone number is already taken! Please enter another phone number!",
-    am: "ይቅርታ፣ ይህ ስልክ ቁጥር አስተጋባቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ ስልክ ቁጥር ያስገቡ!"
+    am: "ይቅርታ፣ ይህ ስልክ ቁጥር በሌላ ሰው ተይዝዋል! ሌላ ስልክ ቁጥር ያስገቡ!"
   },
   askEmail: {
     en: "What is your email address?",
@@ -622,24 +622,24 @@ const TEXT = {
   },
   emailErrorTaken: {
     en: "Sorry, this email address is already taken! Please enter another email address!",
-    am: "ይቅርታ፣ ይህ ኢሜይል አድራሻ አስተጋቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ ኢሜይል ያስገቡ!"
+    am: "ይቅርታ፣ ይህ ኢሜይል አድራሻ በሌላ ሰው ተይዝዋል! ሌላ ኢሜይል ያስገቡ!"
   },
   askUsername: {
     en: "Your Telegram username is @%USERNAME%. Do you want to keep this? Click ‘Yes, keep it’ or send a new one below.",
-    am: "የቲነልግራም የተጠቃሚ ስምዎ @%USERNAME% ነው። ይህን ለመቀበል ይፈቅዱ? ‘አዎን፣ ይቀበሉ’ ይጫኑ ወይም አዲስ ስም በታች ይጻፉ።"
+    am: "የቴሌግራም ዩዘር ኔማቹ @%USERNAME% ነው። ይህ ይሁን ካላቹ ‘አዎ ይሁን’ ይጫኑ፤ ሌላ አዲስ መስጠት ከፈለጋቹ ደሞ አዲስ የቲነልግራም ዩዘር ኔም ከታች ይላኩ።"
   },
   profileFieldsIntro: {
-    en: "Select 1–7 fields that you are skilled at. These will help us recommend tasks that match your expertise if you decide to become a task doer. It doesn’t matter if your skill level is beginner, intermediate, or professional. You can change your selections anytime, except when you are involved with an active task.",
-    am: "በችሎታ ያለዎትን 1-7 መስኮች ይምረጡ። እነዚህ ከፈለጉ ወደ ተግዳሮት አካል ሲሆኑ ከባለሙያነትዎ ጋር የሚጣጣሙ ተግዳሮቶችን እንድናመርምርሎት ይረዳናሉ። የችሎታዎ ደረጃ ጀማሪ ወይም መካከለኛ ወይም ፕሮፌሽናል መሆኑ አይገባም። ከአንድ ንቁ ተግዳሮት ጋር ባለማያተሉ ጊዜ ምርጫዎን በማንኛውም ጊዜ መቀየር ትችላላችሁ።"
+    en: "Select 1–7 fields that you are skilled at. Even though you can search for tasks yourself, the fields you select now will help us recommend tasks that match your expertise if you decide to become a task doer. It doesn’t matter if your skill level is beginner, intermediate, or professional. You can change your selections anytime, except when you are involved with an active task.",
+    am: "ክህሎት ወይም ልምድ ያለዎትን ከ1 እስከ 7 የሚደርሱ የሙያ ዘርፎችን ይምረጡ። ምንም እንኳን የሚፈልጉትን ስራ በራስዎ መፈለግ ቢችሉም፣ አሁን የሚመርጧቸው ዘርፎች ወደፊት ስራ ለመስራት ሲወስኑ ከእርስዎ ክህሎት ጋር የሚጣጣሙ ስራዎችን በቀላሉ እንድንጠቁምዎ ይረዱናል። የክህሎት ደረጃዎ ጀማሪ፣ መካከለኛ ወይም ከፍተኛ ባለሙያ ቢሆን ለውጥ የለውም። በእጅዎ ላይ የጀመሩት ስራ እስካልሌለ ድረስ፣ የመረጧቸውን የሙያ ዘርፎች በማንኛውም ጊዜ መቀየር ይችላሉ።"
   },
 
   usernameErrorGeneral: {
     en: "Please make sure it is a valid Telegram username!",
-    am: "እባክዎ ትክክለኛ የቲነልግራም የተጠቃሚ ስም መሆን አለበት!"
+    am: "እባክዎ ትክክለኛ የቴሌግራም የተጠቃሚ ስም መሆኑን ያረጋግጡ!"
   },
   usernameErrorTaken: {
     en: "Sorry, that @username is already taken! Please enter a different @username!",
-    am: "ይቅርታ፣ ይህ @username አስተጋቢ እንደሆነ ተጠቃሚ አገኙት! ሌላ @username ያስገቡ!"
+    am: "ይቅርታ፣ ይህ @username በሌላ ሰው ተይዝዋል! ሌላ @username ያስገቡ!"
   },
   askBankDetails: {
     en: "Give us your online banking details (Maximum 10) in this format: `BankName,AccountNumber`. You may also include Telebirr by writing `Telebirr,YourPhoneNumber`.",
@@ -658,72 +658,634 @@ const TEXT = {
     am: "ወደ 10 ባንኮች ደረሱ። ወደ መመሪያ እና ሁኔታዎች ይቀይራሉ..."
   },
   askTerms: {
-    en: `Please read and agree to these Terms & Conditions before proceeding:
-(1) Taskifii is an MVP; it is not legally registered as a business entity.
-(2) Taskifii charges zero commission and does not hold escrow; all payments between Task Creators and Task Doers are final.
-(3) Taskifii’s Bot stores user data in encrypted form; it does not share personal information with third parties.
-(4) Any violation of these Terms & Conditions—including but not limited to harassment, scamming, or sharing false information—will lead to suspension or permanent ban.
-(5) By using Taskifii Bot, you acknowledge and agree that Taskifii is not liable for any disputes or losses; Taskifii acts only as an information conduit.
-(6) No user under the age of 18 is allowed to register or perform tasks on Taskifii Bot.
-(7) Users must comply with all Telegram policies; spamming, phishing, or blocking other users may result in removal.
-(8) All payments must be completed outside of the Bot; Taskifii Bot does not handle money or escrow.
-(9) Any attempt to manipulate ratings (e.g., uploading fake reviews) is strictly prohibited.
-(10) By continuing, you confirm you have read, understood, and agreed to these Terms & Conditions.`,
-    am: `እባክዎን በቅድሚያ መመሪያና ሁኔታዎችን ያነቡ።
-(1) Taskifii እንደ MVP ስለጀመረ፤ የህጋዊ ድርጅት ምዝገባ አልተደረገም.
-(2) Taskifii የኮሚሽን ክፍያ አልተያዘም እና ኢስክሮ ማስያዣ አያደርግም፤ በተግዳሮት የተከፈሉት መብዋሪያዎች ሁሉ የተወሰኑ ናቸው.
-(3) Taskifii Bot የተጠቃሚዎችን መረጃ በዲጃታ ቅፅበት ያስቆጣጠር፤ ግል መረጃ ለሶስተኛዎች አይከፍልም.
-(4) ከእነዚህ መመሪያዎች ማንኛውም ማሸነፍ—ምንጋጋ፣ ስከት ወይም ውሸት መከፈል—ተግዳሮት እስከጨርስ ወይም መጠፋት ያመጣል.
-(5) Taskifii Bot መጠቀም በማድረግ ምንም ጉዳት ወይም ችግር የሚፈጥርበት የለም፤ Taskifii ማመልከቻው መረጃ የማስተላለፊያ ብቻ ነው.
-(6) ከ18 ዓመት በታች ተጠቃሚ በTaskifii Bot መመዝገብ ወይም ተግዳሮት ማድረግ አይፈቀድም.
-(7) ተጠቃሚዎች ሁሉ Telegram ፖሊሲዎችን መጠቀም አለባቸው፤ ስፓም፣ ፊሽን፣ ሌሎችን ማቆም ወዘተ የተደረገ ተግባር ከሆነ ከሰረዝ.
-(8) ሁሉም ክፍያዎች ውጪ ከBot ይፈጸማሉ፤ Taskifii Bot ገንዘብ አልተያዘም አይወሰድም.
-(9) የግምገማዎችን መደብደብ መልስ በማድረግ (ለምሳሌ ውሸት ግምገማዎች ማስገባት) በግብይት ተከታትሎ እንቅስቃሴን ማሳያ ነው.
-(10) በመቀጠል ያላንተ እነዚህን መመሪያዎች አግኝተሃልና ተቀበልናል ትባላላችሁ.”`
+    en: `These Terms & Conditions (“Terms”) govern your access to and use of Taskifii, including the Taskifii Telegram Bot (“Bot”), Taskifii channels, and any related features (collectively, the “Platform”). By tapping “Agree”, registering, or using the Platform, you confirm that you have read, understood, and agreed to these Terms.
+
+1) Definitions
+For the purpose of these Terms:
+1.1 “Taskifii”, “we”, “us”, “our” means the operators of the Taskifii Platform.
+1.2 “User”, “you” means any person who accesses or uses the Platform.
+1.3 “Task Creator” means a User who posts a task and funds the task payment through the Platform’s supported payment flow.
+1.4 “Task Doer” means a User who applies for, is selected for, and performs a task.
+1.5 “Task” means a job or service request posted by a Task Creator through the Bot, including its description, fee, timelines, and any other requirements shown in the task post or Bot prompts.
+1.6 “Fee” means the task payment amount stated for a Task (in Ethiopian Birr unless otherwise stated).
+1.7 “Escrow” means the process where the Task Creator pays the Fee through a third-party payment provider so funds can be held and later released or refunded under the Platform flow.
+1.8 “Revision Window” means the time period (in hours/minutes) provided for corrections/changes after a Task Doer submits work, if such a revision period is set for that Task.
+1.9 “Penalty (Late Deduction)” means a birr amount per hour that may be applied when the Task Doer is late, as shown in the Task details for that Task.
+1.10 “Dispute” means a disagreement about task completion, quality, timeline, payment release, or conduct, including when a User reports the task or rejects a corrected submission.
+
+2) Eligibility (Age + Legal Capacity)
+2.1 Minimum Age. You must be at least eighteen (18) years old to register, post tasks, apply for tasks, or perform tasks on Taskifii. If you are under 18, you must not use the Platform.
+2.2 Legal Capacity. You must have the legal capacity to enter into binding agreements under Ethiopian law.
+2.3 Truthful Information. You agree to provide accurate and truthful information during onboarding and profile setup, and to keep it reasonably up to date.
+
+3) What Taskifii Is (and Is Not)
+3.1 Platform Role. Taskifii is a digital marketplace and communication/coordination tool that helps Task Creators and Task Doers find each other, exchange task-related information, and complete tasks using the Platform’s flow.
+3.2 No Employment Relationship. Taskifii does not employ Task Doers and does not create an employer–employee relationship between Taskifii and any User. Any working relationship, if any, is between the Task Creator and Task Doer.
+3.3 Not a Bank or Licensed Financial Institution. Taskifii is not a bank, microfinance institution, or payment institution. Where the Platform supports escrow-like funding, releases, refunds, or payouts, these are performed through third-party providers and the banking system, not by Taskifii as a financial institution.
+3.4 Third-Party Platforms. Taskifii operates on Telegram and therefore your use is also subject to Telegram’s terms and policies. We are not responsible for Telegram outages, limitations, account restrictions, message delivery failures, or any Telegram-side actions.
+
+4) Main Platform Flow (High-Level Overview)
+4.1 Onboarding & Profile. To use core features, you complete onboarding (language selection and profile details). Some profile data may be locked from changes while you are involved in an active task to reduce abuse and preserve integrity.
+4.2 Posting a Task. A Task Creator posts a Task including a description and key parameters such as Fee and timelines (e.g., time to complete, revision window, penalty per hour, and offer expiry where applicable).
+4.3 Applying & Selection. Task Doers can apply to tasks. The Task Creator may accept/decline applicants. The Platform may notify the selected Task Doer, and the Task Doer must confirm participation within the task’s allowed time, or the opportunity may expire.
+4.4 Escrow Funding by Task Creator. For Tasks that use the Platform escrow flow, the Task Creator funds the Fee through a supported third-party payment provider (for example, a hosted checkout link). Taskifii does not guarantee uninterrupted payment provider availability.
+4.5 Delivery, Revision, and Completion. The Task Doer submits deliverables through the Platform flow. If a revision window applies, the Task Creator may request corrections and the Task Doer may submit a corrected version within the allowed time.
+4.6 Release / Refund / Dispute. Depending on the task outcome (accepted completion, allowed cancellation, or dispute), escrow funds may be released to the Task Doer or refunded to the Task Creator through the supported payment provider flow, subject to these Terms.
+
+Legal Notice (Ethiopia-specific)
+These Terms are intended to be interpreted consistently with applicable Ethiopian laws and regulations, including (where relevant) Ethiopia’s Personal Data Protection Proclamation No. 1321/2024, Ethiopia’s Electronic Transaction Proclamation No. 1205/2020, and consumer-protection related laws and principles. Where any mandatory legal right applies, these Terms do not exclude it.
+
+
+5) Task Acceptance, Confirmation & Time Controls
+5.1 Application Does Not Guarantee Selection. Applying for a Task does not guarantee selection. The Task Creator has full discretion to accept or decline applicants.
+5.2 Confirmation Requirement. When a Task Doer is selected, they must explicitly confirm their intention to perform the Task within the time shown by the Platform. Failure to confirm within this period may result in automatic loss of the opportunity.
+5.3 Single Active Commitment. A Task Doer may be restricted from confirming or starting multiple conflicting tasks at the same time. Certain profile edits may also be temporarily disabled while a task is active.
+5.4 Task Start Time. Once a Task Doer confirms participation, the task timer begins. All deadlines, penalties, and revision windows are calculated based on the confirmed start time shown by the Platform.
+5.5 Time Tracking Accuracy. Task deadlines are calculated using server-side timestamps. Device time, local time differences, or Telegram display delays do not override Platform timing.
+
+6) Task Delivery & Completion Rules
+6.1 Submission Requirement. Task Doers must submit their work through the Platform flow provided. Submissions made outside the Platform (e.g., private messages) may not be considered valid.
+6.2 Completion Action. A task is not considered completed until the Task Doer explicitly marks the task as completed through the Platform’s completion action.
+6.3 Late Submissions. If a Task Doer submits work after the task deadline, late penalties may apply automatically based on the penalty rate shown in the task details.
+6.4 Penalty Limits. Penalties are capped and cannot exceed the limits defined at task creation (including percentage-based limits relative to the task fee).
+6.5 No Guarantee of Acceptance. Submission of work does not automatically guarantee acceptance or payment. Acceptance depends on compliance with the task description and revision rules.
+
+7) Revisions & Corrections
+7.1 Revision Window. If a revision window is defined for a Task, the Task Creator may request corrections within that window.
+7.2 Revision Obligations. The Task Doer must submit corrected work within the allowed revision time if they wish to remain eligible for payment.
+7.3 Revision Limits. The Platform may limit the number of revision cycles per task to prevent abuse.
+7.4 Failure to Correct. If the Task Doer fails to submit corrections within the revision window, the Task Creator may proceed according to the task’s completion or dispute options.
+7.5 Final Decision. After corrected work is submitted, the Task Creator must make a final decision within the time allowed by the Platform. Failure to act may trigger automated task resolution.
+
+8) Cancellations
+8.1 Creator Cancellation (Before Confirmation). A Task Creator may cancel a Task before a Task Doer confirms participation. In such cases, escrowed funds (if any) are eligible for refund subject to payment provider rules.
+8.2 Doer Cancellation. A Task Doer may cancel before starting a task. Repeated cancellations or abuse of this feature may result in restrictions.
+8.3 Post-Start Cancellations. Once a task has started, cancellation options are limited and may result in penalties, partial refunds, or disputes depending on the task state.
+8.4 Abuse Prevention. Taskifii may restrict or suspend users who repeatedly cancel tasks in a manner that harms other users or the Platform.
+
+9) Escrow Funding, Release & Refunds
+9.1 Escrow Requirement. For tasks using the escrow flow, the Task Creator must fund the task fee through a supported third-party payment provider before work begins.
+9.2 Holding of Funds. Funds are held by the payment provider and are not accessible to the Task Doer until task completion conditions are met.
+9.3 Release of Funds. Funds may be released to the Task Doer when:
+    (a) the Task Creator accepts the completed work, or
+    (b) the Platform determines the task has been completed according to its rules.
+9.4 Refunds. Refunds to the Task Creator may occur when:
+    (a) no Task Doer confirms the task,
+    (b) a task is canceled within allowed conditions, or
+    (c) a dispute is resolved in favor of the Task Creator.
+9.5 Payment Provider Dependency. All escrow actions depend on third-party payment providers. Taskifii is not responsible for provider delays, downtime, rejections, or banking errors.
+
+10) Engagement Locks & Platform Integrity
+10.1 Temporary Locks. While a task is active, certain actions (such as profile edits or starting conflicting tasks) may be temporarily restricted to preserve fairness and integrity.
+10.2 Lock Release. Engagement restrictions are lifted once a task is fully concluded, canceled, or resolved.
+10.3 Circumvention Prohibited. Attempting to bypass engagement restrictions through alternate accounts or manipulation may result in suspension or permanent removal.
+11) Disputes & Reporting
+11.1 Right to Report. Either the Task Creator or the Task Doer may report a task if there is a disagreement regarding task completion, quality, timelines, payment release, penalties, or conduct.
+11.2 Dispute Timing. Reports must be made within the time window provided by the Platform. Late reports may not be considered.
+11.3 Evidence Consideration. When a dispute is raised, the Platform may review task-related messages, submissions, corrections, and timestamps to reach a fair outcome.
+11.4 Dispute Outcomes. Based on the review, the task may be resolved by:
+    (a) releasing funds to the Task Doer,
+    (b) refunding funds to the Task Creator,
+    (c) applying penalties or partial payouts, or
+    (d) taking no action if the task complies with the Terms.
+11.5 No Guaranteed Outcome. Taskifii does not guarantee that a dispute will be resolved in favor of any specific party.
+11.6 Abuse of Reporting. Repeated false reports, malicious reporting, or attempts to manipulate dispute outcomes may result in restrictions or suspension.
+
+12) Ratings & Reputation System
+12.1 Mutual Ratings. After a task is concluded, both the Task Creator and the Task Doer may be prompted to rate each other.
+12.2 One Rating per Task. Each party may submit only one rating per task.
+12.3 Rating Impact. Ratings contribute to a user’s public or internal reputation indicators (such as average rating and task history), which may affect future task opportunities.
+12.4 Honest Feedback Required. Ratings must reflect genuine task experience. Fake, retaliatory, or coordinated ratings are prohibited.
+12.5 Rating Finality. Once submitted, ratings cannot be edited or removed except where required by law.
+
+13) Account Restrictions, Suspensions & Bans
+13.1 Temporary Restrictions. Taskifii may temporarily restrict certain actions (including posting tasks, applying for tasks, or editing profiles) if a user violates these Terms or disrupts Platform integrity.
+13.2 Suspension or Removal. Serious or repeated violations may result in account suspension or permanent removal from the Platform.
+13.3 Common Violation Examples. Violations include but are not limited to:
+    (a) fraud or misrepresentation,
+    (b) failure to perform accepted tasks,
+    (c) harassment or abusive behavior,
+    (d) attempting to bypass Platform safeguards,
+    (e) repeated unjustified cancellations or reports.
+13.4 No Circumvention. Creating alternate accounts to avoid restrictions is prohibited and may result in permanent removal.
+
+14) Prohibited Conduct
+14.1 Platform Misuse. Users must not misuse the Platform, including attempting to manipulate task outcomes, timing, penalties, escrow flow, or ratings.
+14.2 Off-Platform Pressure. Users must not pressure others to complete tasks, release payments, or resolve disputes outside the Platform flow.
+14.3 Illegal Activity. Tasks involving illegal services, prohibited content, or unlawful conduct under Ethiopian law are not allowed.
+14.4 Automation & Exploits. Use of bots, scripts, or exploits to gain unfair advantage is prohibited.
+
+15) Limitation of Liability
+15.1 No Quality Guarantee. Taskifii does not guarantee the quality, legality, or suitability of any task or delivered work.
+15.2 User Responsibility. Users are solely responsible for the tasks they post, accept, perform, or submit.
+15.3 No Indirect Liability. To the maximum extent permitted by Ethiopian law, Taskifii shall not be liable for indirect, incidental, consequential, or economic losses arising from task use.
+15.4 Third-Party Dependence. Taskifii is not responsible for failures caused by Telegram, payment providers, banks, or external systems.
+15.5 Maximum Liability Cap. Where liability cannot be excluded, Taskifii’s total liability shall not exceed the total platform fees (if any) actually received for the relevant task.
+16) Privacy, Personal Data & Recordkeeping
+16.1 Data We Collect. To operate the Platform, we may collect and process:
+    (a) account and profile details you provide during onboarding or edits (such as your name, contact details, Telegram identifiers/username, and selected skill/field preferences),
+    (b) task information you create (task descriptions, requirements, timelines, and related details),
+    (c) task communications and submissions that occur through the Platform flow (including messages, files/media, correction requests, and timestamps),
+    (d) technical and usage information needed for security, integrity, and troubleshooting (e.g., event logs and time records).
+16.2 Why We Process Data. We process personal data to:
+    (a) create and manage accounts and profiles,
+    (b) match tasks and users, and enable task coordination,
+    (c) run time controls, revision windows, penalties, and task completion steps,
+    (d) prevent fraud, abuse, and circumvention (including enforcing locks/restrictions and policy compliance),
+    (e) review and resolve disputes and reports fairly,
+    (f) comply with applicable Ethiopian legal obligations and lawful requests.
+16.3 Legal Basis & Consent (Ethiopia). Where required, we rely on your consent and/or other lawful grounds recognized under applicable Ethiopian data protection rules. By using the Platform and providing information, you consent to processing as described in these Terms, to the extent consent is required.
+16.4 What Other Users Can See. Other users may see information that is necessary to perform tasks and evaluate participation (for example: task posts, deliverables shared through the task flow, and task-related messages that the Platform presents to the relevant counterparty). Do not share sensitive personal data in task chats unless it is necessary for the task.
+16.5 Sharing With Third Parties. The Platform runs on Telegram and may use third-party services (such as payment providers and infrastructure services). We are not responsible for how Telegram or third parties process your data under their own terms and policies. We may share only the minimum information reasonably needed to run the Platform, process payments, prevent abuse, and handle disputes.
+16.6 Data Security. We take reasonable measures to protect stored information; however, no system is fully secure. You are responsible for safeguarding your Telegram account, device access, and any login/security features you use.
+16.7 Data Retention. We keep information for as long as needed to provide the Platform, comply with legal obligations, enforce these Terms, resolve disputes, and maintain reliable records. Some records may be retained after an account stops being used where reasonably necessary for these purposes.
+16.8 Your Choices & Rights. Subject to applicable Ethiopian law and the Platform’s operational needs, you may request to:
+    (a) access or correct your profile information,
+    (b) delete or deactivate your account data,
+    (c) withdraw consent where consent is the basis (without affecting processing already performed).
+If a deletion request conflicts with dispute handling, fraud prevention, legal obligations, or required records, we may retain limited information to the extent reasonably necessary.
+
+17) Communications & Notices
+17.1 Platform Messages. By using Taskifii, you consent to receiving messages from the Bot related to onboarding, tasks, deadlines, revisions, disputes, ratings, and safety/integrity enforcement.
+17.2 Operational Notices. We may send service notices (e.g., feature changes, policy updates, security alerts). These are part of operating the Platform.
+17.3 User-to-User Contact. Users are responsible for their own communications. Harassment, threats, discrimination, or repeated unwanted contact is prohibited.
+
+18) User Content, Deliverables & Permissions
+18.1 Your Content. You are responsible for all content you submit, upload, or share through the Platform (including text, media, files, and deliverables).
+18.2 Permission to Operate the Platform. You grant Taskifii a limited, non-exclusive permission to host, store, reproduce, and display your content only as needed to:
+    (a) deliver it to the relevant task counterparty,
+    (b) operate task features (submission, correction, completion),
+    (c) prevent abuse and protect Platform integrity,
+    (d) review disputes and enforce these Terms.
+18.3 No Ownership Transfer. Taskifii does not claim ownership of your deliverables. Any ownership/usage rights between Task Creator and Task Doer are determined by their agreement and applicable law.
+18.4 Prohibited Content. You must not post or submit content that is illegal, infringing, deceptive, abusive, or violates third-party rights. Tasks requesting unlawful activity are not allowed.
+
+19) Platform Availability, Changes & Updates
+19.1 Availability. We aim to keep Taskifii available, but we do not guarantee uninterrupted operation. Outages or delays may occur due to Telegram, third-party services, maintenance, or technical issues.
+19.2 Feature Changes. We may modify, add, or remove features (including task flow steps, limits, eligibility checks, and enforcement rules) to improve the Platform, reduce abuse, or comply with law.
+19.3 Terms Updates. We may update these Terms from time to time. The “Last Updated” date will reflect changes. Continued use of the Platform after updates means you accept the updated Terms.
+
+20) Termination & Account Closure
+20.1 User Choice. You may stop using the Platform at any time.
+20.2 Task Completion Before Closure. If you attempt to exit while a task is active, the Platform may require the task to be concluded or resolved first to protect the other user and the integrity of the flow.
+20.3 Termination by Taskifii. We may suspend, restrict, or terminate access if we reasonably believe you have violated these Terms, abused the Platform, attempted circumvention, or created risk/harm to other users or the Platform.
+20.4 Effects of Termination. Upon termination, you may lose access to features and history. Where required for disputes, integrity, or legal compliance, limited records may be retained as described in Section 16.
+
+21) Governing Law & Dispute Resolution (Legal)
+21.1 Governing Law. These Terms are governed by the laws of the Federal Democratic Republic of Ethiopia.
+21.2 Good-Faith Resolution First. Users agree to attempt good-faith resolution through the Platform’s dispute/reporting flow before pursuing external escalation, unless prohibited by law.
+21.3 Mandatory Rights. Nothing in these Terms limits mandatory legal rights that cannot be excluded under applicable Ethiopian law.
+
+22) Contact
+22.1 Support Contact. For questions, complaints, or data requests, contact Taskifii using the official contact method shown in the Platform (within the Bot or official Taskifii channels). Do not rely on unofficial accounts.
+23) No Guarantees & Assumption of Risk
+23.1 Platform Provided “As Is”. Taskifii is provided on an “as is” and “as available” basis. We make no guarantees that tasks will be posted, accepted, completed, paid, or resolved within any specific time.
+23.2 User Risk. You understand and agree that using the Platform involves risk, including the risk that another user may fail to perform, delay, submit unsatisfactory work, or dispute outcomes.
+23.3 No Outcome Guarantees. Taskifii does not guarantee:
+    (a) that a Task Creator will find a suitable Task Doer,
+    (b) that a Task Doer will be selected or paid,
+    (c) that any task will be completed successfully,
+    (d) that disputes will resolve in a particular way.
+
+24) Force Majeure
+24.1 Uncontrollable Events. Taskifii shall not be responsible for failure or delay in performance caused by events beyond reasonable control, including but not limited to:
+    (a) Telegram outages or restrictions,
+    (b) payment provider or banking system failures,
+    (c) internet or infrastructure outages,
+    (d) government actions, legal changes, or regulatory restrictions,
+    (e) natural disasters or emergencies.
+24.2 Effect on Tasks. In such cases, tasks may be delayed, paused, canceled, or resolved according to Platform rules without liability to Taskifii.
+
+25) Assignment & Transfer
+25.1 User Accounts. User accounts are personal and may not be transferred, sold, rented, or shared.
+25.2 Platform Rights. Taskifii may transfer or assign its rights and obligations under these Terms in connection with restructuring, growth, or operational changes.
+
+26) Severability
+26.1 Partial Invalidity. If any provision of these Terms is found to be unlawful, invalid, or unenforceable under applicable law, that provision shall be limited or removed to the minimum extent necessary.
+26.2 Remaining Terms. All remaining provisions shall continue in full force and effect.
+
+27) No Waiver
+27.1 Enforcement Flexibility. Failure by Taskifii to enforce any provision of these Terms does not constitute a waiver of the right to enforce it later.
+27.2 Single or Partial Enforcement. Any single or partial exercise of a right does not prevent further enforcement of that or any other right.
+
+28) Entire Agreement
+28.1 Complete Terms. These Terms constitute the entire agreement between you and Taskifii regarding the use of the Platform.
+28.2 No Reliance on External Statements. You agree that you are not relying on any statements, promises, or representations not expressly included in these Terms.
+
+29) Language & Interpretation
+29.1 Primary Language. The English version of these Terms is the controlling version for interpretation.
+29.2 Translations. Any translated versions (including Amharic) are provided for convenience. In case of inconsistency, the English version prevails.
+
+30) Acceptance & Binding Effect
+30.1 Binding Agreement. By tapping “Agree”, registering, or continuing to use Taskifii, you confirm that you:
+    (a) have read these Terms in full,
+    (b) understand how the Platform works,
+    (c) accept all rights, obligations, limitations, and risks described herein.
+30.2 Electronic Acceptance. Your acceptance through the Platform constitutes a legally binding electronic agreement under applicable Ethiopian electronic transaction laws.
+`,
+    am: `ይህ የታስኪፋይ አገልግሎት ውል እና ስምምነት (“ውል”) ነው ፣ የTaskifii የቴሌግራም ቦት (“ቦት”)፣ የTaskifii ቻናሎች እና ሌሎች ተያያዥ አገልግሎቶችን (በአጠቃላይ “ፕላትፎርም”) የመጠቀም መብትዎን የሚገዛ ነው። “እስማማለሁ” (Agree) የሚለውን በመጫን፣ በመመዝገብ ወይም ፕላትፎርሙን በመጠቀም፤ ይህንን ውል እንዳነበቡ፣ እንደተረዱ እና እንደተስማሙበት ያረጋግጣሉ።
+
+1) ትርጉሞች (Definitions)
+ለዚህ ውል አላማ የሚከተሉት ቃላት ይህ ትርጉም ይኖራቸዋል፡
+
+1.1 “Taskifii” (ታስኪፋይ)፣ “እኛ” ወይም “የእኛ” ማለት የTaskifii ፕላትፎርም ኦፕሬተሮች ወይም አስተዳዳሪዎች ማለት ነው።
+
+1.2 “ተጠቃሚ” ወይም “እርስዎ” ማለት ፕላትፎርሙን የሚጠቀም ወይም የሚገባ ማንኛውም ግለሰብ ነው።
+
+1.3 “ሥራ አቅራቢ”/“አሰሪ” (Task Creator) ማለት ሥራን የሚለጥፍ (ስራ እንዲሰራለት የሚፈለግ) እና ለሥራው የሚያስፈልገውን ክፍያ በፕላትፎርሙ የክፍያ ሥርዓት በኩል የሚፈጽም ተጠቃሚ ነው።
+
+1.4 “ሥራ ሠሪ”/“ሰሪ” (Task Doer) ማለት ለሥራ የሚያመለክት፣ ለሥራው የተመረጠ እና ሥራውን የሚያከናውን ተጠቃሚ ነው።
+
+1.5 “ሥራ” (Task) ማለት በሥራ አቅራቢው በቦቱ (Bot) በኩል የሚለጠፍ የሥራ ወይም የአገልግሎት ጥያቄ ሲሆን፤ ይህም የሥራውን መግለጫ፣ ክፍያ፣ ጊዜ ገደብ እና ሌሎች በሥራው ዝርዝር ወይም በቦቱ ላይ የሚታዩ መስፈርቶችን ያካትታል።
+
+1.6 “ክፍያ” (Fee) ማለት ለአንድ ሥራ የተመደበ የገንዘብ መጠን ነው (በሌላ መልኩ ካልተገለጸ በስተቀር ገንዘቡ በኢትዮጵያ ብር ነው)።
+
+1.7 “የአደራ ክፍያ ሥርዓት” (Escrow) ማለት ሥራ አቅራቢው የሥራውን ክፍያ ለሶስተኛ ወገን የክፍያ አቅራቢ (Payment Provider) የሚከፍልበት እና ገንዘቡ በፕላትፎርሙ አሠራር መሠረት ተይዞ የሚቆይበት ወይም ለሥራ ሠሪው የሚለቀቅበት (ወይም ተመላሽ የሚደረግበት) ሂደት ነው።
+
+1.8 “የማስተካከያ ጊዜ” (Revision Window) ማለት ሥራ ሠሪው ሥራውን ካስረከበ በኋላ ማስተካከያ ወይም ለውጥ እንዲያደርግበት የሚሰጥ (በሰዓት ወይም በደቂቃ የሚለካ) ጊዜ ነው።
+
+1.9 “የዝግይት ቅጣት” (Penalty) ማለት ሥራ ሠሪው ሥራውን በተስማማበት ሰዓት ሳያጠናቅቅ ሲቀር በሥራው ዝርዝር ላይ በተቀመጠው መሠረት በየሰዓቱ የሚታሰብና የሚቀነስ የገንዘብ መጠን ነው።
+
+1.10 “አለመግባባት” (Dispute) ማለት በሥራ አፈጻጸም፣ በጥራት፣ በጊዜ ገደብ፣ በክፍያ አሰጣጥ ወይም በባህሪ ዙሪያ የሚፈጠር አለመግባባት ሲሆን፤ ተጠቃሚው ሥራውን ሪፖርት ሲያደርግ ወይም የተሠራውን ሥራ አልቀበልም ሲል የሚፈጠርን ሁኔታ ያካትታል።
+
+2) መስፈርቶች (እድሜ እና ህጋዊ ብቃት)
+2.1 ዝቅተኛ የእድሜ ገደብ። በTaskifii ለመመዝገብ፣ ሥራ ለመለጠፍ፣ ለማመልከት ወይም ለመሥራት ቢያንስ የ18 (አሥራ ስምንት) ዓመት እድሜ ሊኖርዎት ይገባል። እድሜዎ ከ18 ዓመት በታች ከሆነ ፕላትፎርሙን መጠቀም አይችሉም።
+
+2.2 ህጋዊ ብቃት። በኢትዮጵያ ህግ መሠረት አስገዳጅ ውሎችን እና ስምምነቶችን ለመፈራረም የሚያስችል ህጋዊ ብቃት ሊኖርዎት ይገባል።
+
+2.3 ትክክለኛ መረጃ። በሚመዘገቡበት እና ፕሮፋይልዎን በሚያደራጁበት ወቅት ትክክለኛ እና እውነት የሆነ መረጃ ለመስጠት፣ እንዲሁም መረጃው ዘመኑን የዋጀ (up to date) እንዲሆን ለማድረግ ይስማማሉ።
+3) ታስኪፋይ (Taskifii) ምንድን ነው? (እና ያልሆነው ነገር)
+3.1 የፕላትፎርሙ ሚና ታስኪፋይ (Taskifii) ስራ አሰሪዎችን (Task Creators) እና ሰራተኞችን ወይም ባለሙያዎችን (Task Doers) የሚያገናኝ ዲጂታል የገበያ መድረክ ነው። የፕላትፎርሙ ዋና ስራ እነዚህ ሁለት ወገኖች እንዲገናኙ፣ ስለ ስራው መረጃ እንዲለዋወጡ እና በሲስተሙ አሰራር መሰረት ስራው እንዲጠናቀቅ ማገዝ ነው።
+
+3.2 የአሰሪ እና ሰራተኛ ግንኙነት የለም ታስኪፋይ ሰራተኞችን አይቀጥርም፤ እንዲሁም በማንኛውም ተጠቃሚ እና በታስኪፋይ መካከል የአሰሪ እና ሰራተኛ ግንኙነት አይፈጥርም። ማንኛውም የስራ ግንኙነት ካለ፣ እሱ የሚሆነው በቀጥታ በስራ አሰሪው እና በሰራተኛው መካከል ብቻ ነው።
+
+3.3 ባንክ ወይም የፋይናንስ ተቋም አይደለም ታስኪፋይ ባንክ፣ የብድር ተቋም ወይም የክፍያ አገልግሎት ሰጪ አይደለም። ክፍያዎች፣ በታማኝነት (Escrow) የተያዙ ገንዘቦች፣ ወይም ተመላሽ ገንዘቦች የሚከናወኑት በሶስተኛ ወገን የክፍያ አገልግሎት ሰጪዎች እና በባንክ ስርዓት በኩል እንጂ በታስኪፋይ አይደለም።
+
+3.4 የሶስተኛ ወገን ፕላትፎርሞች (ቴሌግራም) ታስኪፋይ የሚሰራው በቴሌግራም ላይ ስለሆነ፣ አጠቃቀምዎ የቴሌግራምን ህጎች እና ደንቦች ያካተተ ነው። ለቴሌግራም መቆራረጥ፣ የአካውንት መታገድ፣ የመልዕክት አለመድረስ፣ ወይም ለሌሎች ከቴሌግራም ጋር ለተያያዙ ችግሮች ታስኪፋይ ኃላፊነት አይወስድም።
+
+4) የፕላትፎርሙ አሰራር አጠቃላይ ሂደት (High-Level Overview)
+4.1 ምዝገባ እና ፕሮፋይል ዋና ዋና አገልግሎቶችን ለመጠቀም ምዝገባ ማጠናቀቅ (ቋንቋ መምረጥ እና ፕሮፋይል መሙላት) ያስፈልጋል። አንድ ጊዜ ስራ ከተቀበሉ በኋላ፣ ማጭበርበርን ለመከላከል እና ታማኝነትን ለመጠበቅ ሲባል ስራው እስኪያልቅ ድረስ አንዳንድ የፕሮፋይል መረጃዎችን መቀየር አይቻልም።
+
+4.2 ስራ መለጠፍ (Posting a Task) ስራ አሰሪው ስለ ስራው ዝርዝር መግለጫ፣ ክፍያ እና የጊዜ ገደቦችን (ለምሳሌ፡ ስራው የሚፈጀው ጊዜ፣ የማስተካከያ ጊዜ፣ የዘገየ ቅጣት እና የቅናሹ ማብቂያ ጊዜ) አካቶ ስራውን ይለጥፋል።
+
+4.3 ማመልከት እና መመረጥ ሰራተኞች ለተለጠፈው ስራ ማመልከት ይችላሉ። ስራ አሰሪው አመልካቾችን የመቀበል ወይም የመተው መብት አለው። አንድ ሰራተኛ ከተመረጠ በኋላ፣ በተሰጠው ጊዜ ውስጥ ስራውን ለመስራት ፍላጎት እንዳለው ማረጋገጥ አለበት፤ ካላረጋገጠ እድሉን ሊያጣ ይችላል።
+
+4.4 ክፍያን በታማኝነት ማስያዝ (Escrow Funding) በፕላትፎርሙ የ "Escrow" (የአደራ ክፍያ) ስርዓት ለሚሰሩ ስራዎች፣ ስራ አሰሪው ክፍያውን አስቀድሞ በሶስተኛ ወገን ክፍያ አቅራቢ በኩል ያስቀምጣል። ታስኪፋይ ለክፍያ አቅራቢዎች አገልግሎት መቆራረጥ ዋስትና አይሰጥም።
+
+4.5 ስራ ማስረከብ እና ማስተካከያ ሰራተኛው የተጠናቀቀውን ስራ በፕላትፎርሙ በኩል ያስረክባል። የማስተካከያ ጊዜ ከተሰጠ፣ ስራ አሰሪው እርማት ሊጠይቅ ይችላል፤ ሰራተኛውም በተሰጠው ጊዜ ውስጥ አስተካክሎ መላክ ይጠበቅበታል።
+
+4.6 ክፍያ መልቀቅ / መመለስ / ክርክር እንደ ስራው ውጤት (ስራው ተቀባይነት ካገኘ፣ ከተሰረዘ፣ ወይም ክርክር ካለ)፣ የተያዘው ገንዘብ ለሰራተኛው ይለቀቃል ወይም ለስራ አሰሪው ይመለሳል። ይህም የሚሆነው በዚህ ውል እና በክፍያ አቅራቢው ህጎች መሰረት ነው።
+
+ህጋዊ ማሳሰቢያ (ለኢትዮጵያ ብቻ የሚመለከት)
+እነዚህ ውሎች እና ሁኔታዎች ከኢትዮጵያ ህጎች ጋር ተጣጥመው እንዲተረጎሙ ታስበው የተዘጋጁ ናቸው። በተለይም ከኢትዮጵያ የግል መረጃ ጥበቃ አዋጅ ቁጥር 1321/2016፣ ከኤሌክትሮኒክ ትራንዛክሽን አዋጅ ቁጥር 1205/2012፣ እና ከተጠቃሚ መብት ጥበቃ ህጎች ጋር። ማንኛውም አስገዳጅ የሆነ ህጋዊ መብት ካለዎት፣ ይህ ውል ያንን መብት አይሽርም ወይም አይከለክልም።
+
+5) ስራ መቀበል፣ ማረጋገጥ እና የጊዜ ቁጥጥር
+5.1 ማመልከት መመረጥን አያረጋግጥም ለአንድ ስራ ማመልከትዎ ብቻ ስራውን እንደሚያገኙት ዋስትና አይሆንም። ስራ አሰሪው የመረጠውን አመልካች የመቀበል ወይም የመተው ሙሉ መብት አለው።
+
+5.2 የማረጋገጫ ግዴታ አንድ ሰራተኛ ለስራው ከተመረጠ በኋላ፣ ስራውን ለመስራት ያለውን ፍላጎት በፕላትፎርሙ ላይ በሚታየው የጊዜ ገደብ ውስጥ በግልጽ ማረጋገጥ አለበት። በዚህ ጊዜ ውስጥ ካላረጋገጠ፣ ስራውን በራስ-ሰር ሊያጣ ይችላል።
+
+5.3 በአንድ ጊዜ አንድ ስራ ብቻ አንድ ሰራተኛ እርስ በርስ የሚጋጩ በርካታ ስራዎችን በአንድ ጊዜ እንዳይቀበል ገደብ ሊጣልበት ይችላል። በተጨማሪም፣ ስራ በእጅዎ ላይ እያለ አንዳንድ የፕሮፋይል መረጃዎችን መቀየር ለጊዜው ሊከለከል ይችላል።
+
+5.4 የስራ መጀመሪያ ሰዓት ሰራተኛው ተሳትፎውን እንዳረጋገጠ የስራው ጊዜ መቁጠር ይጀምራል። ሁሉም የጊዜ ገደቦች፣ ቅጣቶች እና የማስተካከያ ጊዜዎች የሚሰሉት ፕላትፎርሙ ላይ በሚታየው የመነሻ ሰዓት መሰረት ነው።
+
+5.5 የጊዜ አቆጣጠር ትክክለኛነት የስራ ገደቦች የሚሰሉት በሰርቨሩ ሰዓት አቆጣጠር ነው። የእርስዎ ስልክ ሰዓት፣ የአካባቢ ሰዓት ልዩነት ወይም የቴሌግራም መዘግየት በፕላትፎርሙ የጊዜ አቆጣጠር ላይ ለውጥ አያመጡም።
+
+6) ስራ ማስረከብ እና ማጠናቀቅ
+6.1 የአቀራረብ ግዴታ ሰራተኞች የሰሩትን ስራ በፕላትፎርሙ ላይ በተዘጋጀው የማስረከቢያ መንገድ ብቻ መላክ አለባቸው። ከፕላትፎርሙ ውጪ (ለምሳሌ በግል መልዕክት/Inbox) የሚላኩ ስራዎች ተቀባይነት ላይኖራቸው ይችላል።
+
+6.2 የማጠናቀቅ እርምጃ ሰራተኛው በፕላትፎርሙ ላይ ያለውን "ተጠናቋል" (Completed) የሚለውን አማራጭ እስካልተጠቀመ ድረስ ስራው እንደተጠናቀቀ አይቆጠርም።
+
+6.3 የዘገየ አቀራረብ (Late Submissions) ሰራተኛው ከስራው የጊዜ ገደብ ውጪ አሳልፎ ካስረከበ፣ በስራው ዝርዝር ላይ በተቀመጠው መጠን መሰረት የዘገየ ቅጣት በራስ-ሰር ሊቆረጥ ይችላል።
+
+6.4 የቅጣት ገደቦች ቅጣቶች የራሳቸው ጣራ (ገደብ) አላቸው፤ በስራው ዝርዝር ላይ ከተቀመጠው ከፍተኛ መጠን (ወይም ከመቶኛ) በላይ መብለጥ አይችሉም።
+
+6.5 ተቀባይነት የማግኘት ዋስትና የለም ስራውን ሰርቶ ማስረከብ ብቻ ክፍያ እንደሚያገኙ ወይም ስራው ተቀባይነት እንደሚያገኝ ዋስትና አይሆንም። ክፍያ ለማግኘት ስራው በስምምነቱ እና በስራው መግለጫ መሰረት በትክክል ተሰርቶ መቅረብ አለበት።
+
+7) ማስተካከያዎች እና እርማቶች
+7.1 የማስተካከያ ጊዜ ለስራው የተመደበ የማስተካከያ ጊዜ (Revision Window) ካለ፣ ስራ አሰሪው በዚህ ጊዜ ውስጥ እርማቶችን ሊጠይቅ ይችላል።
+
+7.2 የእርማት ግዴታዎች ሰራተኛው ክፍያ የማግኘት መብቱን ለማስጠበቅ፣ የተጠየቀውን እርማት በተሰጠው ጊዜ ውስጥ አስተካክሎ መላክ አለበት።
+
+7.3 የማስተካከያ ገደቦች ያለአግባብ መመላለስን ለመከላከል፣ ፕላትፎርሙ ለአንድ ስራ የሚፈቀዱትን የማስተካከያ ዙሮች ሊገድብ ይችላል።
+
+7.4 ማስተካከል አለመቻል ሰራተኛው በተሰጠው ጊዜ ውስጥ እርማቶችን ካላቀረበ፣ ስራ አሰሪው ስራውን እንደመቀበል፣ እንደመሰረዝ ወይም ወደ ክርክር የመውሰድ መብት ይኖረዋል።
+
+7.5 የመጨረሻ ውሳኔ የተስተካከለ ስራ ከቀረበ በኋላ፣ ስራ አሰሪው በተሰጠው ጊዜ ውስጥ የመጨረሻ ውሳኔ መስጠት አለበት። ውሳኔ ካልሰጠ፣ ስርዓቱ በራስ-ሰር ለችግሩ መፍትሄ ሊሰጥ ይችላል።
+
+8) ስራ መሰረዝ (Cancellations)
+8.1 በስራ አሰሪው መሰረዝ (ከማረጋገጫ በፊት) ሰራተኛው ስራውን ከመቀበሉ ወይም ከማረጋገጡ በፊት ስራ አሰሪው ስራውን መሰረዝ ይችላል። በዚህ ሁኔታ፣ የተያዘ ገንዘብ (Escrow) ካለ በክፍያ አቅራቢው ህግ መሰረት ተመላሽ ሊሆን ይችላል።
+
+8.2 በሰራተኛው መሰረዝ ሰራተኛው ስራውን ከመጀመሩ በፊት መሰረዝ ይችላል። ነገር ግን፣ ይህንን በተደጋጋሚ ማድረግ ወይም ያለአግባብ መጠቀም እገዳ ሊያስከትልብዎት ይችላል።
+
+8.3 ስራ ከተጀመረ በኋላ መሰረዝ አንድ ጊዜ ስራው ከተጀመረ በኋላ ለመሰረዝ ያለው አማራጭ የተገደበ ነው። በዚህ ደረጃ መሰረዝ ቅጣትን፣ ከፊል ክፍያ መመለስን፣ ወይም የክርክር ሂደትን ሊያስከትል ይችላል።
+
+8.4 ማጭበርበርን መከላከል በሌሎች ተጠቃሚዎች ወይም በፕላትፎርሙ ላይ ጉዳት በሚያደርስ መልኩ በተደጋጋሚ ስራ የሚሰርዙ ተጠቃሚዎችን ታስኪፋይ ሊገድብ ወይም ሊያግድ ይችላል።
+9) የአደራ ክፍያ (Escrow) ማስያዝ፣ መልቀቅ እና ተመላሽ ማድረግ
+9.1 የአደራ ክፍያ አስፈላጊነት፡ በአደራ ክፍያ ሥርዓት በሚሰሩ ስራዎች ላይ፣ ስራው ከመጀመሩ በፊት ስራ አቅራቢው ለስራው የተቆረጠውን ክፍያ በታወቀ የክፍያ አማራጭ (Third-party payment provider) በኩል ገቢ ማድረግ አለበት።
+
+9.2 ገንዘቡን ስለመያዝ፡ ክፍያው በክፍያ አገልግሎት ሰጪው ዘንድ ታግዶ የሚቆይ ሲሆን፣ ስራው መጠናቀቁ እስካልተረጋገጠ ድረስ ስራ ሰሪው ገንዘቡን ማግኘት አይችልም።
+
+9.3 ክፍያን ስለመልቀቅ፡ የታገደው ክፍያ ለስራ ሰሪው የሚለቀቀው በሚከተሉት ሁኔታዎች ነው፦
+
+(ሀ) ስራ አቅራቢው የተጠናቀቀውን ስራ ተቀብሎ ሲያጸድቅ፣ ወይም
+
+(ለ) መድረኩ (Platform) ስራው በደንቡ መሠረት መጠናቀቁን ሲያረጋግጥ።
+
+9.4 ተመላሽ ክፍያ (Refund)፦ ለስራ አቅራቢው ክፍያ ተመላሽ የሚደረገው በሚከተሉት ሁኔታዎች ነው፦
+
+(ሀ) ስራውን የሚረከብ ስራ ሰሪ ካልተገኘ፣
+
+(ለ) ስራው በስምምነቱ መሠረት በተፈቀደ ሁኔታ ሲሰረዝ፣ ወይም
+
+(ሀ) በአለመግባባት ጊዜ ውሳኔው ለስራ አቅራቢው በሚደግፍ መልኩ ሲጠናቀቅ።
+
+9.5 ከክፍያ አገልግሎት ሰጪዎች ጋር ያለው ግንኙነት፦ ሁሉም የአደራ ክፍያ ሂደቶች የሚከናወኑት በሶስተኛ ወገን የክፍያ ተቋማት ነው። ታስኪፋይ (Taskifii) በክፍያ ተቋማት መዘግየት፣ በሲስተም መቋረጥ ወይም በባንክ ስህተቶች ምክንያት ለሚፈጠሩ ችግሮች ተጠያቂ አይሆንም።
+
+10) የአሠራር ገደቦች እና የመድረኩ ደኅንነት
+10.1 ጊዜያዊ ገደቦች፦ አንድ ስራ በሂደት ላይ እያለ፣ ፍትሃዊ አሠራርን ለማረጋገጥ መድረኩ የተወሰኑ ተግባራትን (ለምሳሌ ፕሮፋይል ማስተካከል ወይም ሌላ ተጋጭ ስራዎችን መጀመር) ለጊዜው ሊገድብ ይችላል።
+
+10.2 ገደቦችን ማንሳት፦ ስራው ሙሉ በሙሉ ሲጠናቀቅ፣ ሲሰረዝ ወይም ውሳኔ ሲያገኝ የተጣሉ ገደቦች ይነሳሉ።
+
+10.3 ገደቦችን ለማለፍ መሞከር የተከለከለ ነው፦ በሌላ አካውንት በመጠቀም ወይም በተንኮል የመድረኩን ገደቦች ለማለፍ መሞከር አካውንት እንዲታገድ ወይም ሙሉ በሙሉ ከመድረኩ እንዲሰረዝ ያደርጋል።
+
+11) አለመግባባቶች እና ሪፖርት ማድረግ
+11.1 ሪፖርት የማድረግ መብት፦ ስራ አቅራቢውም ሆነ ስራ ሰሪው ስለ ስራው ጥራት፣ የጊዜ ገደብ፣ የክፍያ አሰፋፈል ወይም ስለ ስነ-ምግባር አለመግባባት ሲፈጠር ሪፖርት የማቅረብ መብት አላቸው።
+
+11.2 የሪፖርት ማቅረቢያ ጊዜ፦ ሪፖርት መቅረብ ያለበት መድረኩ ባስቀመጠው የጊዜ ገደብ ውስጥ ብቻ ነው። ከጊዜ ገደቡ ውጭ የሚቀርቡ አቤቱታዎች ተቀባይነት ላይኖራቸው ይችላል።
+
+11.3 ማስረጃዎችን መመርመር፦ አለመግባባቶች ሲፈጠሩ መድረኩ ፍትሃዊ ውሳኔ ለመስጠት በመልዕክቶች፣ በገቡ ስራዎች እና በጊዜ ማህተሞች (Timestamps) ላይ ምርመራ ያደርጋል።
+
+11.4 የአለመግባባት ውሳኔዎች፦ ምርመራ ከተደረገ በኋላ የሚከተሉት ውሳኔዎች ሊተላለፉ ይችላሉ፦
+
+(ሀ) ክፍያውን ለስራ ሰሪው መልቀቅ፣
+
+(ለ) ክፍያውን ለስራ አቅራቢው መመለስ፣
+
+(ሐ) ቅጣት በመቀነስ በከፊል መክፈል፣ ወይም
+
+(መ) ስራው ሕጉን የተከተለ ከሆነ ምንም እርምጃ አለመውሰድ።
+
+11.5 የውሳኔ ዋስትና አለመኖር፦ ታስኪፋይ (Taskifii) ማንኛውም አለመግባባት ለአንዱ ወገን ብቻ በሚጠቅም መልኩ እንደሚጠናቀቅ ዋስትና አይሰጥም።
+
+11.6 የሪፖርት አቀራረብ አላግባብ መጠቀም፦ ደጋግሞ ሀሰተኛ ሪፖርት ማድረግ ወይም የውሳኔ ሂደቱን ለማዛባት መሞከር ከሥራ መታገድን ሊያስከትል ይችላል።
+
+12) የምዘና እና ዝና (Reputation) ሥርዓት
+12.1 የጋራ ምዘና፦ ስራው ሲጠናቀቅ ስራ አቅራቢውም ሆነ ስራ ሰሪው እርስ በእርሳቸው ደረጃ (Rating) እንዲሰጣጡ ይጠየቃሉ።
+
+12.2 ለአንድ ስራ አንድ ምዘና፦ ማንኛውም ወገን ለአንድ ስራ መስጠት የሚችለው አንድ ምዘና ብቻ ነው።
+
+12.3 የምዘና ተፅዕኖ፦ የሚሰጡ ምዘናዎች በተጠቃሚው የሥራ ታሪክ እና ዝና ላይ ተጽዕኖ ይኖራቸዋል፤ ይህም ለወደፊት ተጨማሪ ስራዎችን ለማግኘት ወይም ላለመገኘት ምክንያት ሊሆን ይችላል።
+
+12.4 እውነተኛ ግብረ-መልስ መስጠት፦ ምዘናዎች ትክክለኛውን የሥራ ልምድ የሚያንፀባርቁ መሆን አለባቸው። በበቀል ወይም በማሴር የሚሰጡ ሀሰተኛ ምዘናዎች የተከለከሉ ናቸው።
+
+12.5 የምዘና የመጨረሻነት፦ አንዴ የተሰጠ ምዘና (ከሕግ ጋር በተያያዘ ካልሆነ በስተቀር) ሊቀየር ወይም ሊሰረዝ አይችልም።
+
+13) የአካውንት ገደቦች፣ እገዳዎች እና ስረዛዎች
+13.1 ጊዜያዊ ገደቦች፦ አንድ ተጠቃሚ ደንብ ሲጥስ ወይም የመድረኩን አሠራር ሲያስተጓጉል ታስኪፋይ (Taskifii) የተወሰኑ አገልግሎቶችን (ለምሳሌ ስራ መለጠፍ ወይም ማመልከት) ለጊዜው ሊገድብ ይችላል።
+
+13.2 እገዳ ወይም ስረዛ፦ ከባድ ወይም ተደጋጋሚ ጥፋቶች ሲፈጸሙ አካውንቱ እንዲታገድ ወይም ሙሉ በሙሉ ከመድረኩ እንዲሰረዝ ይደረጋል።
+
+13.3 የተለመዱ የጥፋት ዓይነቶች፦ ጥፋቶች የሚከተሉትን (ግን በእነዚህ ብቻ የማይወሰኑትን) ያካትታሉ፦
+
+(ሀ) ማታለል ወይም የተሳሳተ መረጃ መስጠት፣
+
+(ለ) ስራ ተቀብሎ አለመስራት፣
+
+(ሐ) ትንኮሳ ወይም የስድብ ባህሪ፣
+
+(መ) የመድረኩን የደኅንነት ጥበቃዎች ለማለፍ መሞከር፣
+
+(ሠ) ያለምክንያት ደጋግሞ ስራን መሰረዝ ወይም ሪፖርት ማድረግ።
+
+13.4 ደንብን አለማለፍ፦ እገዳን ለማምለጥ ሌላ አካውንት መክፈት የተከለከለ ነው፤ ይህም በቋሚነት ከመድረኩ መሰረዝን ያስከትላል።
+
+14) የተከለከሉ ተግባራት
+14.1 መድረኩን አላግባብ መጠቀም፦ ተጠቃሚዎች የሥራ ውጤቶችን፣ ክፍያዎችን ወይም ምዘናዎችን ለማጭበርበር መሞከር የለባቸውም።
+
+14.2 ከመድረኩ ውጭ ጫና መፍጠር፦ ተጠቃሚዎች ክፍያ እንዲለቀቅ ወይም አለመግባባቶች እንዲፈቱ ከመድረኩ ውጭ በሌላ መንገድ ጫና መፍጠር የለባቸውም።
+
+14.3 ሕገ-ወጥ ድርጊቶች፦ በኢትዮጵያ ሕግ የተከለከሉ አገልግሎቶች፣ ይዘቶች ወይም ተግባራትን የሚያካትቱ ስራዎች በፍጹም አይፈቀዱም።
+
+14.4 አውቶሜሽን እና የሶፍትዌር ጥቃቶች፦ ቦቶችን (Bots)፣ ስክሪፕቶችን ወይም ሲስተሙን የሚያዳክሙ የቴክኒክ ብልሃቶችን ተጠቅሞ አላግባብ ለመጠቀም መሞከር የተከለከለ ነው።
+
+15) የተጠያቂነት ገደብ
+15.1 የጥራት ዋስትና አለመኖር፦ ታስኪፋይ (Taskifii) ስለሚሰሩት ስራዎች ጥራት፣ ሕጋዊነት ወይም ተስማሚነት ዋስትና አይሰጥም።
+
+15.2 የተጠቃሚዎች ኃላፊነት፦ ተጠቃሚዎች ለሚለጥፏቸውም ሆነ ለሚሰሯቸው ስራዎች ሙሉ ኃላፊነቱን ይወስዳሉ።
+
+15.3 ለተዘዋዋሪ ጉዳቶች ተጠያቂ አለመሆን፦ በኢትዮጵያ ሕግ እስከተፈቀደው ድረስ፣ ታስኪፋይ (Taskifii) ከመድረኩ አጠቃቀም ጋር በተያያዘ ለሚመጡ ቀጥተኛ ላልሆኑ የኢኮኖሚ ወይም ሌሎች ኪሳራዎች ተጠያቂ አይሆንም።
+
+15.4 ከሶስተኛ ወገን ጋር የተያያዙ ችግሮች፦ በቴሌግራም፣ በክፍያ ተቋማት፣ በባንኮች ወይም በሌሎች ውጫዊ ሲስተሞች ብልሽት ምክንያት ለሚፈጠሩ ስህተቶች ታስኪፋይ ተጠያቂነት የለበትም።
+
+15.5 ከፍተኛው የተጠያቂነት መጠን፦ ተጠያቂነት ሊወገድ በማይችልበት ሁኔታ እንኳን፣ የታስኪፋይ ከፍተኛው የክፍያ ተጠያቂነት ከሚመለከተው ስራ ከተገኘው የአገልግሎት ክፍያ (Platform fee) አይበልጥም።
+16) ግላዊነት፣ የግል መረጃ እና የመዝገብ አያያዝ (Privacy, Personal Data & Recordkeeping)
+16.1 የምንሰበስበው መረጃ። ፕላትፎርሙን ለማንቀሳቀስ እንዲቻል የሚከተሉትን መረጃዎች ልንሰበስብ እና ልናቀናብር እንችላለን፦
+
+(ሀ) የመለያ መረጃዎች፦ በሚመዘገቡበት ወይም መረጃዎን በሚያስተካክሉበት ጊዜ የሚሰጡት ዝርዝር (ለምሳሌ፦ ስም፣ የመገኛ አድራሻ፣ የቴሌግራም መለያ ስም/Username፣ እና የመረጡት ክህሎት ወይም የሙያ ዘርፍ)፣
+
+(ለ) የስራ (Task) መረጃዎች፦ የሚፈጥሩት የስራ ዝርዝር (የስራው መግለጫ፣ መስፈርቶች፣ የጊዜ ገደቦች እና ሌሎች ተያያዥ ዝርዝሮች)፣
+
+(ሐ) የስራ ልውውጦች፦ በፕላትፎርሙ የስራ ሂደት ውስጥ የሚደረጉ ልውውጦች እና የሚላኩ ነገሮች (መልዕክቶች፣ ፋይሎች/ሚዲያዎች፣ የማስተካከያ ጥያቄዎች እና የጊዜ መረጃዎች/Timestamps)፣
+
+(መ) ቴክኒካዊ መረጃዎች፦ ለደህንነት፣ ለታማኝነት እና ችግሮችን ለመፍታት የሚያስፈልጉ መረጃዎች (ለምሳሌ፦ የክንውን መዝገቦች/Event logs እና የጊዜ መረጃዎች)።
+
+16.2 መረጃውን ለምን እንደምናቀናብረው። የግል መረጃዎችን የምናቀናብረው ለሚከተሉት ዓላማዎች ነው፦
+
+(ሀ) መለያዎችን (Accounts) እና ፕሮፋይሎችን ለመፍጠር እና ለማስተዳደር፣
+
+(ለ) ስራዎችን እና ተጠቃሚዎችን ለማገናኘት እንዲሁም የስራ ቅንጅቱን ለማሳለጥ፣
+
+(ሐ) የጊዜ ገደቦችን፣ የማስተካከያ ጊዜዎችን፣ ቅጣቶችን እና የስራ ማጠናቀቂያ ደረጃዎችን ለመቆጣጠር፣
+
+(መ) ማጭበርበርን፣ ያለአግባብ መጠቀምን (Abuse) እና ህግን መጣስን ለመከላከል (እገዳዎችን እና የፖሊሲ ተገዢነትን ማስከበርን ጨምሮ)፣
+
+(ሠ) አለመግባባቶችን እና ሪፖርቶችን በፍትሃዊነት አይቶ ለመፍታት፣
+
+(ረ) ተፈጻሚነት ያላቸውን የኢትዮጵያ ህግ ግዴታዎች እና ህጋዊ ትዕዛዞችን ለማክበር።
+
+16.3 ህጋዊ መሰረት እና ስምምነት (ኢትዮጵያ)። እንደ አስፈላጊነቱ፣ በእርስዎ ፈቃድ እና/ወይም በተፈጻሚው የኢትዮጵያ የመረጃ ጥበቃ ህጎች በሚታወቁ ሌሎች ህጋዊ ምክንያቶች ላይ እንመሰረታለን። ፕላትፎርሙን በመጠቀም እና መረጃ በመስጠት፣ ፈቃድ በሚያስፈልግበት መጠን በእነዚህ ውሎች ላይ እንደተገለጸው መረጃዎ እንዲቀናብር ፈቅደዋል።
+
+16.4 ሌሎች ተጠቃሚዎች ምን ማየት ይችላሉ። ሌሎች ተጠቃሚዎች ስራዎችን ለመስራት እና ተሳትፎን ለመገምገም አስፈላጊ የሆነ መረጃን ማየት ይችላሉ (ለምሳሌ፦ የተለቀቁ ስራዎችን፣ በስራው ሂደት የሚጋሩ ውጤቶችን፣ እና ፕላትፎርሙ ለሚመለከተው አካል የሚያቀርባቸውን ከስራ ጋር የተያያዙ መልዕክቶችን)። ለስራው የግድ አስፈላጊ ካልሆነ በስተቀር ጥንቃቄ የሚሹ ሚስጥራዊ የግል መረጃዎችን በስራው ቻት (ውይይት) ላይ አያጋሩ።
+
+16.5 ለሶስተኛ ወገኖች ማጋራት። ፕላትፎርሙ የሚሠራው በቴሌግራም ላይ ሲሆን የሶስተኛ ወገን አገልግሎቶችን (ለምሳሌ የክፍያ አገልግሎት ሰጪዎች እና የመሰረተ-ልማት አገልግሎቶችን) ሊጠቀም ይችላል። ቴሌግራም ወይም ሶስተኛ ወገኖች በራሳቸው ውሎች እና ፖሊሲዎች መሰረት መረጃዎን እንዴት እንደሚያቀናብሩ እኛ ኃላፊነት አንወስድም። ፕላትፎርሙን ለማንቀሳቀስ፣ ክፍያዎችን ለመፈጸም፣ አላግባብ መጠቀምን ለመከላከል እና አለመግባባቶችን ለመፍታት በምክንያታዊነት የሚያስፈልገውን ዝቅተኛ መረጃ ብቻ ልናጋራ እንችላለን።
+
+16.6 የመረጃ ደህንነት። የተከማቹ መረጃዎችን ለመጠበቅ ምክንያታዊ የሆኑ የጥንቃቄ እርምጃዎችን እንወስዳለን፤ ሆኖም ሙሉ በሙሉ ደህንነቱ የተጠበቀ ስርዓት የለም። የቴሌግራም መለያዎን፣ የመሳሪያዎን መዳረሻ እና የሚጠቀሙባቸውን የማለፊያ/የደህንነት ቁልፎች የመጠበቅ ኃላፊነት የእርስዎ ነው።
+
+16.7 መረጃን አቆይቶ ስለመያዝ (Data Retention)። መረጃዎችን ፕላትፎርሙን ለማቅረብ፣ የህግ ግዴታዎችን ለመወጣት፣ እነዚህን ውሎች ለማስከበር፣ አለመግባባቶችን ለመፍታት እና አስተማማኝ መዝገቦችን ለመያዝ እስከተፈለገ ድረስ እናቆያቸዋለን። ለነዚህ ዓላማዎች በምክንያታዊነት አስፈላጊ ሆኖ ሲገኝ፣ አንድ መለያ አገልግሎት መስጠት ካቆመ በኋላም ቢሆን የተወሰኑ መዝገቦች ሊቀመጡ ይችላሉ።
+
+16.8 የእርስዎ ምርጫዎች እና መብቶች። እንደ ተፈጻሚው የኢትዮጵያ ህግ እና እንደ ፕላትፎርሙ አሠራር ፍላጎት፣ የሚከተሉትን መጠየቅ ይችላሉ፦
+
+(ሀ) የፕሮፋይል መረጃዎን ማየት ወይም ማስተካከል፣
+
+(ለ) የመለያዎን መረጃ መሰረዝ ወይም ማቦዘን (Deactivate)፣
+
+(ሐ) መረጃን ማቀናበሩ በፈቃድ ላይ የተመሰረተ ከሆነ ፈቃድዎን ማንሳት (ይህ ቀደም ሲል የተከናወኑ ሂደቶችን አይሽርም)።
+
+ማሳሰቢያ: የመሰረዝ ጥያቄ ከአለመግባባቶች አፈታት፣ ከማጭበርበር መከላከል፣ ከህግ ግዴታዎች ወይም ከአስገዳጅ መዝገቦች ጋር የሚጋጭ ከሆነ፣ በምክንያታዊነት አስፈላጊ እስከሆነ ድረስ የተወሰኑ መረጃዎችን ልናቆይ እንችላለን።
+
+17) ግንኙነቶች እና ማስታወቂያዎች (Communications & Notices)
+17.1 የፕላትፎርም መልዕክቶች። Taskifiiን በመጠቀምዎ፣ ከምዝገባ፣ ከስራዎች፣ ከጊዜ ገደቦች፣ ከማስተካከያዎች፣ ከአለመግባባቶች፣ ከደረጃ አሰጣጥ እና ከደህንነት/ታማኝነት ማስከበር ጋር የተያያዙ መልዕክቶችን ከቦቱ (Bot) ለመቀበል ተስማምተዋል።
+
+17.2 የአሠራር ማስታወቂያዎች። የአገልግሎት ማስታወቂያዎችን (ለምሳሌ፦ የአገልግሎት ለውጦች፣ የፖሊሲ ማሻሻያዎች፣ የደህንነት ማስጠንቀቂያዎች) ልንልክ እንችላለን። እነዚህ ፕላትፎርሙን የማንቀሳቀስ አንዱ አካል ናቸው።
+
+17.3 በተጠቃሚዎች መካከል የሚደረግ ግንኙነት። ተጠቃሚዎች ለሚያደርጉት ግንኙነት ራሳቸው ኃላፊ ናቸው። ትንኮሳ፣ ዛቻ፣ አድልዎ፣ ወይም ተደጋጋሚ እና ያልተፈለገ ግንኙነት የተከለከለ ነው።
+
+18) የተጠቃሚ ይዘቶች፣ የስራ ውጤቶች እና ፈቃዶች (User Content, Deliverables & Permissions)
+18.1 የእርስዎ ይዘት። በፕላትፎርሙ በኩል ለሚያቀርቡት፣ ለሚጭኑት ወይም ለሚያጋሩት ማንኛውም ይዘት (ጽሑፍ፣ ሚዲያ፣ ፋይሎች እና የስራ ውጤቶችን ጨምሮ) ኃላፊነቱ የእርስዎ ነው።
+
+18.2 ፕላትፎርሙን ለማንቀሳቀስ የሚሰጥ ፈቃድ። Taskifii ይዘትዎን ለማስተናገድ፣ ለማከማቸት፣ ለማባዛት እና ለማሳየት እንዲችል የተገደበ እና ብቸኛ ያልሆነ (non-exclusive) ፈቃድ ይሰጣሉ። ይህም ፈቃድ የሚያገለግለው ለሚከተሉት ብቻ ነው፦
+
+(ሀ) ይዘቱን ለሚመለከተው የስራው ተዋዋይ ወገን ለማድረስ፣
+
+(ለ) የስራውን ባህሪያት ለማከናወን (ማስረከብ፣ ማስተካከል፣ ማጠናቀቅ)፣
+
+(ሐ) አላግባብ መጠቀምን ለመከላከል እና የፕላትፎርሙን ታማኝነት ለመጠበቅ፣
+
+(መ) አለመግባባቶችን ለመመርመር እና እነዚህን ውሎች ለማስከበር።
+
+18.3 የባለቤትነት መብት አይተላለፍም። Taskifii በስራ ውጤቶችዎ (Deliverables) ላይ የባለቤትነት መብት አይጠይቅም። በስራ ፈጣሪው (Task Creator) እና በስራ ሰሪው (Task Doer) መካከል ያለው ማንኛውም የባለቤትነት ወይም የአጠቃቀም መብት የሚወሰነው በእራሳቸው ስምምነት እና በሚመለከተው ህግ ነው።
+
+18.4 የተከለከሉ ይዘቶች። ህገ-ወጥ፣ የሌሎችን መብት የሚጋፋ፣ አታላይ፣ ተሳዳቢ ወይም የሶስተኛ ወገን መብቶችን የሚጥስ ይዘት መለጠፍ ወይም ማቅረብ የለብዎትም። ህገ-ወጥ ድርጊቶችን ወይም እንቅስቃሴዎችን የሚጠይቁ ስራዎች (Tasks) አይፈቀዱም።
+19) የመድረኩ ተደራሽነት፣ ለውጦች እና ማሻሻያዎች (Platform Availability, Changes & Updates)
+19.1 የአገልግሎት ተደራሽነት (Availability)፦ ታስኪፋይ (Taskifii) ሁልጊዜ ክፍት እና ተደራሽ እንዲሆን እንጥራለን፤ ነገር ግን አገልግሎቱ ያለማቋረጥ ይሰራል ብለን ዋስትና አንሰጥም። በቴሌግራም (Telegram) ችግሮች፣ በሶስተኛ ወገን አገልግሎቶች፣ በጥገና ወይም በቴክኒክ ችግሮች ምክንያት የአገልግሎት መቆራረጥ ወይም መዘግየት ሊያጋጥም ይችላል።
+
+19.2 የአገልግሎት ለውጦች (Feature Changes)፦ መድረኩን ለማሻሻል፣ ህገወጥ አጠቃቀምን ለመቀነስ ወይም ህግን ለማክበር ሲባል፤ የመድረኩን አሠራር (የስራ ፍሰት፣ ገደቦች፣ መስፈርቶች እና ደንቦችን ጨምሮ) ልናሻሽል፣ ልንጨምር ወይም ልንቀንስ እንችላለን።
+
+19.3 የውል ማሻሻያ (Terms Updates)፦ ይህንን የአጠቃቀም ውል አልፎ አልፎ ልናሻሽለው እንችላለን። የተደረገው ለውጥ በ "መጨረሻ የተሻሻለበት ቀን" (Last Updated date) ላይ ይታያል። ማሻሻያ ከተደረገ በኋላ መድረኩን መጠቀም መቀጠልዎ፣ አዲሱን ውል እንደተቀበሉ ይቆጠራል።
+
+20) አገልግሎት ማቋረጥ እና የሂሳብ (Account) መዘጋት
+20.1 የተጠቃሚ ምርጫ፦ መድረኩን መጠቀም በማንኛውም ጊዜ ማቆም ይችላሉ።
+
+20.2 ከመዘጋቱ በፊት ስለሚኖሩ ስራዎች፦ አንድ ስራ (Task) በሂደት ላይ እያለ ከመድረኩ ለመውጣት ከሞከሩ፣ የሌላኛውን ወገን ጥቅም ለመጠበቅ እና የስራው ሂደት እንዳይበላሽ ሲባል፣ መውጣትዎ በፊት ስራው እንዲጠናቀቅ ወይም እልባት እንዲያገኝ ሊጠየቁ ይችላሉ።
+
+20.3 በታስኪፋይ የሚደረግ እገዳ (Termination)፦ ይህንን ውል እንደጣሱ፣ መድረኩን አላግባብ እንደተጠቀሙ፣ ስርዓቱን ለማለፍ እንደሞከሩ፣ ወይም በሌሎች ተጠቃሚዎችና በመድረኩ ላይ ጉዳት እንደፈጠሩ በምክንያት ካመንን፤ አገልግሎቱን ልናቋርጥ፣ ልናገድ ወይም ልንከለክልዎ እንችላለን።
+
+20.4 የአገልግሎት መቋረጥ ውጤቶች፦ አገልግሎቱ ሲቋረጥብዎ፣ የአጠቃቀም ታሪክዎን (History) እና ሌሎች የያዝንልዎትን መረጃዎች ሊያጡ ይችላሉ። ነገር ግን ለክርክር አፈታት፣ ለደህንነት ወይም ለህግ ተገዢነት ሲባል አስፈላጊ የሆኑ መረጃዎች በክፍል 16 እንደተገለፀው ተይዘው ሊቆዩ ይችላሉ።
+
+21) ተፈጻሚነት ያለው ህግ እና የክርክር አፈታት (Legal)
+21.1 ተፈጻሚነት ያለው ህግ፦ ይህ ውል በኢትዮጵያ ፌዴራላዊ ዴሞክራሲያዊ ሪፐብሊክ ህጎች መሰረት ይገዛል/ይተዳደራል።
+
+21.2 ቅድሚያ በሰላም ለመፍታት መሞከር፦ ተጠቃሚዎች ወደ ውጭ (ወደ ፍርድ ቤት) ከመሄዳቸው በፊት፣ በመድረኩ ላይ ያለውን የክርክር/ሪፖርት ማድረጊያ አሠራር በመጠቀም ችግሮችን በቅን ልቦና (Good-Faith) ለመፍታት መስማማት አለባቸው።
+
+21.3 የማይገሰሱ መብቶች፦ በዚህ ውል ውስጥ የተጠቀሰው የትኛውም ነጥብ፣ በተፈጻሚው የኢትዮጵያ ህግ መሰረት ሊከለከሉ የማይችሉ አስገዳጅ ህጋዊ መብቶችን አይገድብም።
+
+22) የመገኛ አድራሻ (Contact)
+22.1 የድጋፍ መስጫ፦ ለጥያቄዎች፣ ለቅሬታዎች ወይም ለመረጃ ጥያቄዎች፤ በመድረኩ ውስጥ (በቦቱ ወይም በኦፊሴላዊ የታስኪፋይ ቻናሎች) የሚገኘውን ትክክለኛ የመገናኛ ዘዴ በመጠቀም ታስኪፋይን ያግኙ። ኦፊሴላዊ ያልሆኑ ወይም የተጭበረበሩ አድራሻዎችን አይጠቀሙ።
+
+23) ዋስትና አለመኖር እና ኃላፊነትን መውሰድ (No Guarantees & Assumption of Risk)
+23.1 አገልግሎቱ የቀረበው "እንዳለ" ነው (As Is)፦ ታስኪፋይ የቀረበው "እንዳለ" (As Is) እና "እንደተገኘ" (As Available) ነው። ስራዎች ስለመለጠፋቸው፣ ተቀባይነት ስለማግኘታቸው፣ ስለመጠናቀቃቸው፣ ክፍያ ስለመፈጸሙ ወይም በተወሰነ ጊዜ እልባት ስለማግኘታቸው ምንም አይነት ዋስትና አንሰጥም።
+
+23.2 የተጠቃሚው ኃላፊነት፦ መድረኩን ሲጠቀሙ አደጋዎች ሊኖሩ እንደሚችሉ ይረዳሉ እንዲሁም ይስማማሉ። ይህም ሌላኛው ተጠቃሚ ስራውን ላይፈጽም፣ ሊያዘገይ፣ ጥራቱ የወረደ ስራ ሊያቀርብ ወይም ውጤቱን ሊክድ መቻሉን ያካትታል።
+
+23.3 ስለ ውጤቱ ዋስትና አይሰጥም፦ ታስኪፋይ ለሚከተሉት ጉዳዮች ዋስትና አይሰጥም፦
+
+(ሀ) አሰሪ (Task Creator) ተስማሚ ሰራተኛ ስለማግኘቱ፣
+
+(ለ) ሰራተኛ (Task Doer) ስለመመረጡ ወይም ክፍያ ስለማግኘቱ፣
+
+(ሐ) ማንኛውም ስራ በስኬት ስለመጠናቀቁ፣
+
+(መ) አለመግባባቶች/ክርክሮች ተጠቃሚው በሚፈልገው መንገድ ስለመፈታታቸው።
+
+24) ከአቅም በላይ የሆነ ሁኔታ (Force Majeure)
+24.1 ከቁጥጥር ውጭ የሆኑ ክስተቶች፦ ታስኪፋይ ከቁጥጥር ውጭ በሆኑ ምክንያቶች ለሚፈጠሩ የአገልግሎት መቆራረጦች ወይም መዘግየቶች ተጠያቂ አይሆንም። እነዚህም የሚከተሉትን ያካትታሉ (ግን በዚህ ብቻ አይወሰኑም)፦
+
+(ሀ) የቴሌግራም መቆራረጥ ወይም እገዳዎች፣
+
+(ለ) የክፍያ አቅራቢዎች ወይም የባንክ ስርዓት ችግሮች፣
+
+(ሐ) የኢንተርኔት ወይም የመሰረተ ልማት መቆራረጥ፣
+
+(መ) የመንግስት እርምጃዎች፣ የህግ ለውጦች ወይም ደንቦች፣
+
+(ሠ) የተፈጥሮ አደጋዎች ወይም ድንገተኛ ሁኔታዎች።
+
+24.2 በስራዎች ላይ የሚኖረው ተጽእኖ፦ እንደዚህ አይነት ሁኔታዎች ሲፈጠሩ፣ ስራዎች ሊዘገዩ፣ ሊቆሙ፣ ሊሰረዙ ወይም በመድረኩ ህግ መሰረት እልባት ሊያገኙ ይችላሉ፤ በዚህም ታስኪፋይ ተጠያቂነት አይኖረውም።
+25) ማስተላለፍ እና ለሌላ ወገን አሳልፎ መስጠት (Assignment & Transfer)
+
+25.1 የተጠቃሚ መለያዎች (User Accounts)፦ የተጠቃሚ መለያዎች ወይም አካውንቶች የግል ናቸው። በመሆኑም ለሌላ ሰው ማስተላለፍ፣ መሸጥ፣ ማከራየት ወይም በጋራ መጠቀም በጥብቅ የተከለከለ ነው።
+
+25.2 የመድረኩ መብቶች (Platform Rights)፦ Taskifii ከመዋቅራዊ ለውጥ፣ ከእድገት ወይም ከስራ ክንውን ለውጦች ጋር በተያያዘ በዚህ ስምምነት ስር ያገኘውን መብትና ግዴታ ለሌላ አካል ማስተላለፍ ወይም አሳልፎ መስጠት ይችላል።
+
+26) የሕግ ክፍሎች ተነጣጥለው መታየት (Severability)
+
+26.1 ከፊል ተፈጻሚነት፦ ከእነዚህ ደንቦች ውስጥ የትኛውም ክፍል በሕግ ተቀባይነት የሌለው፣ ዋጋ ቢስ ወይም ተፈጻሚ ሊሆን የማይችል ሆኖ ከተገኘ፣ ይህ እንከን ያለበት ክፍል ብቻ ተነጥሎ ይቀራል ወይም አስፈላጊ ሆኖ ሲገኝ ይወገዳል።
+
+26.2 ቀሪ ደንቦች፦ እንከን ከተገኘበት ክፍል ውጪ ያሉ ሌሎች ቀሪ ደንቦች እና ሁኔታዎች በሙሉ ተፈጻሚነታቸው እንደተጠበቀ ይቀጥላል።
+
+27) መብትን አለመተው (No Waiver)
+
+27.1 አፈጻጸም ላይ የሚደረግ መቻቻል፦ Taskifii ከእነዚህ ደንቦች ውስጥ የትኛውንም ድንጋጌ ሳያስፈጽም ቢቀር ወይም ቢዘገይ፣ ይህ እንደ መብት መተው ተቆጥሮ ድንጋጌውን ወደፊት ከመተግበር አያግደውም።
+
+27.2 የተናጠል ወይም ከፊል አፈጻጸም፦ አንድን መብት በከፊልም ሆነ አንድ ጊዜ ብቻ መተግበር፣ ያንኑ ወይም ሌላ መብትን ለወደፊቱ ከመጠቀም አያግድም።
+
+28) ሙሉ ስምምነት (Entire Agreement)
+
+28.1 የተሟላ ውል፦ እነዚህ ደንቦች እና ሁኔታዎች በእርስዎ እና በTaskifii መካከል ያለውን የመድረኩን (Platform) አጠቃቀም የሚገዛ ሙሉ እና የመጨረሻ ስምምነት ናቸው።
+
+28.2 በውጫዊ መግለጫዎች አለመመራት፦ በዚህ ሰነድ ውስጥ በግልጽ ካልሰፈሩ በስተቀር፣ በማንኛውም ሌላ ውጫዊ መግለጫ፣ ቃል-ኪዳን ወይም ማረጋገጫ ላይ ተመስርተው ስምምነቱን እንዳልፈጸሙ ይስማማሉ።
+
+29) ቋንቋ እና አተረጓጎም (Language & Interpretation)
+
+29.1 ዋና ቋንቋ፦ ለዚህ ስምምነት አተረጓጎም ዋናው እና ገዢው ሰነድ በእንግሊዝኛ ቋንቋ የተዘጋጀው ነው።
+
+29.2 ትርጉሞች፦ ይህ የአማርኛ ትርጉም ለግንዛቤ እርዳታ የቀረበ ነው። በሁለቱ ስሪቶች መካከል ልዩነት ወይም አለመጣጣም ቢገኝ፣ በእንግሊዝኛ የተዘጋጀው ሰነድ የበላይነት ይኖረዋል።
+
+30) ስምምነቱን መቀበል እና ህጋዊ ተፈጻሚነት (Acceptance & Binding Effect)
+
+30.1 አስገዳጅ ስምምነት፦ “እስማማለሁ” (Agree) የሚለውን በመጫን፣ በመመዝገብ ወይም Taskifiiን መጠቀም በመቀጠል፣ የሚከተለውን ያረጋግጣሉ፦
+
+(ሀ) እነዚህን ደንቦች ሙሉ በሙሉ አንብበዋል፣
+
+(ለ) መድረኩ እንዴት እንደሚሰራ ተረድተዋል፣ እንዲሁም
+
+(ሐ) በዚህ ሰነድ ውስጥ የተገለጹትን መብቶች፣ ግዴታዎች፣ ገደቦች እና የኃላፊነት ስጋቶች (Risks) ተቀብለዋል።
+
+30.2 የኤሌክትሮኒክ ስምምነት፦ በመድረኩ አማካኝነት የሚሰጡት ስምምነት፣ በተፈጻሚነት ባለው የኢትዮጵያ የኤሌክትሮኒክ ንግድ ሕጎች መሰረት ህጋዊ አስገዳጅነት ያለው የኤሌክትሮኒክ ውል ሆኖ ይፀናል።`
   },
   agreeBtn: {
     en: "Agree",
-    am: "ተፈቅዷል"
+    am: "እስማማለው"
   },
   disagreeBtn: {
     en: "Disagree",
-    am: "አልተፈቀደም"
+    am: "አልስማማም"
   },
   askAge: {
     en: "Are you 18 or older? Click ‘Yes I am’ or ‘No I’m not.’ (Ethiopian law prohibits under-18 employment.)",
-    am: "18 ወይም ከዚህ በላይ ነህ? ‘አዎን ነኝ’ ወይም ‘አይደለም ተብሎ አይቻልም’ ይጫኑ። (የኢትዮጵያ ህግ ከ18 በታች ስራ የማድረግ አደንች አይፈቀድም።)"
+    am: "18 ወይም ከዚያ በላይ ኖት? ‘አዎ ነኝ’ ወይም ‘አይ አይደለሁም’ ይጫኑ። (በኢትዮጵያ ህግ ምሰረት ከ18 በታች የሆኑ ተቀጣሪ መሆን ክልከል ነው።)"
   },
   ageYesBtn: {
     en: "Yes I am",
-    am: "አዎን ነኝ"
+    am: "አዎ ነኝ"
   },
   ageNoBtn: {
     en: "No I’m not",
-    am: "አይደለም ተብሎ አይቻልም"
+    am: "አይ አይደለሁም"
   },
   ageError: {
     en: "Sorry, you must be 18 or older to use Taskifii. Your data has been removed.",
-    am: "ይቅርታ፣ ከ18 ዓመት በታች መሆንዎ ምክንያት ይገባል። መረጃዎት ተሰርዟል።"
+    am: "ይቅርታ፣ ከ18 ዓመት በታች በመሆንዎ ምክንያት ምዘገባው አልተሳካም። መረጃዎት ተሰርዟል።"
   },
   postTaskBtn: {
   en: "Post a Task",
-  am: "ተግዳሮት ልጥፍ"
+  am: "ስራ ልፍጠር"
   },
   findTaskBtn: {
     en: "Find a Task",
-    am: "ተግዳሮት ፈልግ"
+    am: "ስራ ልፈልግ"
   },
   editProfileBtn: {
     en: "Edit Profile",
-    am: "ፕሮፋይል አርትዕ"
+    am: "ፕሮፋይል ላስተካክል"
   },
    descriptionPrompt: {
-    en: "Write the task description (20–1250 chars).",
-    am: "የተግባሩን መግለጫ ያስገቡ። (20–1250 ቁምፊ)"
+    en: "Write the task description (20–1280 characters). And make sure that you make everything clear down to the minor details because the task doer is only obligated to do what the task description instructs. If you have a file(a video, audio, image, etc.) related to this task, you will send it later directly to the task doer, but for now make sure that you describe the file/s properly here so that the task doer knows what they are getting themselves into. ",
+    am: "የሥራውን መግለጫ ይጻፉ (ከ20–1280 ፊደላት)። ሥራውን የሚሰራው ሰው ግዴታ ያለበት በዚህ መግለጫ ላይ የሰፈረውን ትዕዛዝ ለመፈጸም ብቻ ስለሆነ፣ እያንዳንዱን ዝርዝር ጉዳይ በግልጽ ማስቀመጥዎን ያረጋግጡ። ከዚህ ሥራ ጋር የተያያዘ ፋይል (ቪዲዮ፣ ኦዲዮ፣ ምስል፣ ወዘተ) ካለዎት፣ በኋላ ላይ ለሰራተኛው በቀጥታ የሚልኩት ይሆናል። ለጊዜው ግን፣ ሰራተኛው ምን አይነት ሥራ ውስጥ እንደሚገባ በቅድሚያ እንዲያውቅ፣ ስለ ፋይሎቹ ምንነት እዚሁ በደንብ መግለጽ ይኖርብዎታል።"
   },
   descriptionError: {
-    en: "Sorry, Task Description must be 20–1250 characters. Try again.",
-    am: "ይቅርታ፣ የተግባሩ መግለጫ 20–1250 ቁምፊ መሆን አለበት። እንደገና ይሞክሩ።"
+    en: "Sorry, Task Description must be 20–1280 characters. Try again.",
+    am: "ይቅርታ፣ የሥራውን መግለጫ 20–1280 ፊደላት መሆን አለበት። እንደገና ይሞክሩ።"
   },
   relatedFilePrompt: {
     en: "If you have any related file for this task (like a reference document, image, or example), send it now.\n\nYou can send multiple files (photos, documents, videos, audio, etc.). When you finish, click Done. If you don't have any, you can click Skip.",
@@ -745,7 +1307,7 @@ const TEXT = {
 
    skipBtn: {
     en: "Skip",
-    am: "ዝለል"
+    am: "እለፍ"
   },
   fieldsIntro: {
     en: "Select 1–7 fields:",
@@ -753,11 +1315,11 @@ const TEXT = {
   },
   fieldsSelected: {
     en: "Selected:",
-    am: "የተመረጡ:"
+    am: "ምርጫዎት:"
   },
   fieldsAddMore: {
     en: "Add More",
-    am: "ተጨማሪ ጨምር"
+    am: "ልጨምር"
   },
   fieldsDone: {
     en: "Done",
@@ -781,7 +1343,7 @@ const TEXT = {
   },
   askPaymentFee: {
     en: "How much is the payment fee amount (in birr)? (must be ≥50)",
-    am: "ክፍያው መጠን በብር ያስገቡ (ከ50 ብር አይነስ):"
+    am: "የክፍያው መጠን (በብር) ያስገቡ (ከ50 ብር አይነስ):"
   },
   paymentFeeErrorDigits: {
     en: "Please enter digits only.",
@@ -789,50 +1351,50 @@ const TEXT = {
   },
   paymentFeeErrorMin: {
     en: "Amount cannot be less than 50 birr.",
-    am: "መጠኑ ከ50 ብር መብለጥ አይችልም።"
+    am: "መጠኑ ከ50 ብር በታች መሆን አይችልም።"
   },
   paymentFeeErrorRelativePenalty: {
     en: "Payment fee must be at least 5× the penalty per hour you set. Please increase the payment amount (or reduce the penalty) and try again.",
-    am: "የክፍያው መጠን ቢያንስ ከእያንዳንዱ ሰዓት የቅጣት መጠን 5 ጊዜ መሆን አለበት። እባክዎ የክፍያውን መጠን ያሳድጉ (ወይም የቅጣቱን መጠን ያሳንሱ) እና ዳግም ይሞክሩ።"
+    am: "የክፍያ መጠኑ በሰዓት ካስቀመጡት የቅጣት መጠን ቢያንስ 5 እጥፍ መሆን አለበት። እባክዎ የክፍያውን መጠን ይጨምሩ (ወይም የቅጣቱን መጠን ይቀንሱ) እና እንደገና ይሞክሩ።"
   },
 
   askTimeToComplete: {
-    en: "What's the time required in hours to complete the task? (1-120)",
-    am: "ተግዳሮቱን ለመጨረስ የሚወስደው ጊዜ በሰዓት ያስገቡ (1-120)"
+    en: "What's the time required in hours to complete the task? (1-120 hour/s)",
+    am: " ስራውን በስንት ሰዐት ውስጥ እንድያልቅ ነው ይሚፈልጉት? (1-120 ሰዐት)"
   },
   timeToCompleteError: {
     en: "Hours must be >0 and ≤120.",
-    am: "ሰዓቶቹ ከ0 በላይ እና ≤120 መሆን አለበት።"
+    am: "ሰዓቱ ከ0 በላይ እና ከ120 በታች(ወይም 120 ራሱ) መሆን አለበት።"
   },
   timeToCompleteErrorRelativeRevision: {
     en: "Time to complete must be at least 2× the revision time you set. Please enter a larger number of hours and try again.",
-    am: "የተግባሩ ጊዜ ቢያንስ ከማሻሻያ ጊዜው 2 ጊዜ መሆን አለበት። እባክዎ የስራ ጊዜውን ቁጥር ያሳድጉ እና ዳግም ይሞክሩ።"
+    am: "ስራውን ለማጠናቀቅ የሚመድቡት ጊዜ፣ ለማሻሻያ ካስቀመጡት ጊዜ ቢያንስ የሁለት እጥፍ ብልጫ ሊኖረው ይገባል። ስለዚህ እባክዎን ረዘም ያለ ሰዓት በመሙላት እንደገና ይሞክሩ።"
   },
 
   askRevisionTime: {
-  en: "How many hours for revision? (Up to half of total — you can use decimals for minutes, e.g. 0.5 for 30 min)",
-  am: "ለማሻሻል ስንት ሰዓት ይፈልጋሉ? (≤ ጠቅላላው ግማሽ — የደቂቃ ጊዜ ለማሳየት ከዳስማስ ቁጥሮች ጥቅም ይችላሉ፣ ለምሳሌ 0.5 ማለት 30 ደቂቃ ነው)"
+  en: "How many hours for revision and corrections? (please note that it must be up to half of total time given for the task completion — you can use decimals for minutes, e.g. 0.5 for 30 min). And please note that half of this time is strictly for you only and the other half is strictly only for the task doer‼️",
+  am: "ለክለሳ ምን ያህል ሰዓት መድበዋል? (ከጠቅላላው ለስራ የሰጡት ጊዜ እስከ ግማሽ ያህሉን ብቻ መመደብ ይቻላል። ደቂቃዎችን ለማመልከት በነጥብ መጻፍ ይችላሉ፤ ለምሳሌ 30 ደቂቃ ለማለት 0.5 ይጠቀሙ)። የሚማድቡት ጊዜ እኩል ለሁለት የሚከፈል ሲሆን፣ ግማሹ ለእርስዎ ብቻ፣ ቀሪው ግማሽ ደግሞ ለስራው ፈጻሚ ብቻ የተወሰነ ይሆናል‼️"
   },
   revisionTimeError: {
-  en: "Please send a number (decimals ok) not exceeding half of total time.",
-  am: "እባክዎ ቁጥር (ዳስማስ ቁጥሮች ደግመው ይቻላሉ) ያስገቡ፣ ከጠቅላላው ጊዜ ግማሽ መብለጥ አይችልም።"
+  en: "Please send only a number or a decimal  not exceeding half of total time given to complete task.",
+  am: "እባክዎ ስራውን ለማጠናቀቅ ከተሰጠው አጠቃላይ ጊዜ ግማሹን የማይበልጥ ቁጥር ወይም ዴሲማል ብቻ ይላኩ።"
   },
   
   askPenaltyPerHour: {
-    en: "Give birr amount deducted per hour if late (≤20% of fee).",
-    am: "በተዘገየ ሰዓት የሚቀነስ የብር መጠን ያስገቡ (≤20% ከክፍያው)"
+    en: "Give the birr amount you want to be deducted from the task fee every hour if the completed task is sent late (it must be less than or equal to 20% of the task fee).",
+    am: "ሥራው ከተቀመጠለት የጊዜ ገደብ ዘግይቶ ቢቀርብ፣ በየሰዓቱ ከጠቅላላ ክፍያው ላይ እንዲቀነስ የሚፈልጉትን የብር መጠን ይጥቀሱ። (የሚቀነሰው መጠን ከሥራው ጠቅላላ ክፍያ 20% መብለጥ የለበትም።)"
   },
   penaltyPerHourError: {
     en: "Cannot exceed 20% of payment fee.",
-    am: "ከ20% ከክፍያው መብለጥ አይችልም።"
+    am: "ከሥራው ጠቅላላ ክፍያ 20% መብለጥ አይችልም።"
   },
   
   askExpiryHours: {
-    en: "In how many hours does the offer expire? (1–24)",
-    am: "እስከ ስንት ሰዓት ውስጥ አቅራቢያው ይቆማል? (1–24)"
+    en: "In how many hours does the offer for someone to do the task expire? (1–24 hour/s)",
+    am: "አንድ ሰው ስራውን እንዲሰራ የቀረበለት ጥሪ/ጥያቄ ስንት ሰዓት ድረስ ይቆያል? (ከ1–24 ሰዓት)"
   },
   expiryHoursError: {
-    en: "Expiry must be between 1 and 24 hours.",
+    en: "Task expiry time must be between 1 and 24 hours.",
     am: "የማብቂያ ጊዜ በ1 እና 24 ሰዓታት መካከል መሆን አለበት።"
   },
   
@@ -870,7 +1432,7 @@ const TEXT = {
   },
   negativeError: {
     en: "Cannot be negative.",
-    am: "አሉታዊ መሆን አይችልም።"
+    am: "ኔጌጢቭ መሆን አይችልም።"
   },
   
   digitsOnlyError: {
@@ -904,7 +1466,7 @@ const TEXT = {
   },
   backBtn: {
     en: "Back",
-    am: "ተመለስ"
+    am: "መመለስ"
   },
   profileUpdated: {
     en: "✅ Profile updated successfully!",
@@ -928,83 +1490,83 @@ const TEXT = {
   },
   fieldsSelected: {
     en: "Selected:",
-    am: "የተመረጡ:"
+    am: "ምርጫዎት:"
   },
   acceptBtn: {
     en: "Accept",
-    am: "ተቀበል"
+    am: "ለቀበለው"
   },
   declineBtn: {
     en: "Decline",
-    am: "አትቀበል"
+    am: "ይቅርቢኝ"
   },
    applicationDeclined: {
     en: "The task creator has declined your application. Please apply to other tasks in the channel.",
-    am: "የተግዳሮቱ ፈጣሪ ማመልከቻዎን እምቢ ብሏል። እባክዎ በሌሎች ተግዳሮቶች ላይ ይመዝገቡ።"
+    am: "አሰሪው ማመልከቻዎን አልተቀበሉትም። እባክዎ በቻናሉ ውስጥ ያሉ ሌሎች ሥራዎችን ይሞክሩ።"
   },
   applicationAccepted: {
     en: "🎉 You've been selected for the task!\n\nIf you want to do this task, click 'Do the task' below quickly before others do.\n\nIf no one else is competing, you have until [expiry time] to confirm or you'll miss your chance.\n\nIf you don't want to do it, click 'Cancel'.",
-    am: "🎉 ለተግዳሮቱ ተመርጠዋል!\n\nይህን ተግዳሮት ለመስራት ከፈለጉ፣ ሌሎች ከመምጣታቸው በፊት 'ተግዳሮቱን ስራ' የሚለውን በታች ይጫኑ።\n\nሌላ ተወዳዳሪ ከሌለ፣ እስከ [የማብቂያ ጊዜ] ድረስ ለማረጋገጥ ጊዜ አለዎት፣ አለበለዚያ እድሉን ያመልጣሉ።\n\nከመስራት ከፈለጉ ካንስል ይጫኑ።"
+    am: "🎉 ለዚህ ሥራ ተመርጠዋል!ይህንን ሥራ ለመሥራት ከፈለጉ፣ ሌሎች ቀድመውዎት ሳይወስዱት ከታች ያለውን 'ሥራውን እሰረዋለው' የሚለውን ቁልፍ በፍጥነት ይጫኑ።ሌላ ተወዳዳሪ ከሌለ፣ ዕድሉ እንዳያመልጥዎ እስከ [expiry time] ድረስ ማረጋገጥ ይኖርብዎታል። ሥራውን መሥራት ካልፈለጉ ደግሞ 'ይቅር' የሚለውን ይጫኑ።"
   },
   creatorNotification: {
     en: "✅ You've selected [applicant] for your task. They've been notified and will confirm if they still want to do it. Please wait for their confirmation.",
-    am: "✅ [applicant] ለተግዳሮትዎ መረጥዎታል። አሁንም ለመስራት ከፈለጉ እንደሚያረጋግጡ ተነግረዋል። እባክዎ ለማረጋገጫቸው ይጠብቁ።"
+    am: "✅ ለዚህ ሥራ [applicant]ን መርጠዋል። ለግለሰቡም መልዕክት ደርሶታል፤ ሥራውን ለመሥራት ያለውን ዝግጁነት በቅርቡ ያረጋግጣል። እስከዚያው ድረስ ትዕግሥት አድርገው ይጠብቁ።"
   },
   doTaskBtn: {
     en: "Do the task",
-    am: "ተግዳሮቱን ስራ"
+    am: "ሥራውን እሰረዋለው"
   },
   cancelBtn: {
     en: "Cancel",
-    am: "አቋርጥ"
+    am: "ይቅር"
   },
   cancelConfirmed: {
   en: "You have successfully canceled this task.",
-  am: "ተግዳሮቱን በተሳካ ሁኔታ ሰርዘዋል።"
+  am: "ስራው በተሳካ ሁኔታ ተሰርዘዋል።"
   },
   creatorCancelNotification: {
     en: "[applicant] has canceled doing the task.",
-    am: "[applicant] ተግዳሮቱን ለመስራት እንዳልተስማማ አሳውቋል።"
+    am: "[applicant] ስራውን መስራት እንደማይፈልጉ አሳውቋል።"
   },
   noConfirmationNotification: {
     en: "Sadly, none of the accepted task doers confirmed to still wanting to do the task. You can repost the task if you want. Taskifii is sorry for this.",
-    am: "ይቅርታ፣ ምንም ከተቀባዮቹ ተግዳሮት አድራጊዎች ስራውን ለመስራት እንደሚፈልጉ አላረጋገጡም። ከፈለጉ ተግዳሮቱን እንደገና ልጥፉት ይችላሉ። Taskifii ይቅርታ ይጠይቃል።"
+    am: "በሚያሳዝን ሁኔታ ስራውን ለመስራት ተስማምተው የነበሩት ባለሙያዎች በሙሉ ስራውን ለመቀጠል ፍቃደኛ መሆናቸውን አላረጋገጡም። በመሆኑም ስራውን በድጋሚ መለጠፍ ይችላሉ። ታስኪፌይ (Taskifay) ለተፈጠረው ሁኔታ ይቅርታ ይጠይቃል።"
   },
   doerTimeUpNotification: {
     en: "Your time to confirm and start doing the task is up.",
-    am: "ተግዳሮቱን ለመስራት የማረጋገጫ ጊዜዎ አልቋል።"
+    am: "ስራውን ለመስራት የማረጋገጫ ጊዜዎ አልቋል።"
   },
   reminderNotification: {
     en: "⏰ Reminder: You have [hours] hour(s) and [minutes] minute(s) left to confirm this task by clicking 'Do the task' or 'Cancel'.",
-    am: "⏰ ማስታወሻ: ይህን ተግዳሮት ለማረጋገጥ '[hours] ሰዓት(ዎች) እና [minutes] ደቂቃ(ዎች)' ቀርተዋል። 'ተግዳሮቱን ስራ' ወይም 'አቋርጥ' የሚለውን ቁልፍ ይጫኑ።"
+    am: "⏰ ማሳሰቢያ፦ ይህን ስራ 'ሥራውን እሰረዋለው' ወይም 'ይቅር' የሚሉትን በመጫን ለማረጋገጥ የቀረዎት ጊዜ [hours] ሰዓት ከ [minutes] ደቂቃ ብቻ ነው።"
   },
   taskNoLongerAvailable: {
     en: "This task is no longer available.",
-    am: "ይህ ተግዳሮት ከማግኘት አልቋል።"
+    am: "ይህ ስራ ጊዜው አልፎበታል።"
   },
   repostTaskBtn: {
     en: "Repost Task",
-    am: "ተግዳሮቱን እንደገና ልጥፍ"
+    am: "ስራው ከንደገና ይለጠፍ"
   },
   notSelectedNotification: {
     en: "Unfortunately, [creator] didn't choose you to do this task. Better luck next time!",
-    am: "ይቅርታ፣ [creator] ይህን ተግዳሮት ለመስራት አልመረጡዎትም። በሚቀጥለው ጊዜ የተሻለ እድል ይኑርዎት!"
+    am: "ይቅርታ! [creator] ለዚህ ሥራ አልመረጠዎትም። ለወደፊት ግን የተሻለ ዕድል እንዲገጥምዎት እንመኛለን!"
   },
   creatorCancelNotification: {
   en: "[applicant] has canceled doing the task.",
-  am: "[applicant] ተግዳሮቱን ለመስራት እንዳልተስማማ አሳውቋል።"
+  am: "[applicant] ስራውን መስራት እንዳልፈለገ አሳውቋል።"
   },
   taskExpired: {
   en: "Sorry, this task has expired and is no longer available for application.",
-  am: "ይቅርታ፣ ይህ ተግዳሮት ጊዜው አልፎበታል እና ከእንግዲህ ለማመልከቻ አይገኝም።"
+  am: "ይቅርታ፣ ይህ ስራ ጊዜው አልፎበታል ስለዚም ማመልከት አይቻልም።"
   },
   creatorSelfApplyError: {
   en: "You can't apply to tasks you created yourself.",
-  am: "የራስዎን ተግዳሮት መመዝገብ አይችሉም።"
+  am: "የራስዎን ስራ መመዝገብ አይችሉም።"
   },
   cancelConfirmed: {
   en: "You have successfully canceled this task.",
-  am: "ተግዳሮቱን በተሳካ ሁኔታ ሰርዘዋል።"
+  am: "ስራው በተሳካ ሁኔታ ተሰርዘዋል።"
   },
   languageBtn: {
   en: "Language",
@@ -1012,11 +1574,11 @@ const TEXT = {
   },
   termsBtn: {
   en: "Terms & Conditions",
-  am: "የታስኪፋይ ህግጋቶች"
+  am: "ውሎችና ግዴታዎች"
   },
   taskAlreadyTaken: {
   en: "This task has already been taken.",
-  am: "ይህ ተግዳሮት ቀድሞ ተወስዷል።"
+  am: "ይህ ስራ ሌላ ሰው ቀድሞ የሰራው ነው።"
   },
   missionAccomplishedBtn: {
     en: "Mission accomplished",
@@ -1045,17 +1607,17 @@ const TEXT = {
       "• 5 stars: Excellent / Outstanding"
     ].join("\n"),
     am: (creatorName) => [
-      "🎉 ሁሉንም የተፈለጉ ነገሮች በትክክል አቅርቦ ስራውን አጠናቅተዋል!",
-      "ክፍሎትን በመፈፀም እናመሰግናለን። Taskifii እርስዎን እንደ እምነታዊ፣ ተጠያቂ እና ውድ አባል ለማካተት ደስ ይላል።",
+      "🎉 እንኳን ደስ አለህ/ሽ! ሁሉንም ስራዎች በጥራት አጠናቅቀህ/ሽ በማስረከብህ/ሽ በጣም እናመሰግናለን።",
+      "ድርሻህን/ሽን በአግባቡ ስለተወጣህ/ሽ እናመሰግናለን። ታስኪፋይ (Taskifay) አንተን/አንቺን እንደ ታማኝ፣ ኃላፊነት የሚሰማው እና ትልቅ ዋጋ ያለው የቡድናችን አባል አድርጎ በመያዙ ደስተኛ ነው።",
       "",
-      `🟢 የመጨረሻ ደረጃ፡ የተግዳሮቱን ፈጣሪ *${creatorName || '—'}* ከ1 እስከ 5 ኮከብ ያድርጉ።`,
-      "ይህ ከዚህ በኋላ ማገልገል ከመጀመርዎ በፊት አስፈላጊ ነው።",
+      `🟢 የመጨረሻ ደረጃ፦ ለስራ ፈጣሪው ${creatorName || '—'} ከ1 እስከ 5 ኮከብ በመስጠት ደረጃ ይስጡ።`,
+      "ይህንን ግዴታ መሙላት ያለብዎት Taskifiiን ዳግም ለመጠቀም እንዲችሉ ነው።",
       "",
-      "• 1 ኮከብ፡ በጣም ደካማ / ያልተናመሰ",
-      "• 2 ኮከብ፡ ደካማ / ከጠበቀ በታች",
-      "• 3 ኮከብ፡ መካከለኛ / ጠበቀውን አሟላ",
-      "• 4 ኮከብ፡ ጥሩ / ጠበቀውን አሻሽሎ",
-      "• 5 ኮከብ፡ በጣም ጥሩ / አስደናቂ"
+      "• 1 ኮከብ፦ በጣም ደካማ / አላረካኝም",
+      "• 2 ኮከብ፦ ደካማ / ከጠበቁት በታች",
+      "• 3 ኮከብ፦ መካከለኛ / አጥጋቢ",
+      "• 4 ኮከብ፦ ጥሩ / ከጠበቁት በላይ",
+      "• 5 ኮከብ፦ በጣም ምርጥ / ልዩ"
     ].join("\n")
   },
   ratingPromptToCreator: {
@@ -1073,26 +1635,26 @@ const TEXT = {
       "• 5 stars: Excellent / Outstanding"
     ].join("\n"),
     am: (doerName) => [
-      "🎉 ተግዳሮት በተሳካ ሁኔታ እንደ ሰጡ እንምስጋናለን!",
-      "ክፍሎትን በመፈፀም እናመሰግናለን። Taskifii እርስዎን እንደ እምነታዊ እና ውድ አባል ለማካተት ደስ ይላል።",
+      "🎉 እንኳን ደስ አለዎት! ስራውን በተሳካ ሁኔታ ለሌላ ሰው አስተላልፈውት ሁሉም ነገር ተጠናቅዋል።",
+      "ድርሻዎን ስለተወጡ እናመሰግናለን። ታስኪፌይ (Taskifay) እርስዎን እንደ ታማኝ እና ውድ አባል በማግኘቱ ደስተኛ ነው።",
       "",
-      `🟢 መጨረሻ ደረጃ፡ የተግዳሮቱን አፈጻጸም ከ1 እስከ 5 ኮከብ እንዲያደርጉ *${doerName || '—'}* ይጠይቃሉ።`,
-      "ይህ ከዚህ በኋላ መጠቀም ከመጀመርዎ በፊት አስፈላጊ ነው።",
+      `🟢 የመጨረሻ ደረጃ፡ ለሰራተኛው ${doerName || '—'} ከ1 እስከ 5 ኮከብ ደረጃ ይስጡ።`,
+      "Taskifayን መልሰው መጠቀም እንዲችሉ ይህን ቅጽ መሙላት ግዴታ ነው።",
       "",
-      "• 1 ኮከብ፡ በጣም ደካማ / ያልተናመሰ",
-      "• 2 ኮከብ፡ ደካማ / ከጠበቀ በታች",
-      "• 3 ኮከብ፡ መካከለኛ / ጠበቀውን አሟላ",
-      "• 4 ኮከብ፡ ጥሩ / ጠበቀውን አሻሽሎ",
-      "• 5 ኮከብ፡ በጣም ጥሩ / አስደናቂ"
+      "• 1 ኮከብ፦ በጣም ደካማ / በፍጹም አላረካኝም",
+      "• 2 ኮከብ፦ ደካማ / ከጠበቅኩት በታች ነው",
+      "• 3 ኮከብ፦ መካከለኛ / አጥጋቢ ነው",
+      "• 4 ኮከብ፦ ጥሩ / ከጠበቅኩት በላይ ነው",
+      "• 5 ኮከብ፦ በጣም ጥሩ / ልዩ አገልግሎት"
     ].join("\n")
   },
   ratingSuccessToDoer: {
     en: "✅ You’ve successfully rated the Task Creator. We hope you enjoyed using Taskifii.",
-    am: "✅ የተግዳሮቱን ፈጣሪ በተሳካ ሁኔታ ያደረጉት። Taskifii መጠቀም እንደደሰትዎ እናምናለን።"
+    am: "✅ለስራ ፈጣሪው ደረጃ በመስጠትዎ እናመሰግናለን። የታስኪፌይ (Taskifay) አገልግሎት አጠቃቀምዎ አስደሳች እንደነበር ተስፋ እናደርጋለን።"
   },
   ratingSuccessToCreator: {
     en: "✅ You’ve successfully rated the Task Doer. We hope you enjoyed using Taskifii.",
-    am: "✅ የተግዳሮቱን አፈጻጸም በተሳካ ሁኔታ ያደረጉት። Taskifii መጠቀም እንደደሰትዎ እናምናለን።"
+    am: "✅ ለሰራተኛው የሰጡት ደረጃ በተሳካ ሁኔታ ተመዝግቧል። ታስኪፌይን (Taskifay) ስለተጠቀሙ እናመሰግናለን፤ እንደወደዱትም ተስፋ እናደርጋለን።"
   },
   relatedFileForYou: {
   en: "📎 The task creator attached this file for you.",
@@ -1100,7 +1662,7 @@ const TEXT = {
   },
     completedSentBtn: {
     en: "Completed task sent",
-    am: "ተግባሩ ተልኳል"
+    am: "ያለቀ ስራ ተልክዋል"
   },
   validBtn: {
     en: "Valid",
@@ -1108,7 +1670,7 @@ const TEXT = {
   },
   needsFixBtn: {
     en: "Needs Fixing",
-    am: "ማስተካከል ይፈልጋል"
+    am: "መስተካከል ያስፈልገዋል"
   },
   doer65Reminder: {
     en: (h, m) => [
@@ -1117,9 +1679,9 @@ const TEXT = {
       "Please send your completed work to the bot, to @taskifay, and to the task creator, then tap “Completed task sent”."
     ].join("\n"),
     am: (h, m) => [
-      "⏰ ማስታወሻ፦ ጊዜው በፍጥነት እየፈጠነ ነው!",
-      `ለተሰሩት ስራዎች ማቅረብ እና ለመላክ ${h} ሰአት እና ${m} ደቂቃ ብቻ ቀርቶታል።`,
-      "እባክዎ ተጠናቀቀው ያሉትን ስራዎች ለቦቱ፣ ለ@taskifay እና ለስራ ፈጣሪው ያስሩ እና “ተጠናቋል” የሚለውን ቁልፍ ይጫኑ።"
+      "⏰ ማሳሰቢያ፡ ጊዜው እያለቀ ነው!",
+      `ስራዎን አጠናቀው ለማስረከብ ${h} ሰዓት ከ ${m} ደቂቃ ይቀሮታል።`,
+      "እባክዎ የተሰጠዎትን ስራ አጠናቀው ለቦቱ፣ ለ @taskifay እና ስራውን ለሰጠዎት አካል ይላኩ፤ ከዚያም “ያለቀ ስራ ተልክዋል” የሚለውን ይጫኑ።"
     ].join("\n")
   },
 
@@ -1129,8 +1691,8 @@ const TEXT = {
       `Please consider checking in with the task doer${doerName ? ` (${doerName})` : ""} to confirm status.`
     ].join("\n"),
     am: (doerName) => [
-      "⏰ ስራውን ለመጨረስ የተመደበው ጊዜ 65% አልፏል።",
-      `እባክዎ የስራውን ሁኔታ ለማረጋገጥ ከስራ ሰሪው${doerName ? ` (${doerName})` : ""} ጋር ለመገናኘት ያስቡ።`
+      "⏰ ለስራው ከተመደበው ጊዜ ውስጥ 65% አልፏል።",
+      `የስራውን ሁኔታ ለማረጋገጥ፤ እባክዎ ስራውን ከሚሰራው ሰው${doerName ? ` (${doerName})` : ""} ጋር ይነጋገሩ።`
     ].join("\n")
   },
 
@@ -1161,15 +1723,14 @@ const TEXT = {
       const m = Math.floor((leftMs % 3600000) / 60000);
 
       return [
-        "⏰ ጊዜው አልቋል።",
+        "⏰ ጊዜው አልቋል!!",
         penaltyPerHour > 0
-          ? `ከአሁን ጀምሮ በየሰአቱ ${penaltyPerHour} ብር ከክፍያዎ ይቀነሳል እስከ ተጠናቀቀ ስራ እስኪላክ ድረስ።`
-          : "ከአሁን ጀምሮ ዘግይተው ማቅረብ በክፍያዎ ላይ ተፅእኖ ሊኖረው ይችላል (የቅጣት መጠን አልተቀመጠም)።",
+          ? `ስራውን አጠናቀው እስኪያስረክቡ ድረስ፣ ከዚህ ሰዓት ጀምሮ በየሰዓቱ ${penaltyPerHour} ብር ይቀነሳል።`
+          : "ከዚህ ሰዓት ጀምሮ ስራውን አዘግይቶ ማስረከብ ክፍያዎ ላይ ተጽእኖ ሊኖረው ይችላል (በየሰዓቱ የሚቀነሰው የቅጣት መጠን አልተወሰነም)።",
         penaltyPerHour > 0
-          ? `እስኪደርስ ድረስ ወደ 35% የሚወርድ ትክክለኛ ጊዜ፦ ${h} ሰአት እና ${m} ደቂቃ።`
+          ? `አገልግሎት ክፍያዎ ወደ 35% ዝቅ ለማለት የቀረው ትክክለኛ ጊዜ፡ ${h} ሰዓት ከ ${m} ደቂቃ።`
           : null,
-        "ትክክለኛ የተጠናቀቀ ስራ ካልላኩ እና “ተጠናቋል” ካልጫኑ እስከ ክፍያዎ 35% እስኪሆን ድረስ፣ ከTaskifii ታግዳሉ እና እንደገና ለመግባት የተግባሩ ክፍያ 50% የቅጣት ክፍያ መክፈል ያስፈልግዎታል።",
-        "እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ@taskifay እና ለስራ ፈጣሪው ያስሩ፣ ከዚያም “ተጠናቋል” ይጫኑ።"
+        "ክፍያው 35% ከመድረሱ በፊት ትክክለኛና የተጠናቀቀ ስራ ልከው “ያለቀ ስራ ተልክዋል” የሚለውን ቁልፍ ካልተጫኑ፣ የታስኪፌይ (Taskifay) አገልግሎትዎ ይታገዳል። እገዳውን ለማንሳትም የቅጣት ክፍያ (የስራው ዋጋ 50%) መክፈል ይኖርብዎታል። እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ @taskifay እና ለስራው ፈጣሪ በተቻለ ፍጥነት ያቅርቡ።"
       ].filter(Boolean).join("\n");
     }
   },
@@ -1179,15 +1740,15 @@ const TEXT = {
     am: "የቅጣት ክፍያ" },
   punishAlreadyPaid: {
     en: "✅ Punishment fee already paid. You have full access again.",
-    am: "✅ የቅጣት ክፍያ ተከፍሏል። መዳረሻዎ ተመልሷል።"
+    am: "✅ የቅጣት ክፍያ ተከፍሏል። አሁን ሙሉ የታስኪፌይን አገልግሎቶችን ማግኘት ይችላሉ።"
   },
   punishLinkReady: {
     en: "💳 Here’s your punishment-fee checkout link:",
-    am: "💳 የቅጣት ክፍያ መክፈል ሊንክ እዚህ ነው፦"
+    am: "💳 የቅጣት ክፍያ ለመክፈል ይህን ሊንክ ይጫኑት፦"
   },
   punishLinkNew: {
     en: "Session refreshed. Use the newest link below.",
-    am: "ክፍያ ስርዓት ተዘምኗል። ከታች ያለውን አዲሱን ሊንክ ይጠቀሙ።"
+    am: "የክፍያ ሊንክ አዲስ ስለመረጣቹ ከታች ያለውን አዲሱን ሊንክ ይጠቀሙ(እባኮትን ክዚህ በፊት የነበሩት ሊንክ እንዳይጠቀሙ!!)።"
   },
   
 
@@ -1200,11 +1761,11 @@ const TEXT = {
       "We’re extremely sorry for this inconvenience."
     ].join("\n"),
     am: (penaltyPerHour) => [
-      "⚠️ የስራው ሰሪ በተመደበው ጊዜ ውስጥ ስራውን አላስረከበም።",
+      "⚠️ ባለሙያው በተሰጠው የጊዜ ገደብ ውስጥ አላስረከበም።",
       penaltyPerHour > 0
-        ? `ከአሁን ጀምሮ እስከስራው ድረስ በየሰአቱ ${penaltyPerHour} ብር ቅጣት ይተገበራል (ክፍያው እስከ 35% እንዲደርስ በፊት)።`
-        : "የቆይታ ቅጣት ሂደት ተጀምሯል።",
-      "ስለተፈጠረው እርምጃ በጣም ይቅርታ እናቀርባለን።"
+        ? `ስራው እስከሚቀርብ ድረስ በየሰዓቱ የ${penaltyPerHour} ብር ቅጣት ይታሰባል። (ይህም ቅጣት ከጠቅላላ ክፍያው 35% ከመድረሱ በፊት መሆን አለበት።)`
+        : "የዘግይቶ ማቅረቢያ የቅጣት ጊዜ ተጀምሯል።",
+      "ለተፈጠረው መስተጓጎል ከልብ ይቅርታ እንጠይቃለን።"
     ].join("\n")
   },
   disputeCreatorRejectNoticeToCreator: {
@@ -1215,10 +1776,10 @@ const TEXT = {
       "⛔ Until then, you are temporarily banned from using Taskifii."
     ].join("\n"),
     am: [
-      "✅ የዚህ ተግባር ቅሬታዎን ተቀብለናል።",
-      "Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።",
+      "✅ ለዚህ ስራ ያቀረቡት አቤቱታ (ቅሬታ) ደርሶናል።",
+      " እኛ ታስኪፌይ (Taskifay) ጉዳዩን ከመረመረን በኋላ የመጨረሻውን ውሳኔያችን እናሳውቆታለን።",
       "",
-      "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላችሁ።"
+      "⛔ እስከዚያው ድረስ ግን የታስኪፌይ (Taskifay) አገልግሎቶችን እንዳይጠቀሙ በጊዜያዊነት ታግደዋል።"
     ].join("\n")
   },
 
@@ -1230,19 +1791,19 @@ const TEXT = {
       "⛔ Until then, you are temporarily banned from using Taskifii."
     ].join("\n"),
     am: [
-      "⚠️ የተግባሩ ፈጣሪ የተጠናቀቀውን የተስተካከለውን ስራዎ አልተቀበለውም።",
-      "Taskifii ጉዳዩን በዝርዝር ይመርማል እና መጨረሻ ውሳኔ ይሰጣል።",
+      "⚠️ የሥራው አቅራቢ (Task Creator) ያሻሻሉትና መልሰው ያስገቡትን ሥራ አልተቀበለውም።",
+      "እኛ ታስኪፌይ (Taskifay) ጉዳዩን ከመረመረን በኋላ የመጨረሻው ውሳኔያችን እናሳውቅችዋለን።",
       "",
-      "⛔ እስከዚያ ድረስ በጊዜያዊነት ከTaskifii መጠቀም ተከልክላችሁ።"
+      "⛔ እስከዚያው ድረስ የታስኪፌይ (Taskifay) አገልግሎቶችን እንዳይጠቀሙ በጊዜያዊነት ታግደዋል።"
     ].join("\n")
   },
   duplicateTaskPaymentNotice: {
     en: "⚠️ You can only have one task active at a time. This payment link was for an older task draft, so the money you just paid will be refunded back to your original payment method shortly.",
-    am: "⚠️ በአንድ ጊዜ አንድ ንቁ ተግዳሮት ብቻ ማስቀመጥ ትችላላችሁ። ይህ የክፍያ ሊንክ ለቀድሞ የተተወ ረቂቅ ነበር፣ ስለዚህ አሁን የከፈሉት ገንዘብ ወደ መጀመሪያው የክፍያ መንገድዎ በቅርቡ ይመለሳል።"
+    am: "⚠️ በአንድ ጊዜ ከአንድ በላይ ስራ ማሰራት አይቻልም። የከፈሉት ክፍያ የቆየ (ጊዜው ያለፈበት) የስራ ረቂቅ ላይ ስለሆነ፣ የከፈሉት ገንዘብ በቅርቡ ወደተጠቀሙበት የክፍያ አካውንት ይመለስልዎታል።"
   },
   bannedGuard: {
-    en: "You’re currently banned. Ask anyone to click “Unban User” under your profile post to restore access.",
-    am: "አሁን ከTaskifii ታግደዋል። መዳረሻዎን ለመመለስ ከፕሮፋይልዎ ስር ያለውን “Unban User” እንዲጫን ማንኛውንም ሰው ይጠይቁ።"
+    en: "You’re currently banned from using taskifay.",
+    am: "በአሁኑ ወቅት ታስኪፌይን (taskifay) እንዳይጠቀሙ ታግደዋል።"
   }
 
 
@@ -1407,7 +1968,7 @@ function buildPreviewText(draft, user) {
   // Fields → hashtags
   if (draft.fields.length) {
     const tags = draft.fields.map(f => `#${f.replace(/\s+/g, "")}`).join(" ");
-    lines.push(lang === "am" ? `*ስራ መስኮች:* ${tags}` : `*Fields:* ${tags}`);
+    lines.push(lang === "am" ? `*የስራ መስኮች:* ${tags}` : `*Fields:* ${tags}`);
     lines.push("");
   }
 
@@ -1440,7 +2001,7 @@ function buildPreviewText(draft, user) {
   // Time to Complete
   if (draft.timeToComplete != null) {
     lines.push(lang === "am" 
-      ? `*ለመጨረስ የሚፈጅበት ጊዜ:* ${draft.timeToComplete} ሰዓት(ዎች)` 
+      ? `*ለመጨረስ መፍጀት ያለበት ጊዜ:* ${draft.timeToComplete} ሰዓት` 
       : `*Time to Complete:* ${draft.timeToComplete} hour(s)`);
     lines.push("");
   }
@@ -1450,13 +2011,13 @@ function buildPreviewText(draft, user) {
     const rev = draft.revisionTime;
     const revText = lang === "am"
       ? Number.isInteger(rev)
-        ? `${rev} ሰዓት(ዎች)`
-        : `${Math.round(rev * 60)} ደቂቃ(ዎች)`
+        ? `${rev} ሰዓት`
+        : `${Math.round(rev * 60)} ደቂቃ`
       : Number.isInteger(rev)
         ? `${rev} hour(s)`
         : `${Math.round(rev * 60)} minute(s)`;
     lines.push(lang === "am" 
-      ? `*የማሻሻል ጊዜ:* ${revText}` 
+      ? `*የማሻሻይ ጊዜ(ግን መገንዘብ ያለባችሁ ይሄ ጊዜ ግማሹ ለእናንተ ነው ሌላኛው ግማሽ ደግሞ ለሰሪው ነው):* ${revText}` 
       : `*Revision Time:* ${revText}`);
     lines.push("");
   }
@@ -1464,16 +2025,16 @@ function buildPreviewText(draft, user) {
   // Penalty per Hour
   if (draft.penaltyPerHour != null) {
     lines.push(lang === "am" 
-      ? `*በተዘገየ ሰዓት የሚቀነስ ቅጣት:* ${draft.penaltyPerHour} ብር` 
-      : `*Penalty per Hour (late):* ${draft.penaltyPerHour} birr`);
+      ? `*በተዘገየ ሰዓት የሚቀነስው የቅጣት መጠ:* ${draft.penaltyPerHour} ብር` 
+      : `*Penalty(in birr) per Hour (if late):* ${draft.penaltyPerHour} birr`);
     lines.push("");
   }
 
   // Expiry - Show hours remaining in preview
   if (draft.expiryHours != null) {
     lines.push(lang === "am" 
-      ? `*የማብቂያ ጊዜ:* ${draft.expiryHours} ሰዓት(ዎች)` 
-      : `*Expires In:* ${draft.expiryHours} hour(s)`);
+      ? `*ሰሪ ለማግኘት የሚያበቃበት ጊዜ:* ${draft.expiryHours} ሰዓት` 
+      : `*Task expires in:* ${draft.expiryHours} hour(s)`);
     lines.push("");
   }
 
@@ -1501,8 +2062,8 @@ function buildPreviewText(draft, user) {
     : `N/A ★ (0 ${lang === "am" ? "ግምገማዎች" : "ratings"})`;
   
   lines.push(lang === "am" 
-    ? `*ፈጣሪ አጠቃላይ የተሰራው:* ${user.stats.totalEarned.toFixed(2)} ብር` 
-    : `*Creator Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
+    ? `*hhhhhhh:* ${user.stats.totalEarned.toFixed(2)} ብር` 
+    : `*Creator's Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
   lines.push(lang === "am" 
     ? `*ፈጣሪ አጠቃላይ የተከፈለው:* ${user.stats.totalSpent.toFixed(2)} ብር` 
     : `*Creator Total Spent:* ${user.stats.totalSpent.toFixed(2)} birr`);
