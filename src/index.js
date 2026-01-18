@@ -3023,6 +3023,64 @@ async function applyGatekeeper(ctx, next) {
     return next();
   }
 }
+// Helper: send Terms & Conditions in multiple Telegram messages
+// so we stay under the 4096-character limit.
+async function sendTermsInChunks(ctx, lang, withAgreeButtons = false) {
+  const fullText = TEXT.askTerms[lang] || TEXT.askTerms.en;
+  const MAX = 3900; // safely below Telegram's 4096 limit
+
+  // Split on blank lines so paragraphs stay mostly intact
+  const paragraphs = fullText.split(/\n\s*\n/);
+  let buffer = "";
+
+  for (const para of paragraphs) {
+    const candidate = buffer ? buffer + "\n\n" + para : para;
+
+    if (candidate.length > MAX) {
+      if (buffer) {
+        // Send everything we accumulated so far
+        await ctx.reply(buffer);
+        buffer = para;
+      } else {
+        // Single paragraph longer than MAX → hard-split it
+        let start = 0;
+        while (start < para.length) {
+          const chunk = para.slice(start, start + MAX);
+          await ctx.reply(chunk);
+          start += MAX;
+        }
+        buffer = "";
+      }
+    } else {
+      buffer = candidate;
+    }
+  }
+
+  // Send the last piece, optionally with Agree/Disagree buttons
+  if (buffer) {
+    if (withAgreeButtons) {
+      const keyboard = Markup.inlineKeyboard([
+        [buildButton(TEXT.agreeBtn, "TC_AGREE", lang, false)],
+        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", lang, false)]
+      ]);
+      await ctx.reply(buffer, keyboard);
+    } else {
+      await ctx.reply(buffer);
+    }
+  } else if (withAgreeButtons) {
+    // Fallback: if everything was sent already, still show the buttons
+    const keyboard = Markup.inlineKeyboard([
+      [buildButton(TEXT.agreeBtn, "TC_AGREE", lang, false)],
+      [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", lang, false)]
+    ]);
+    await ctx.reply(
+      lang === "am"
+        ? "የመመሪያ እና ሁኔታዎችን ተመልከቱ።"
+        : "You’ve reached the end of the Terms & Conditions.",
+      keyboard
+    );
+  }
+}
 
 
 // Backward-compatible boolean verifier used around the codebase
@@ -7154,7 +7212,7 @@ bot.use(applyGatekeeper);
       ])
     );
   });
-
+  
   // ─── TERMS & CONDITIONS Actions ────────────────────────────────────
   bot.action("TC_AGREE", async (ctx) => {
     await ctx.answerCbQuery();
@@ -7197,13 +7255,10 @@ bot.use(applyGatekeeper);
 
     user.onboardingStep = "termsReview";
     await user.save();
-    return ctx.reply(
-      user.language === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
-      Markup.inlineKeyboard([
-        [buildButton(TEXT.agreeBtn, "TC_AGREE", user.language, false)],
-        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", user.language, false)]
-      ])
-    );
+
+    const lang = user.language || "en";
+    return sendTermsInChunks(ctx, lang, true);
+
   });
 
     // ─── AGE VERIFICATION Actions ────────────────────────────────────
@@ -7762,8 +7817,9 @@ bot.action("VIEW_TERMS", async (ctx) => {
   });
 
   // Show terms without agree/disagree buttons
-  return ctx.reply(TEXT.askTerms[lang]);
+  return sendTermsInChunks(ctx, lang, false);
 });
+
 
 // ─────────── Language Selection Handlers ───────────
 bot.action("SET_LANG_EN", async (ctx) => {
@@ -10542,17 +10598,13 @@ async function finalizeUserSkillsSelection(ctx, user) {
 
   // 🟢 ONBOARDING PATH
   if (user.onboardingStep === "skillsSelect") {
-    user.onboardingStep = "terms";
-    await user.save();
+      user.onboardingStep = "terms";
+      await user.save();
 
-    return ctx.reply(
-      lang === "am" ? TEXT.askTerms.am : TEXT.askTerms.en,
-      Markup.inlineKeyboard([
-        [buildButton(TEXT.agreeBtn, "TC_AGREE", lang, false)],
-        [buildButton(TEXT.disagreeBtn, "TC_DISAGREE", lang, false)]
-      ])
-    );
+      const lang = user.language || "en";
+      return sendTermsInChunks(ctx, lang, true);
   }
+
 
   // 🟢 EDIT PROFILE PATH
   await user.save();
