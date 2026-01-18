@@ -7257,7 +7257,9 @@ bot.use(applyGatekeeper);
     const menu = Markup.inlineKeyboard([
       [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
       [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-      [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+      [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+      [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+      [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
     ]);
     
     // Send profile WITH congratulations (showCongrats = true)
@@ -7307,9 +7309,12 @@ bot.action("POST_TASK", async (ctx) => {
     inline_keyboard: [
       [Markup.button.callback(`✔ ${TEXT.postTaskBtn[user.language]}`, "_DISABLED_POST_TASK")],
       [Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK")],
-      [Markup.button.callback(TEXT.editProfileBtn[user.language], "_DISABLED_EDIT_PROFILE")]
+      [Markup.button.callback(TEXT.editProfileBtn[user.language], "_DISABLED_EDIT_PROFILE")],
+      [Markup.button.callback(TEXT.languageBtn[user.language], "_DISABLED_CHANGE_LANGUAGE")],
+      [Markup.button.callback(TEXT.termsBtn[user.language], "_DISABLED_VIEW_TERMS")]
     ]
   });
+
 
   // Remove any existing draft and create new one
   await TaskDraft.findOneAndDelete({ creatorTelegramId: ctx.from.id });
@@ -9442,7 +9447,9 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       const menu = Markup.inlineKeyboard([
         [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
         [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+        [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+        [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
       ]);
 
       await ctx.reply(buildProfileText(user, false), menu);
@@ -9483,7 +9490,9 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       const menu = Markup.inlineKeyboard([
         [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
         [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+        [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+        [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
       ]);
 
       await ctx.reply(buildProfileText(user, false), menu);
@@ -9526,7 +9535,9 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       const menu = Markup.inlineKeyboard([
         [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
         [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+        [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+        [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+        [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
       ]);
 
       await ctx.reply(buildProfileText(user, false), menu);
@@ -10557,9 +10568,11 @@ async function finalizeUserSkillsSelection(ctx, user) {
   await ctx.reply(TEXT.profileUpdated[lang]);
 
   const menu = Markup.inlineKeyboard([
-    [Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK")],
-    [Markup.button.callback(TEXT.findTaskBtn[lang], "FIND_TASK")],
-    [Markup.button.callback(TEXT.editProfileBtn[lang], "EDIT_PROFILE")]
+    [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
+    [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+    [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+    [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
   ]);
 
   return ctx.reply(buildProfileText(user, false), menu);
@@ -12256,12 +12269,15 @@ bot.action("EDIT_PROFILE", async (ctx) => {
       inline_keyboard: [
         [Markup.button.callback(TEXT.postTaskBtn[user.language], "_DISABLED_POST_TASK")],
         [Markup.button.callback(TEXT.findTaskBtn[user.language], "_DISABLED_FIND_TASK")],
-        [Markup.button.callback(`✔ ${TEXT.editProfileBtn[user.language]}`, "_DISABLED_EDIT_PROFILE")]
+        [Markup.button.callback(`✔ ${TEXT.editProfileBtn[user.language]}`, "_DISABLED_EDIT_PROFILE")],
+        [Markup.button.callback(TEXT.languageBtn[user.language], "_DISABLED_CHANGE_LANGUAGE")],
+        [Markup.button.callback(TEXT.termsBtn[user.language], "_DISABLED_VIEW_TERMS")]
       ]
     });
   } catch (err) {
     console.error("Error editing message markup:", err);
   }
+
 
   // Send the profile with edit options (vertically stacked)
   const editButtons = Markup.inlineKeyboard([
@@ -12307,7 +12323,9 @@ bot.action("EDIT_BACK", async (ctx) => {
   const menu = Markup.inlineKeyboard([
     [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
     [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+    [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+    [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
   ]);
 
 
@@ -12547,7 +12565,9 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
   const menu = Markup.inlineKeyboard([
     [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
     [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+    [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+    [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
   ]);
 
   return ctx.reply(buildProfileText(user), menu);
@@ -12907,7 +12927,9 @@ bot.action("CONFIRM_NEW_USERNAME", async (ctx) => {
   const menu = Markup.inlineKeyboard([
     [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
     [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
-    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")]
+    [Markup.button.callback(TEXT.editProfileBtn[user.language], "EDIT_PROFILE")],
+    [Markup.button.callback(TEXT.languageBtn[user.language], "CHANGE_LANGUAGE")],
+    [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
   ]);
 
   return ctx.reply(buildProfileText(user), menu);
@@ -13104,9 +13126,12 @@ bot.action("FIND_TASK", async (ctx) => {
     inline_keyboard: [
       [Markup.button.callback(TEXT.postTaskBtn[user.language], "_DISABLED_POST_TASK")],
       [Markup.button.callback(`✔ ${TEXT.findTaskBtn[user.language]}`, "_DISABLED_FIND_TASK")],
-      [Markup.button.callback(TEXT.editProfileBtn[user.language], "_DISABLED_EDIT_PROFILE")]
+      [Markup.button.callback(TEXT.editProfileBtn[user.language], "_DISABLED_EDIT_PROFILE")],
+      [Markup.button.callback(TEXT.languageBtn[user.language], "_DISABLED_CHANGE_LANGUAGE")],
+      [Markup.button.callback(TEXT.termsBtn[user.language], "_DISABLED_VIEW_TERMS")]
     ]
   });
+
 
   // Get the channel ID from environment variables or use a default
   const channelId = process.env.CHANNEL_ID || "-1002254896955"; // Replace with your actual channel ID
