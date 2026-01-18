@@ -8079,8 +8079,9 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
         }
       }
 
-      // Keep your helper text so doer knows what is coming
-      await ctx.telegram.sendMessage(user.telegramId, TEXT.relatedFileForYou[langForFile]);
+      // (Removed: we no longer send the extra helper text about the attached file)
+      // await ctx.telegram.sendMessage(user.telegramId, TEXT.relatedFileForYou[langForFile]);
+
     }
   } catch (e) {
     console.error("Failed to send related file(s) to doer:", e);
@@ -9107,12 +9108,12 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
         ].join("\n");
 
         const textAm = [
-          "🚫 ከTaskifii መጠቀም ታግዷችሁ ነው።",
+          "🚫 ከ Taskifii አገልግሎት ታግደዋል።",
           "",
-          `ወደ Taskifii እና ወደ ቡድኑ እንደገና ለመመለስ የቅጣት ክፍያ *${amountStr} ብር* መክፈል ያስፈልግዎታል።`,
+          `እገዳው እንዲነሳልዎት የ *${amountStr} ብር* ቅጣት መክፈል ይኖርብዎታል።`,
           "",
-          "ከታች ያለውን የክፍያ ቁልፍ ይጫኑና ክፍያውን ያጠናቁ።",
-          "ክፍያው ከተሳካ በኋላ ከTaskifii እና ከቡድኑ በራስሰር ይፈታሉ።"
+          "ከታች ያለውን የክፍያ ቁልፍ በመጫን ክፍያውን ይፈጽሙ።",
+          "ክፍያዎ እንደተረጋገጠ ከ Taskifii እና ከግሩፑ ላይ የተጣለብዎት እገዳ በራስ-ሰር ይነሳል።"
         ].join("\n");
 
         await ctx.telegram.sendMessage(
@@ -9451,7 +9452,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     // Send confirmation to the user (NO error messages for Chapa issues)
     const langForMsg = userDoc?.language || pending.language || "en";
     const successMsg = (langForMsg === "am")
-      ? "✅ ክፍያዎት ተከናወነ! በቀጣዮቹ ደቂቃዎች/ቀናት ውስጥ ገንዘቡ ወደ መልዕክት መለስ አካውንትዎ ይገባል።"
+      ? "✅ የክፍያ ሂደቱ ተጀምሯል! ገንዘቡ በአጭር ጊዜ ውስጥ ወደ ሂሳብዎ ይገባል።"
       : "✅ Your payout has been initiated! The funds will be transferred to your account shortly.";
     await ctx.reply(successMsg);
 
@@ -9617,9 +9618,14 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       ctx.session.usernameProvided = true;
 
       try {
+        const targetMessageId =
+          (ctx.session && ctx.session.editUsernamePromptId)
+            ? ctx.session.editUsernamePromptId
+            : ctx.message.message_id - 1; // fallback
+
         await ctx.telegram.editMessageReplyMarkup(
           ctx.chat.id,
-          ctx.message.message_id - 1,
+          targetMessageId,
           null,
           {
             inline_keyboard: [[
@@ -9633,6 +9639,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       } catch (err) {
         console.error("Failed to edit message reply markup:", err);
       }
+
 
       ctx.session.newUsername = reply;
       
@@ -9765,13 +9772,23 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       ? TEXT.askUsername.am.replace("%USERNAME%", currentHandle || "<none>")
       : TEXT.askUsername.en.replace("%USERNAME%", currentHandle || "<none>");
 
-    return ctx.reply(
+    // Send the message and remember its ID so we can safely edit its buttons later
+    const sent = await ctx.reply(
       promptText,
       Markup.inlineKeyboard([
-        [Markup.button.callback(user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it", "USERNAME_KEEP")]
+        [Markup.button.callback(
+          user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+          "USERNAME_KEEP"
+        )]
       ])
     );
+
+    ctx.session = ctx.session || {};
+    ctx.session.onboardingUsernamePromptId = sent.message_id;
+
+    return sent;
   }
+
 
 
   // ─── USERNAME STEP (typed override) ─────────────────────────
@@ -9787,9 +9804,14 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     }
 
     try {
+      const targetMessageId =
+        (ctx.session && ctx.session.onboardingUsernamePromptId)
+          ? ctx.session.onboardingUsernamePromptId
+          : ctx.message.message_id - 1; // fallback, just in case
+
       await ctx.telegram.editMessageReplyMarkup(
         ctx.chat.id,
-        ctx.message.message_id - 1,
+        targetMessageId,
         null,
         {
           inline_keyboard: [[
@@ -9801,8 +9823,9 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
         }
       );
     } catch (err) {
-      // Ignore errors if message is too old
+      // Ignore errors if message is too old or already edited
     }
+
 
     user.username = reply;
     user.onboardingStep = "skillsSelect";
@@ -12528,11 +12551,17 @@ bot.action("EDIT_USERNAME", async (ctx) => {
     ));
   }
 
-  return ctx.reply(
+  const sent = await ctx.reply(
     promptText,
     Markup.inlineKeyboard([buttons])
   );
+
+  ctx.session = ctx.session || {};
+  ctx.session.editUsernamePromptId = sent.message_id;
+
+  return sent;
 });
+
 bot.action("EDIT_SKILLS", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
@@ -13555,7 +13584,7 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
   // Prompt user for the account number of the selected bank
   const lang = (await User.findOne({ telegramId: userId }))?.language || "en";
   const promptText = (lang === "am") 
-    ? `🏦 ${bank.name} ን ይመርጡ። አሁን የአካውንት ቁጥርዎን ያስገቡ።` 
+    ? `🏦 ${bank.name} ተመርጧል። እባክዎ የሂሳብ ቁጥር ያስገቡ፦` 
     : `🏦 *${bank.name}* selected. Please enter the account number:`;
   // If a prompt message was sent before, edit it; otherwise, send a new prompt
   if (pending.accountPromptMessageId) {
