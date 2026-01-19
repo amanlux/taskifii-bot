@@ -1379,7 +1379,11 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
   en: "Please send only a number or a decimal  not exceeding half of total time given to complete task.",
   am: "እባክዎ ስራውን ለማጠናቀቅ ከተሰጠው አጠቃላይ ጊዜ ግማሹን የማይበልጥ ቁጥር ወይም ዴሲማል ብቻ ይላኩ።"
   },
-  
+  revisionTimeMinError: {
+    en: "Revision time cannot be less than 0.1 hours (6 minutes). Please enter 0.1 or higher.",
+    am: "የማሻሻያ ጊዜ ከ0.1 ሰዓት (6 ደቂቃ) ማነስ አይችልም። እባክዎ 0.1 ወይም ከዚያ በላይ ያስገቡ።"
+  },
+
   askPenaltyPerHour: {
     en: "Give the birr amount you want to be deducted from the task fee every hour if the completed task is sent late (it must be less than or equal to 20% of the task fee).",
     am: "ሥራው ከተቀመጠለት የጊዜ ገደብ ዘግይቶ ቢቀርብ፣ በየሰዓቱ ከጠቅላላ ክፍያው ላይ እንዲቀነስ የሚፈልጉትን የብር መጠን ይጥቀሱ። (የሚቀነሰው መጠን ከሥራው ጠቅላላ ክፍያ 20% መብለጥ የለበትም።)"
@@ -1388,7 +1392,11 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
     en: "Cannot exceed 20% of payment fee.",
     am: "ከሥራው ጠቅላላ ክፍያ 20% መብለጥ አይችልም።"
   },
-  
+  penaltyPerHourMinError: {
+    en: "Penalty per hour cannot be less than 1 birr. Please enter 1 or higher.",
+    am: "የሰዓት ቅጣቱ ከ1 ብር ማነስ የለበትም። እባክዎ 1 ወይም ከዚያ በላይ ያስገቡ።"
+  },
+
   askExpiryHours: {
     en: "In how many hours does the offer for someone to do the task expire? (1–24 hour/s)",
     am: "አንድ ሰው ስራውን እንዲሰራ የቀረበለት ጥሪ/ጥያቄ ስንት ሰዓት ድረስ ይቆያል? (ከ1–24 ሰዓት)"
@@ -9645,11 +9653,11 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       
       return ctx.reply(
         user.language === "am" 
-          ? `ይህን አዲስ የተጠቃሚ ስም ለመቀበል ይፈቅዳሉ? @${reply}`
+          ? `ይህንን አዲስ የቴሌግራም የተጠቃሚ ስም ማቆየት ይፈልጋሉ? @${reply}`
           : `Do you want to keep this new username? @${reply}`,
         Markup.inlineKeyboard([
           [
-            Markup.button.callback(user.language === "am" ? "አዎን" : "Yes", "CONFIRM_NEW_USERNAME"),
+            Markup.button.callback(user.language === "am" ? "አው" : "Yes", "CONFIRM_NEW_USERNAME"),
             Markup.button.callback(user.language === "am" ? "አይ" : "No", "CANCEL_NEW_USERNAME")
           ]
         ])
@@ -10719,13 +10727,13 @@ bot.action(/USER_FIELD_(\d+)/, async (ctx) => {
     Markup.inlineKeyboard([
       [
         Markup.button.callback(
-          lang === "am" ? "ሌላ መስክ ጨምር" : "Add another field",
+          lang === "am" ? "ይጨመር" : "Add another field",
           "USER_FIELDS_PAGE_0"
         )
       ],
       [
         Markup.button.callback(
-          lang === "am" ? "ጨርስ" : "Done",
+          lang === "am" ? "በቃ" : "Done",
           "USER_FIELDS_DONE"
         )
       ]
@@ -10750,7 +10758,7 @@ bot.action("USER_FIELDS_DONE", async (ctx) => {
 
   const summaryText =
     lang === "am"
-      ? `✅ የችሎታ መስኮች ምርጫዎ ተመዝግቧል። እስካሁን ያመረጡት:\n${numbered}\n\nሌላ መስክ ለመጨመር \"Add another field\" ይጫኑ ወይም ለመቀጠል \"Done\" ይጫኑ።`
+      ? `✅ የመረጧቸው የስራ መስኮች ተመዝግበዋል። እስካሁን የመረጧቸው፦\n${numbered}\n\nተጨማሪ ለመጨመር «ይጨመር» የሚለውን፣ ለመቀጠል ደግሞ «በቃ» የሚለውን ይጫኑ።`
       : `✅ Your field selection has been recorded. So far you've chosen:\n${numbered}\n\nTap \"Add another field\" to pick more, or \"Done\" to continue.`;
 
   // Edit the existing message:
@@ -10763,13 +10771,13 @@ bot.action("USER_FIELDS_DONE", async (ctx) => {
       Markup.inlineKeyboard([
         [
           Markup.button.callback(
-            lang === "am" ? "ሌላ መስክ ጨምር" : "Add another field",
+            lang === "am" ? "ይጨመር" : "Add another field",
             "_DISABLED_USER_FIELDS_ADD"
           )
         ],
         [
           Markup.button.callback(
-            lang === "am" ? `✔ ጨርስ` : `✔ Done`,
+            lang === "am" ? `✔ በቃ` : `✔ Done`,
             "_DISABLED_USER_FIELDS_DONE"
           )
         ]
@@ -10983,7 +10991,19 @@ async function handleRevisionTime(ctx, draft) {
 
   // Parse as float
   const revHours = parseFloat(input);
-  if (isNaN(revHours) || revHours < 0 || revHours > draft.timeToComplete / 2) {
+
+  // Not a number → old generic error
+  if (isNaN(revHours)) {
+    return ctx.reply(TEXT.revisionTimeError[lang]);
+  }
+
+  // NEW RULE: minimum 0.1 hours (6 minutes)
+  if (revHours < 0.1) {
+    return ctx.reply(TEXT.revisionTimeMinError[lang]);
+  }
+
+  // Existing rule: cannot exceed half of timeToComplete
+  if (revHours > draft.timeToComplete / 2) {
     return ctx.reply(TEXT.revisionTimeError[lang]);
   }
 
@@ -11021,13 +11041,27 @@ async function handlePenaltyPerHour(ctx, draft) {
   const lang = user?.language || "en";
   
   if (!/^\d+$/.test(text)) {
-  return ctx.reply(TEXT.digitsOnlyError[lang]);
+    return ctx.reply(TEXT.digitsOnlyError[lang]);
   }
-  const pen = parseInt(text,10);
-  if (pen < 0) return ctx.reply(TEXT.negativeError[lang]);
+
+  const pen = parseInt(text, 10);
+
+  // (keeps your existing negative check, even though digits-only means
+  // it won't usually trigger; it's harmless and future-proof)
+  if (pen < 0) {
+    return ctx.reply(TEXT.negativeError[lang]);
+  }
+
+  // NEW RULE: minimum 1 birr per hour
+  if (pen < 1) {
+    return ctx.reply(TEXT.penaltyPerHourMinError[lang]);
+  }
+
+  // Existing rule: cannot exceed 20% of payment fee
   if (draft.paymentFee != null && pen > 0.2 * draft.paymentFee) {
     return ctx.reply(TEXT.penaltyPerHourError[lang]); // Use translation
   }
+
   draft.penaltyPerHour = pen;
   await draft.save();
   
@@ -12976,7 +13010,7 @@ bot.action("CONFIRM_NEW_USERNAME", async (ctx) => {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[
         Markup.button.callback(
-          user.language === "am" ? "✔ አዎን" : "✔ Yes", 
+          user.language === "am" ? "✔ አው" : "✔ Yes", 
           "_DISABLED_CONFIRM_NEW_USERNAME"
         ),
         Markup.button.callback(
@@ -13027,7 +13061,7 @@ bot.action("CANCEL_NEW_USERNAME", async (ctx) => {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[
         Markup.button.callback(
-          user.language === "am" ? "አዎን" : "Yes", 
+          user.language === "am" ? "አው" : "Yes", 
           "_DISABLED_CONFIRM_NEW_USERNAME"
         ),
         Markup.button.callback(
