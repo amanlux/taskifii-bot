@@ -1812,7 +1812,12 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
   bannedGuard: {
     en: "You’re currently banned from using taskifay.",
     am: "በአሁኑ ወቅት ታስኪፌይን (taskifay) እንዳይጠቀሙ ታግደዋል።"
+  },
+  reportReceivedBlocked: {
+  en: "✅ Your report has been received. Taskifii will fully review the issue and make a final decision. Until then, you cannot use Taskifii.",
+  am: "✅ ሪፖርትዎ ተቀብሏል። Taskifii ጉዳዩን በሙሉ ይመርማል እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ Taskifii መጠቀም አትችሉም።"
   }
+
 
 
 
@@ -1970,13 +1975,13 @@ function buildPreviewText(draft, user) {
   const lines = [];
 
   // Description
-  lines.push(lang === "am" ? `*መግለጫ:* ${draft.description}` : `*Description:* ${draft.description}`);
+  lines.push(lang === "am" ? `*የስራው መግለጫ:* ${draft.description}` : `*Description:* ${draft.description}`);
   lines.push("");
 
   // Fields → hashtags
   if (draft.fields.length) {
     const tags = draft.fields.map(f => `#${f.replace(/\s+/g, "")}`).join(" ");
-    lines.push(lang === "am" ? `*የስራ መስኮች:* ${tags}` : `*Fields:* ${tags}`);
+    lines.push(lang === "am" ? `*የስራው መስኮች:* ${tags}` : `*Fields:* ${tags}`);
     lines.push("");
   }
 
@@ -2033,7 +2038,7 @@ function buildPreviewText(draft, user) {
   // Penalty per Hour
   if (draft.penaltyPerHour != null) {
     lines.push(lang === "am" 
-      ? `*በተዘገየ ሰዓት የሚቀነስው የቅጣት መጠ:* ${draft.penaltyPerHour} ብር` 
+      ? `*በተዘገየ ሰዓት የሚቀነስው የቅጣት መጠን:* ${draft.penaltyPerHour} ብር` 
       : `*Penalty(in birr) per Hour (if late):* ${draft.penaltyPerHour} birr`);
     lines.push("");
   }
@@ -2069,7 +2074,7 @@ function buildPreviewText(draft, user) {
   // ⚠️ New: explain why "Post Task" might not do anything
   lines.push(
     lang === "am"
-      ? "ℹ️ ከታች ያለውን “ተግዳሮት ልጥፍ” ቁልፍ ሲጫኑት ምንም ነገር ካልተፈጠረ፣ በፕሮፋይልዎ ያስገቡት የስልክ ቁጥር ወይም ኢሜይል ትክክል አልሆነም ማለት ነው።"
+      ? "ℹ️ ከታች ያለውን “ስራው ይለቀቅ” ቁልፍ ሲጫኑት ምንም ነገር ካልተፈጠረ፣ በፕሮፋይልዎ ያስገቡት የስልክ ቁጥር ወይም ኢሜይል ትክክል አደለም ማለት ነው።"
       : "ℹ️ If the *Post Task* button below does nothing when you tap it, it means the phone number or email you gave in your profile is not valid."
   );
 
@@ -2157,9 +2162,9 @@ function buildChannelPostText(draft, user) {
     ? `${user.stats.averageRating.toFixed(1)} ★ (${user.stats.ratingCount} ratings)`
     : `N/A ★ (0 ratings)`;
   
-  lines.push(`*Creator Total Earned:* ${user.stats.totalEarned.toFixed(2)} birr`);
-  lines.push(`*Creator Total Spent:* ${user.stats.totalSpent.toFixed(2)} birr`);
-  lines.push(`*Creator Rating:* ${ratingText}`);
+  lines.push(`*This Creator's Total Earned Birr:* ${user.stats.totalEarned.toFixed(2)} birr`);
+  lines.push(`*This Creator's Total Spent Birr:* ${user.stats.totalSpent.toFixed(2)} birr`);
+  lines.push(`*This Creator's Ratings:* ${ratingText}`);
   lines.push("");
 
   return lines.join("\n");
@@ -2301,7 +2306,7 @@ async function checkTaskExpiries(bot) {
             await bot.telegram.sendMessage(
               creator.telegramId,
               lang === "am" 
-                ? "ተግዳሮቱ ጊዜው አልፎታል። አሁን ምናሌውን መጠቀም ይችላሉ።" 
+                ? "የስራው ጊዜ አልፎበታል። አሁን ወደ ሜኑ መግባት ይችላሉ።" 
                 : "The task has expired. You can now access the menu."
             );
           }
@@ -2432,13 +2437,13 @@ async function releasePaymentAndFinalize(taskId, reason) {
     const penaltyLine =
       (latePenaltyDeduction && latePenaltyDeduction > 0)
         ? (lang === "am"
-            ? `\n\n⚠️ ስራውን በዘገይተው ስለላኩ፣ ከTaskifii እና Chapa ኮሚሽን በተጨማሪ *${latePenaltyDeduction} ብር* ቅጣት ከክፍያዎ ይቀነሳል።`
+            ? `\n\n⚠️ ስራውን አርፍደው ስላስረከቡ፤ ከታስኪፌይ እና ከቻፓ ኮሚሽን በተጨማሪ ${latePenaltyDeduction} ብር ቅጣት ከክፍያዎ ላይ ተቀናሽ ይደረጋል።`
             : `\n\n⚠️ Because you submitted late, in addition to Taskifii + Chapa commission, a total penalty of *${latePenaltyDeduction} birr* will be deducted from your task fee.`)
         : "";
 
     const chooseBankText =
       (lang === "am")
-        ? `እባክዎ የእርስዎን ባንክ ይምረጡ።${penaltyLine}`
+        ? `እባክዎ ክፍያውን የምትቀበሉበት ባንክ ይምረጡ።${penaltyLine}`
         : `Please choose your bank for payout:${penaltyLine}`;
 
     const firstPageButtons = buildBankKeyboard(String(task._id), banksList, 0, null);
@@ -2985,8 +2990,8 @@ function buildRegistrationRequiredMessage() {
   ].join("\n");
 
   const am = [
-    "👋 ታስኪፌይን ለመጠቀም  (በቻናላችን ላይ ላሉት ስራዎች ለማመልከት ፣ ሰራ እንዲሰራላቹ ፣  ወዘተ) መመዝገብ አለብዎት።",
-    "አሁን መመዝገብ ከፈለጉ ይሄን */start* ይጫኑ ወይም ወደ ቦቱ ይላኩት።"
+    "👋 ታስኪፌይን መጠቀም ለመጀመር (ለስራ ለማመልከት፣ ስራ ለመለጠፍ እና ለመሳሰሉት)፣ አስቀድመው መመዝገብ አለብዎት።",
+    "አሁን ለመመዝገብ ከፈለጉ፣ /start የሚለውን ይጫኑ ወይም ይላኩ ወደዚ ቦቱ።"
   ].join("\n");
 
   return `${en}\n\n${am}`;
@@ -3083,7 +3088,7 @@ async function sendTermsInChunks(ctx, lang, withAgreeButtons = false) {
     ]);
     await ctx.reply(
       lang === "am"
-        ? "የመመሪያ እና ሁኔታዎችን ተመልከቱ።"
+        ? "የአጠቃቀም ደንቦቹንና ግዴታዎቹን አንብበው ጨርሰዋል።"
         : "You’ve reached the end of the Terms & Conditions.",
       keyboard
     );
@@ -3130,7 +3135,7 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
-      me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+      me.language === "am" ? "ላመልክት አሁን  / Apply Now" : "Apply Now / ላመልክት አሁን",
       applyDeepLink(ctx, BOT_USERNAME, task._id)
     )]
   ]);
@@ -3187,15 +3192,15 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   if (!tg2) throw new Error("Telegram handle unavailable (confirmation)");
 
   const confirmationText = me.language === "am"
-    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።`
-    : `✅ Task posted successfully!\n\nOther users can now apply.`;
+    ? `✅ ሥራው በትክክል ተለጥፏል! አሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን እባክዎ ይህንን ልብ ይበሉ፦ አንዴ ቢያንስ የአንድን ሰው ማመልከቻ ከተቀበሉ በኋላ፣ ይህንን ሥራ መሰረዝ (Cancel ማድረግ) አይችሉም። ስለዚህ የሚመጡልዎትን ማመልከቻዎች "ልቀበለው" (Accept) ብለው ከመጫንዎ በፊት 100% እርግጠኛ ይሁኑ። ይህ ካልሆነ ግን፣ ሥራው እንዲሰረዝ የተቀመጠው ጊዜ እስኪያልቅ (Expire እስኪያደርግ) ድረስ መጠበቅ ይኖርብዎታል።`
+    : `✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled.`;
 
   await tg2.sendMessage(
     me.telegramId,
     confirmationText,
     Markup.inlineKeyboard([
       [Markup.button.callback(
-        me.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task",
+        me.language === "am" ? "ስራው ይሰረዝ" : "Cancel Task",
         `CANCEL_TASK_${task._id}`
       )]
     ])
@@ -3638,22 +3643,20 @@ function formatTaskDetailsForDoer(task, lang = "en") {
   const lines = [];
 
   if (lang === "am") {
-    lines.push("📝 የተግዳሮቱ ዝርዝሮች:");
+    lines.push("📝 የስራው ዝርዝሮች:");
     lines.push(`• መግለጫ፡ ${task.description}`);
     lines.push(`• የክፍያ መጠን፡ ${task.paymentFee} ብር`);
-    lines.push(`• የመጨረሻ ጊዜ፡ ${task.timeToComplete} ሰዓት`);
+    lines.push(`• ለመጨረስ የተሰጠው ጊዜ፡ ${task.timeToComplete} ሰዓት`);
     lines.push(`• የክህሎት ደረጃ፡ ${task.skillLevel}`);
     lines.push(`• መስኮች፡ ${fieldsText}`);
-    if (task.exchangeStrategy) {
-      lines.push(`• የግብይት መንገድ፡ ${task.exchangeStrategy}`);
-    }
+    
     if (task.revisionTime != null) {
       lines.push(`• የማስተካከያ ጊዜ፡ ${task.revisionTime} ሰዓት`);
     }
     if (task.latePenalty != null) {
       lines.push(`• የዘግይቶ ቅጣት በሰዓት፡ ${task.latePenalty} ብር`);
     }
-    lines.push(`• የተለጠፈበት ጊዜ፡ ${postedAtStr}`);
+    lines.push(`• ስራው የተለጠፈበት ጊዜ፡ ${postedAtStr}`);
   } else {
     lines.push("📝 TASK DETAILS:");
     lines.push(`• Description: ${task.description}`);
@@ -3705,8 +3708,8 @@ async function getChapaBanksSummary(lang = "en") {
   if (!banksList.length) {
     // Fallback text if API fails – does NOT break the bot
     return lang === "am"
-      ? "💳 ክፍያ ሲደርስ የሚደገፉትን ባንኮች በኋላ ታዩ፤ ብዙ ዋና የኢትዮጵያ ባንኮችን Chapa ይደግፋል።"
-      : "💳 You’ll choose from supported banks later when we send your payout link. Chapa usually supports the main Ethiopian banks.";
+      ? "💳 የሰሩበትን ክፍያ ለመቀበል የሚያበቃዎት ደረጃ ላይ ሲደርሱ፣ ክፍያዎትን በየትኛው ባንክ መቀበል እንደምትፈልጉ ወደፊት መምረጥ ይችላሉ። ቻፓ (Chapa) አብዛኞቹን እና ዋና ዋና የሆኑትን የኢትዮጵያ ባንኮች ይደግፋል።"
+      : "💳 You’ll choose from supported banks later when/if you reach successfully reach the stage where you are about to receive the task fee. Chapa usually supports the main Ethiopian banks.";
   }
 
   // Prefer .name, fall back to other fields if needed
@@ -3724,10 +3727,10 @@ async function getChapaBanksSummary(lang = "en") {
 
   if (lang === "am") {
     return (
-      "💳 Chapa የሚደግፋቸው ባንኮች ከሚከተሉት መካከል ናቸው፦ " +
+      "💳 ቻፓ ወደ ሚከተሉት ባንኮች ማስተላለፍ ይችላል፦" +
       listText +
       "\n\n" +
-      "እባክዎ ከእነዚህ መካከል ባንክ ካለዎ ብቻ የ“Do the task” አዝራሩን ይጫኑ።"
+      "ከእነዚህ ባንኮች በአንዱ የባንክ ሂሳብ ካለዎት (ወይም መክፈት የሚችሉ ከሆነ) ብቻ “ሥራውን እሰረዋለው” የሚለውን ይጫኑ።"
     );
   }
 
@@ -3742,7 +3745,7 @@ async function getChapaBanksSummary(lang = "en") {
 // Make a neat, structured list of a doer's bank options
 function renderBankDetails(user, lang = "en") {
   if (!user?.bankDetails?.length) {
-    return lang === "am" ? "• ምንም የክፍያ አማራጭ አልተጨመረም" : "• No banking options provided";
+    return lang === "am" ? "• ምንም ዓይነት የባንክ አገልግሎት አማራጮች አይገኙም" : "• No banking options provided";
   }
   return user.bankDetails.map((b, i) => `• ${b.bankName || "Bank"} — ${b.accountNumber || "N/A"}`).join("\n");
 }
@@ -4054,9 +4057,9 @@ async function checkPendingReminders(bot) {
         const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
 
         const message = lang === "am" 
-          ? `⏰ ማስታወሻ: የተግዳሮትዎ ጊዜ እየቀረ ነው!\n\n` +
-            `የተግዳሮትዎ የማብቂያ ጊዜ የሚቀረው: ${hoursLeft} ሰዓት እና ${minutesLeft} ደቂቃ\n\n` +
-            `አመልካቾችን ለመቀበል የተቀረው ጊዜ በጣም አጭር ነው። እባክዎ በቅርቡ አመልካች ይምረጡ።`
+          ? `⏰ ማሳሰቢያ፦ የሥራው ጊዜ እያበቃ ነው!\n\n` +
+            `ለሥራው የቀረው ጊዜ፦ ${hoursLeft} ሰዓት ከ ${minutesLeft} ደቂቃ\n\n` +
+            `አመልካቾችን ለመቀበል ያለዎት ጊዜ በጣም አጭር ነው። እባክዎ በተቻለ ፍጥነት አንዱን አመልካች ይምረጡ።`
           : `⏰ Reminder: Your task time is running out!\n\n` +
             `Time remaining for your task: ${hoursLeft} hours and ${minutesLeft} minutes\n\n` +
             `You have very little time left to accept applicants. Please select an applicant soon.`;
@@ -4562,22 +4565,29 @@ async function escalateDoerReport(ctx, taskId) {
     await banUserEverywhere(ctx, creatorUser);
     await banUserEverywhere(ctx, doerUser);
 
-    // notify creator
+    // notify creator (bilingual: EN / AM)
     try {
+      const creatorLang = creatorUser?.language === 'am' ? 'am' : 'en';
+      const creatorText = (creatorLang === 'am')
+        ? "⚠️ ስራ ሰሪው፤ የሥራው መግለጫ ውስጥ ያልተካተቱ ማስተካከያዎች እንዲደረጉ ትዕዛዝ ሰቶኛል በሚል ሪፖርት አድርጎብዎታል። እኛ ታስኪፌይ (Taskifii) ጉዳዩን አጣርተን የመጨረሻ ውሳኔ የምንሰጥ ሲሆን፤ እስከዚያው ድረስ ታስኪፌይን መጠቀም አይችሉም።"
+        : "⚠️ The task doer has reported you, claiming you tried to force fixes that were NOT in the original task description. Taskifii will investigate and make a final decision. Until then, you cannot access Taskifii.";
+      
       await telegram.sendMessage(
         creatorUser.telegramId,
-        "⚠️ The task doer has reported you, claiming you tried to force fixes that were NOT in the original task description. Taskifii will investigate and make a final decision. Until then, you cannot access Taskifii."
+        creatorText
       );
     } catch (e) {
       console.error("notify creator fail:", e);
     }
 
+
     // notify doer
     try {
       await telegram.sendMessage(
         doerUser.telegramId,
-        "✅ ሪፖርትዎ ተቀብሏል። Taskifii ጉዳዩን በሙሉ ይመርማል እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ Taskifii መጠቀም አትችሉም።"
+        TEXT.reportReceivedBlocked[doerUser.language || "en"]
       );
+
     } catch (e) {
       console.error("notify doer fail:", e);
     }
