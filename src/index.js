@@ -641,6 +641,11 @@ const TEXT = {
     en: "Sorry, that @username is already taken! Please enter a different @username!",
     am: "ይቅርታ፣ ይህ @username በሌላ ሰው ተይዝዋል! ሌላ @username ያስገቡ!"
   },
+  noUsernameToConfirm: {
+    en: "No username to confirm. Please try again.",
+    am: "ለማረጋገጥ የተዘጋጀ አዲስ ዩዘርኔም አልተገኘም። እባክዎ እንደገና ይሞክሩ።"
+  },
+
   askBankDetails: {
     en: "Give us your online banking details (Maximum 10) in this format: `BankName,AccountNumber`. You may also include Telebirr by writing `Telebirr,YourPhoneNumber`.",
     am: "የባንክ ዝርዝሮችዎን (እስከ 10) በዚህ ቅጥ ያስገቡ። `BankName,AccountNumber`. Telebirr እንደ `Telebirr,YourPhoneNumber` መጨመር ይችላሉ።"
@@ -1815,8 +1820,13 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
   },
   reportReceivedBlocked: {
   en: "✅ Your report has been received. Taskifii will fully review the issue and make a final decision. Until then, you cannot use Taskifii.",
-  am: "✅ ሪፖርትዎ ተቀብሏል። Taskifii ጉዳዩን በሙሉ ይመርማል እና መጨረሻ ውሳኔ ይሰጣል። እስካሁን ድረስ Taskifii መጠቀም አትችሉም።"
-  }
+  am: "✅ ሪፖርትዎ በትክክል ደርሶናል። እኛ ታስኪፌይ (Taskifay) ጉዳዩን በጥልቀት መርምሮ የመጨረሻ ውሳኔ ይሰጣል። ይህ ውሳኔ እስኪሰጥ ድረስ ግን የታስኪፌይን አገልግሎት መጠቀም አይችሉም።"
+  },
+  chapaHostedPending: {
+    en: "🚧 We haven't received a success from Chapa yet. Please complete the payment page and try again.",
+    am: "🚧 ከ Chapa የተሳካ የክፍያ ማረጋገጫ ገና አልደረሰንም። እባክዎ የክፍያውን ገጽ ሙሉ በሙሉ እንደጨረሱት ያረጋግጡ እና ዳግመኛ ይሞክሩ።"
+  },
+
 
 
 
@@ -4966,8 +4976,8 @@ async function enforceCreatorFinalDecision(taskId) {
     // 1) Make Approve/Reject buttons inert but still visible (difference A)
     if (work.creatorFinalDecisionMessageId && creatorDoc.telegramId) {
       const lang = creatorDoc.language === 'am' ? 'am' : 'en';
-      const approveLabel = lang === 'am' ? "✅ አጸድቅ" : "✅ Approve";
-      const rejectLabel  = lang === 'am' ? "❌ እስት ፍቀድ" : "❌ Reject";
+      const approveLabel = lang === 'am' ? "✅ ተስተካክሏል" : "✅ Approve";
+      const rejectLabel  = lang === 'am' ? "❌ አልተስተካክለም" : "❌ Reject";
 
       const buttons = Markup.inlineKeyboard([
         [
@@ -5008,8 +5018,8 @@ async function enforceCreatorFinalDecision(taskId) {
     try {
       const lang = creatorDoc.language === 'am' ? 'am' : 'en';
       const text = (lang === 'am')
-        ? "🚫 በራስዎ የተወሰነው የማሻሻያ ጊዜ ውስጥ ለተስተካከለው ስራ ምንም አይነት ግብዣ (አጸድቅ ወይም እስትፍቀድ) አልሰጡም። በምንም መንገድ የራስዎን ጊዜ-ገደብ አልከበሩም። Taskifii ይህን ጉዳይ በጊዜያዊ ሁኔታ ትመርማለች፣ እስከምንለቀቅዎ ድረስ መጠቀምዎን እንከልክላለን። የመጨረሻ ውሳኔውን በቴሌግራም እንረዳዎታለን።"
-        : "🚫 You didn’t give any feedback (Approve or Reject) on the corrected work within the revision time you set yourself. Taskifii has temporarily suspended your access while we study this case and make a final decision. We’ll contact you with the result on Telegram.";
+        ? "🚫 እርስዎ ራስዎ በሰጡት የማስተካከያ ጊዜ ገደብ ውስጥ፣ በተስተካከለው ሥራ ላይ ምንም ዓይነት ምላሽ (ማጽደቅ ወይም ውድቅ ማድረግ/Approve or Reject) ሳይሰጡ ቀርተዋል። በዚህም ምክንያት ጉዳዩ ተጣርቶ የመጨረሻ ውሳኔ እስኪሰጥ ድረስ፣ የታስኪፌይ (Taskifay) አጠቃቀምዎ በጊዜያዊነት ታግዷል። የደረስንበትን ውጤት ወይም ውሳኔ በቅርቡ እናሳውቅዎታለን።"
+        : "🚫 You didn’t give any feedback (Approve or Reject) on the corrected work within the revision time you set yourself. Taskifii has temporarily suspended your access while we study this case and make a final decision. We’ll contact you with the results soon.";
       await telegram.sendMessage(creatorDoc.telegramId, text);
     } catch (_) {}
 
@@ -5017,7 +5027,7 @@ async function enforceCreatorFinalDecision(taskId) {
     try {
       const lang = doerDoc.language === 'am' ? 'am' : 'en';
       const text = (lang === 'am')
-        ? "ℹ️ ተግዳሮቱን ፈጣሪ በራሱ የማሻሻያ ጊዜ ውስጥ ለተስተካከለው ስራ ማጽደቅ ወይም መካከል አላደረገም። ጉዳዩን Taskifii በአሁኑ ጊዜ ትመርማለች እና የመጨረሻ ውሳኔውን በቅርቡ ትደርስብዎታለች። በዚህ ጊዜ የነበሩት መቆለፊያዎች ተወግደዋል፤ ሌሎች ተግዳሮቶችን መማመር እና በTaskifii ላይ ያሉ ሌሎች ባህሪያትን መጠቀም ይችላሉ።"
+        ? "ስራውን የሰጠው አካል (አሰሪው) በተቀመጠለት ጊዜ ገደብ ውስጥ የላኩለትን የእርማት ስራ አላጸደቁም ወይም ውድቅ አላደረጉም። በመሆኑም እኛ Taskifay ጉዳዩን መርምረን በቅርቡ የመጨረሻ ውሳኔያችን እናሳውቅዎታለን። እስከዚያው ድረስ ግን፤ በዚህ ስራ ተይዘው ስለነበር ተዘግተውብዎት የነበሩትን የTaskifay አገልግሎቶች በመጠቀም ለሌሎች አዳዲስ ስራዎች ማመልከት ይችላሉ።"
         : "ℹ️ The task creator didn’t Approve or Reject your corrected work within their part of the revision time. Taskifii will now review this case and get back to you with a final decision soon. In the meantime you’re free to start applying to other tasks and use other Taskifii features that were previously locked while you were engaged with this task.";
       await telegram.sendMessage(work.doerTelegramId, text);
     } catch (_) {}
@@ -5261,7 +5271,7 @@ async function enforceDoerSecondHalf(taskId) {
     await globalThis.TaskifiiBot.telegram.sendMessage(
       doerUser.telegramId,
       doerUser.language === 'am'
-        ? "🚫 በማሻሻያ ጊዜ ውስጥ ምንም አይነት ግብዣ (ሪፖርት ወይም የተስተካከለ ስራ መላክ) አላደረጉም። ከአሁን ጀምሮ Taskifii መጠቀም አትችሉም። ጉዳዩ ይመረመራል እና ፍርድ ይሰጣል።"
+        ? "🚫 ለስራ ማስተካከያ በተሰጠው የጊዜ ገደብ ውስጥ ሪፖርትም ሆነ የተስተካከለ ስራ አልላኩም። በዚህም ምክንያት ጉዳዩን መርምረን ውሳኔ እስክንሰጥ ድረስ ከ Taskifay ታግደዋል።"
         : "🚫 You didn’t give any required feedback (report or send corrected work) within the revision window. You’re banned from Taskifii while we investigate and decide."
     );
   } catch (_) {}
@@ -5271,8 +5281,8 @@ async function enforceDoerSecondHalf(taskId) {
     await globalThis.TaskifiiBot.telegram.sendMessage(
       creatorUser2.telegramId,
       (creatorUser2.language === 'am'
-        ? "ℹ️ የሥራ አከናውኗ በማሻሻያ ጊዜ ውስጥ ምንም አይነት ምላሽ አላቀረበም። ጉዳዩን እንመርማለን እና በተቻለ ፍጥነት ውሳኔ እንሰጣለን። እስካሁን ድረስ እንደገና Taskifii መጠቀም ትችላለህ/ትችላለሽ።"
-        : "ℹ️ The winner did not give feedback within the revision window. We’ll review and decide as soon as possible. You can use Taskifii again for other tasks now.")
+        ? "ℹ️ ሰሪው በተሰጠው የማስተካክያ ጊዜ ገደብ ውስጥ ምንም ዓይነት ምላሽ ወይም አስተያየት አልሰጠም። በመሆኑም ጉዳዩን ገምግመን በቀጣይ የሚሆነውን በተቻለ ፍጥነት እንወስናለን። አሁን Taskifayን ለሌሎች ስራዎች መጠቀም ይችላሉ።"
+        : "ℹ️ The task doer did not give feedback within the revision window. We’ll review and decide what happens next as soon as possible. You can use Taskifii again for other tasks now.")
     );
   } catch (_) {}
 }
@@ -5707,9 +5717,9 @@ async function runDoerWorkTimers(bot) {
 
     const punishText = (doerLang === 'am')
       ? [
-          "🚫 ከTaskifii ታግዷችሁ ነው።",
-          "በተመደበው ጊዜ ውስጥ ትክክለኛ የተጠናቀቀ ስራ አልላኩም፣ እና “ተጠናቋል” አልጫኑም።",
-          "እንደገና ለመግባት ከታች ያለውን “የቅጣት ክፍያ” ይጫኑ እና የተግባሩ ክፍያ 50% ይክፈሉ።"
+          "🚫 ከ Taskifii ታግደዋል።",
+          "ተቀባይነት ያለው የተጠናቀቀ ስራ አስረክበው፣ በተሰጠው የጊዜ ገደብ ውስጥ “ያለቀ ስራ ተልክዋል” የሚለውን አልተጫኑም።",
+          "እገዳውን ለማንሳት፤ ከታች “የቅጣት ክፍያ” የሚለውን በመጫን የስራውን ዋጋ 50% በቅጣት መልክ ይክፈሉ።"
         ].join("\n")
       : [
           "🚫 You’ve been banned from Taskifii.",
@@ -5732,8 +5742,8 @@ async function runDoerWorkTimers(bot) {
     // 4) Inform the creator (and unlock creator features for this task)
     try {
       const creatorMsg = (creatorLang === 'am')
-        ? "😞 የስራው አዳራሽ በተመደበው ጊዜ ውስጥ ስራውን አላቀረበም። ተግባሩ በቅጣት ተይዟል፣ እና ለማንኛውም የተቆለፉ ባህሪያት እንደገና ክፍት ሆነዋል። ስለ ችግኙ በጣም እናዝናለን።"
-        : "😞 The winner task doer did not submit within the set time. They’ve received a disciplinary action. Any features that were locked for you are now unlocked. We’re very sorry for the inconvenience.";
+        ? "😞 አሰሪው በተሰጠው የጊዜ ገደብ ውስጥ ስራውን አጠናቆ አላስረከበም። በመሆኑም ግለሰቡ ላይ የዲሲፕሊን እርምጃ ተወስዷል። በዚህ ምክንያት ለእርስዎ ተዘግተው የነበሩ አማራጮች አሁን ክፍት ተደርገዋል። ለተፈጠረው አለመመቸት ከልብ ይቅርታ እንጠይቃለን።"
+        : "😞 The  task doer did not submit within the set time. They’ve received a disciplinary action. Any features that were locked for you are now unlocked. We’re very sorry for the inconvenience.";
       await bot.telegram.sendMessage(creator.telegramId, creatorMsg);
     } catch (e) {
       console.error("Notify creator failed:", e);
@@ -6034,7 +6044,7 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
             await tg.sendMessage(
               doer.telegramId,
               (doer.language === 'am')
-                ? "✅ የቅጣት ክፍያ ተከፍሏል። ወደ Taskifii መዳረሻዎ ተመልሷል።"
+                ? "✅ የቅጣት ክፍያው በተሳካ ሁኔታ ተከፍሏል። የታስኪፌይ (Taskifay) አገልግሎትዎ ተመልሶ ተከፍቷል።"
                 : "✅ Punishment fee paid successfully. Your access to Taskifii has been restored."
             );
           } catch (_) {}
@@ -6695,7 +6705,7 @@ function startBot() {
             const lang = user.language || "en";
             await ctx.answerCbQuery(
               lang === "am" 
-                ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+                ? "ለዚህ ሥራ ቀደም ብለው አመልክተዋል!" 
                 : "You've already applied to this task.",
               { show_alert: true }
             );
@@ -6715,7 +6725,7 @@ function startBot() {
             const lang = user.language || "en";
             await ctx.reply(
               lang === "am" 
-                ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+                ? "ለዚህ ሥራ ቀደም ብለው አመልክተዋል!" 
                 : "You've already applied to this task."
             );
             return; // Stop further processing
@@ -6790,7 +6800,7 @@ bot.use(async (ctx, next) => {
     const user = ctx.session?.user || await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || 'en';
     const lockedMsg = (lang === 'am')
-      ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮቶች ላይ መመልከት/መመዝገብ ወይም ተግዳሮት መለጠፍ አይችሉም።"
+      ? "በአሁን ሰዓት በሂደት ላይ ያለ ስራ ስላለዎት፤ ይህ ጉዳይ ተጠናቆ እልባት እስኪያገኝ ድረስ ሜኑ መክፈት፣ አዲስ ስራ መለጠፍ ወይም ለሌሎች ስራዎች ማመልከት አይችሉም።"
       : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
     // Detect both plain /start and /start with payload; also deep-link apply payloads
@@ -6840,7 +6850,7 @@ bot.use(applyGatekeeper);
       const lang0 = (u0 && u0.language) ? u0.language : 'en';  // <— subtle but important
 
       const lockedMsg = (lang0 === 'am')
-        ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።"
+        ? "በአሁን ሰዓት በሂደት ላይ ያለ ስራ ስላለዎት፤ ይህ ጉዳይ ተጠናቆ እልባት እስኪያገኝ ድረስ ሜኑ መክፈት፣ አዲስ ስራ መለጠፍ ወይም ለሌሎች ስራዎች ማመልከት አይችሉም።"
         : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
       await ctx.reply(msg0);
@@ -6855,7 +6865,7 @@ bot.use(applyGatekeeper);
       
       return ctx.reply(
         lang === "am" 
-          ? "ይቅርታ፣ አሁን አንድ ተግዳሮት እያስተዳደሩ ነው። ተግዳሮቱ ከጊዜው አልፎ ወይም ከተሰረዘ በኋላ ብቻ ምናሌውን መጠቀም ይችላሉ።" 
+          ? "ይቅርታ፣ አሁን ላይ ያልተጠናቀቀ ስራ ስላለዎት ሜኑውን መጠቀም አይችሉም። ሜኑውን ለማግኘት አሁን ያለዎት ተግባር እስኪያልቅ ወይም እስኪሰረዝ ድረስ ይጠብቁ።" 
           : "Sorry, you currently have an active task. You can only access the menu after the task expires or is canceled."
       );
     }
@@ -6875,7 +6885,7 @@ bot.use(applyGatekeeper);
       if (task && task.status === "Canceled") {
         const lang = user?.language || "en";
         return ctx.reply(lang === "am" 
-          ? "❌ ይህ ተግዳሮት በፈጣሪው ተሰርዟል" 
+          ? "❌ ይህ ስራ በስራ ፈጣሪው ተሰርዟል" 
           : "❌ This task has been canceled by the creator"
         );
       }
@@ -6902,7 +6912,7 @@ bot.use(applyGatekeeper);
           const lang = user.language || "en";
           return ctx.reply(
             lang === "am" 
-              ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+              ? "ለዚህ ሥራ ቀደም ብለው አመልክተዋል!" 
               : "You've already applied to this task."
           );
         }
@@ -6922,8 +6932,8 @@ bot.use(applyGatekeeper);
 
         const lang = user.language || "en";
         const prompt = lang === "am"
-          ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-          : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+          ? "ለዚህ ስራ ብቁ የሚያደርጎትን ክህሎት እና ልምድ የሚገልጽ አጭር መልዕክት (ከ20–500 ፊደላት) ይጻፉ። በስራው አቅራቢ የመመረጥ እድሎን ለማስፋት፤ ቀደም ብለው የሰሯቸውን ስራዎች ናሙና ወይም የፖርትፎሊዮ ሊንክ (ለምሳሌ፡ የLinkedIn፣ የግል ዌብሳይት፣ ወይም የቴሌግራም ቻናል ሊንክዎን) አብረው ያካቱ።"
+          : "Please write a brief message about what you bring(the skills and expertise) to this task (20–500 characters). And for a better chance of the task creator picking you to do the task, make sure to also include your portfolio links(your linkedln link, your portfolio website link, your portfolio telegram channel link, etc.).";
         return ctx.reply(prompt);
       }
       
@@ -6931,7 +6941,7 @@ bot.use(applyGatekeeper);
       const lang = user.language || "en";
       return ctx.reply(
         lang === "am" 
-          ? "አገልግሎት ዝርዝር፡" 
+          ? "የአገልግሎት ዝርዝር፡" 
           : "Menu:",
         Markup.inlineKeyboard([
           [Markup.button.callback(TEXT.postTaskBtn[lang], "POST_TASK")],
@@ -6951,7 +6961,7 @@ bot.use(applyGatekeeper);
       // Send language selection with custom message
       return ctx.reply(
         "To apply for tasks, you need to complete your Taskifii profile first.\n\n" +
-        "ተግዳሮቶችን ለመመዝገብ በመጀመሪያ የ Taskifii መመዝገቢያ ሂደትዎን ማጠናቀቅ አለብዎት።\n\n" +
+        "ለሥራዎች ለማመልከት፤ አስቀድመው የTaskifay ፕሮፋይልዎን ማሟላት ይኖርብዎታል።\n\n" +
         `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
         Markup.inlineKeyboard([
           [
@@ -7039,7 +7049,7 @@ bot.use(applyGatekeeper);
     await ctx.answerCbQuery();
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
-    if (!user) return ctx.reply("አስቸጋሪ ስሕተት። /start ይደግፉ.");
+    if (!user) return ctx.reply("አስቸጋሪ ስሕተት። /start ይቻኑ.");
 
     // Highlight “Amharic”; disable both
     await ctx.editMessageReplyMarkup({
@@ -7106,7 +7116,7 @@ bot.use(applyGatekeeper);
     if (!handle) {
       return ctx.reply(
         user.language === "am"
-          ? "ምንም Telegram የተጠቃሚ ስም የለዎትም። እባክዎ ትክክለኛ ይጻፉ።"
+          ? "የቴሌግራም ዩዘርኔም (Username) የለዎትም፤ እባክዎ ትክክለኛውን ዩዘርኔም ያስገቡ።"
           : "It seems you don’t have a Telegram username. Please type a valid one."
       );
     }
@@ -7320,8 +7330,8 @@ bot.use(applyGatekeeper);
       };
 
       const prompt = user.language === "am"
-        ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-        : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+        ? "ለዚህ ስራ ብቁ የሚያደርጎትን ክህሎት እና ልምድ የሚገልጽ አጭር መልዕክት (ከ20–500 ፊደላት) ይጻፉ። በስራው አቅራቢ የመመረጥ እድሎን ለማስፋት፤ ቀደም ብለው የሰሯቸውን ስራዎች ናሙና ወይም የፖርትፎሊዮ ሊንክ (ለምሳሌ፡ የLinkedIn፣ የግል ዌብሳይት፣ ወይም የቴሌግራም ቻናል ሊንክዎን) አብረው ያካቱ።"
+        : "Please write a brief message about what you bring(the skills and expertise) to this task (20–500 characters). And for a better chance of the task creator picking you to do the task, make sure to also include your portfolio links(your linkedln link, your portfolio website link, your portfolio telegram channel link, etc.).";
       
       return ctx.reply(prompt);
     }
@@ -7371,7 +7381,7 @@ bot.action("POST_TASK", async (ctx) => {
   ctx.session.user = ctx.session.user || {};
   
   const user = await User.findOne({ telegramId: ctx.from.id });
-  if (!user) return ctx.reply("User not found. Please /start again.");
+  if (!user) return ctx.reply("User info not found. Please /start again.");
   
   // Ensure taskFlow exists
   ctx.session.taskFlow = ctx.session.taskFlow || {};
@@ -7425,8 +7435,8 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     if (!task || task.status === "Expired") {
       return ctx.answerCbQuery(
         lang === "am" 
-          ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" 
-          : "❌ This task has expired",
+          ? "❌ የዚህ ስራ ለመስራት ጊዜው አልፏል!" 
+          : "❌ This task has expired!",
         { show_alert: true }
       );
     }
@@ -7440,7 +7450,7 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
       if (alreadyApplied) {
         return ctx.answerCbQuery(
           lang === "am" 
-            ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+            ? "ለዚህ ሥራ ቀደም ብለው አመልክተዋል!" 
             : "You've already applied to this task.",
           { show_alert: true }
         );
@@ -7450,14 +7460,14 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     // Rest of your existing application flow remains exactly the same...
     if (!user || user.onboardingStep !== "completed") {
       const message = lang === "am" 
-        ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ" 
+        ? "ይቅርታ፣ ስራዎችን ለማከናወን መጀመሪያ በታስኪፌይ (Taskifay) መመዝገብ ይኖርብዎታል። ለመመዝገብ እባክዎ /start የሚለውን ይጫኑ።" 
         : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
       
       const deepLink = applyDeepLink(ctx, BOT_USERNAME, taskId);
       
       return ctx.reply(message, Markup.inlineKeyboard([
         [Markup.button.url(
-          lang === "am" ? "መመዝገቢያ ጀምር / Register" : "Register / መመዝገቢያ ጀምር", 
+          lang === "am" ? "ልመዝገብ / Register" : "Register / ልመዝግብ", 
           deepLink
         )]
       ]));
@@ -7470,8 +7480,8 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
     };
 
     const prompt = lang === "am"
-      ? "እባክዎ ዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-      : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+      ? "ለዚህ ስራ ብቁ የሚያደርጎትን ክህሎት እና ልምድ የሚገልጽ አጭር መልዕክት (ከ20–500 ፊደላት) ይጻፉ። በስራው አቅራቢ የመመረጥ እድሎን ለማስፋት፤ ቀደም ብለው የሰሯቸውን ስራዎች ናሙና ወይም የፖርትፎሊዮ ሊንክ (ለምሳሌ፡ የLinkedIn፣ የግል ዌብሳይት፣ ወይም የቴሌግራም ቻናል ሊንክዎን) አብረው ያካቱ።"
+      : "Please write a brief message about what you bring(the skills and expertise) to this task (20–500 characters). And for a better chance of the task creator picking you to do the task, make sure to also include your portfolio links(your linkedln link, your portfolio website link, your portfolio telegram channel link, etc.).";
     
     return ctx.reply(prompt);
   } catch (err) {
@@ -7492,7 +7502,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     if (!task || task.status === "Expired") {
       return ctx.reply(
         lang === "am" 
-          ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል እና ከእንግዲህ ለማመልከቻ አይገኝም።" 
+          ? "❌ ይህ ስራ ጊዜው ስላለፈበት ማመልከት አይቻልም።" 
           : "❌ This task has expired and is no longer available for application."
       );
     }
@@ -7507,7 +7517,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
       if (alreadyApplied) {
         return ctx.reply(
           lang === "am" 
-            ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+            ? "ለዚህ ሥራ ቀደም ብለው አመልክተዋል!" 
             : "You've already applied to this task."
         );
       }
@@ -7516,7 +7526,7 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     // Rest of your existing checks...
     if (!user || user.onboardingStep !== "completed") {
       const message = lang === "am" 
-        ? "ይቅርታ፣ ተግዳሮቶችን ለመመዝገብ በመጀመሪያ መመዝገብ አለብዎት።\n\nለመመዝገብ /start ይጫኑ"
+        ? "ይቅርታ፣ ስራዎችን ለማከናወን መጀመሪያ በታስኪፋይ (Taskifii) መመዝገብ ይኖርብዎታል። \n\nለመመዝገብ እባክዎ /start የሚለውን ይጫኑ።"
         : "Sorry, you need to register with Taskifii before applying to tasks.\n\nClick /start to register";
       
       return ctx.reply(message, Markup.inlineKeyboard([
@@ -7531,8 +7541,8 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
     };
 
     const prompt = lang === "am"
-      ? "እባክዎ ለዚህ ተግዳሮት ያቀረቡትን ነገር በአጭሩ ይጻፉ (20–500 ቁምፊ). ፎቶ፣ ሰነዶች፣ እና ሌሎች ማቅረብ ከፈለጉ ካፕሽን አስገቡ።"
-      : "Please write a brief message about what you bring to this task (20–500 characters). You may attach photos, documents, etc., but be sure to include a caption.";
+      ? "ለዚህ ስራ ብቁ የሚያደርጎትን ክህሎት እና ልምድ የሚገልጽ አጭር መልዕክት (ከ20–500 ፊደላት) ይጻፉ። በስራው አቅራቢ የመመረጥ እድሎን ለማስፋት፤ ቀደም ብለው የሰሯቸውን ስራዎች ናሙና ወይም የፖርትፎሊዮ ሊንክ (ለምሳሌ፡ የLinkedIn፣ የግል ዌብሳይት፣ ወይም የቴሌግራም ቻናል ሊንክዎን) አብረው ያካቱ።"
+      : "Please write a brief message about what you bring(the skills and expertise) to this task (20–500 characters). And for a better chance of the task creator picking you to do the task, make sure to also include your portfolio links(your linkedln link, your portfolio website link, your portfolio telegram channel link, etc.).";
     
     return ctx.reply(prompt);
   } catch (err) {
@@ -7553,14 +7563,14 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   if (!task || task.status === "Canceled") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" ? "❌ ይህ ተግዳሮት ተሰርዟል" : "❌ This task has been canceled",
+      lang === "am" ? "❌ ይህ ስራ ተሰርዟል" : "❌ This task has been canceled",
       { show_alert: true }
     );
   }
   if (task.status === "Expired") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" : "❌ This task has expired",
+      lang === "am" ? "❌ ይህ ስራ ጊዜው አልፎበታል" : "❌ This task has expired",
       { show_alert: true }
     );
   }
@@ -7653,7 +7663,7 @@ bot.action(/^ACCEPT_(.+)_(.+)$/, async (ctx) => {
   if (await isEngagementLocked(user.telegramId)) {
     const msg =
       lang === "am"
-        ? "ይህ አመልካች አሁን ከሌላ ተግዳሮት ጋር ተጣመረ ነው ወይም ተግዳሮት እየለጠፈ ነው። የማረጋገጫ መልዕክት አይቀርብለውም። እባክዎ ሌላ አመልካች ይምረጡ።"
+        ? "ይህ አመልካች በሌላ ሥራ የተያዙ ወይም ሥራ በመለጠፍ ላይ ስለሆኑ፤ የላኩት ማረጋገጫ አይደርሳቸውም። እባክዎ ሌላ አመልካች ይምረጡ።"
         : "This applicant is already committed to another task or is posting a task, so they won’t receive your confirmation. Please choose another applicant.";
     await ctx.reply(msg);
     return;
@@ -7696,14 +7706,14 @@ bot.action(/^DECLINE_(.+)_(.+)$/, async (ctx) => {
   if (!task || task.status === "Canceled") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" ? "❌ ይህ ተግዳሮት ተሰርዟል" : "❌ This task has been canceled",
+      lang === "am" ? "❌ ይህ ስራ ተሰርዟል" : "❌ This task has been canceled",
       { show_alert: true }
     );
   }
   if (task.status === "Expired") {
     const lang = ctx.session?.user?.language || "en";
     return ctx.answerCbQuery(
-      lang === "am" ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል" : "❌ This task has expired",
+      lang === "am" ? "❌ ይህ ስራ ጊዜው አልፎበታል" : "❌ This task has expired",
       { show_alert: true }
     );
   }
@@ -7771,7 +7781,7 @@ bot.action("_DISABLED_TASK_POST_CONFIRM", async (ctx) => {
   const lang = u?.language || "en";
   await ctx.answerCbQuery(
     lang === 'am'
-      ? "በአሁኑ ጊዜ ተግዳሮት መለጠፍ አይችሉም፤ እባክዎ እስከሁኔታው ሲያበቃ ድረስ ይጠብቁ።"
+      ? "በአሁኑ ሰዓት ስራ መለጠፍ አይችሉም። እባክዎ በሂደት ላይ ያለው ስራ እስኪጠናቀቅ ድረስ ይጠብቁ።"
       : "You can’t post a task right now. Please wait until the current task is resolved.",
     { show_alert: true }
   );
@@ -7945,7 +7955,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
 
     await ctx.answerCbQuery(
       lang === 'am'
-        ? "እርስዎ አሁን በአንድ ተግዳሮት ላይ ተሳትፈዋል። ይህ አዝራር አሁን ግባ የለውም።"
+        ? "በሌላ ስራ ተይዘዋል፤ ይህ ቁልፍ ተዘግቷል።"
         : "You’re locked to another task right now; this button is disabled.",
       { show_alert: true }
     );
@@ -8013,7 +8023,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
           ],
         });
       } catch (_) {}
-      return ctx.reply(lang === "am" ? "❌ ይህ ተግዳሮት ጊዜው አልፎታል።" : "❌ This task has expired.");
+      return ctx.reply(lang === "am" ? "❌ ይህ ስራ ጊዜው አልፎበታል።" : "❌ This task has expired.");
     }
 
     const someoneElseConfirmed = fresh?.applicants?.some(a => a.confirmedAt && a.user?.toString() !== user._id.toString());
@@ -8026,7 +8036,7 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
           ],
         });
       } catch (_) {}
-      return ctx.reply(lang === "am" ? "❌ ቀደም ሲል ሌላ አመልካች ጀምሮታል።" : "❌ Someone else already started this task.");
+      return ctx.reply(lang === "am" ? "❌ ሌላ አመልካች ስራውን መስራት ጀምረዋል።" : "❌ Someone else already started this task.");
     }
 
     await ctx.answerCbQuery(); // inert, nothing else to do
@@ -8641,7 +8651,7 @@ bot.action(/^DO_TASK_CANCEL(?:_(.+))?$/, async (ctx) => {
 
     await ctx.answerCbQuery(
       lang === 'am'
-        ? "እርስዎ አሁን በአንድ ተግዳሮት ላይ ተሳትፈዋል። ይህ አዝራር አሁን ግባ የለውም።"
+        ? "በሌላ ስራ ተይዘዋል። ሰለዚህም ይህ ቁልፍ ተዘግትዋል።"
         : "You’re locked to another task right now; this button is disabled.",
       { show_alert: true }
     );
@@ -8671,7 +8681,7 @@ bot.action(/^DO_TASK_CANCEL(?:_(.+))?$/, async (ctx) => {
   );
 
   // (Optional) Let the user know it’s canceled — reuse your existing text/logic:
-  await ctx.reply(lang === "am" ? "🚫 እርስዎ ስራውን ተዉት።" : "🚫 You canceled this task.");
+  await ctx.reply(lang === "am" ? "🚫 ስራውን ሰርዘዉታል።" : "🚫 You canceled this task.");
 });
 
 
@@ -8962,10 +8972,10 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
     await ctx.reply(
       buildPreviewText(draft, u),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+          ? Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ])
     );
@@ -8973,7 +8983,7 @@ bot.action(/^REPOST_TASK_(.+)$/, async (ctx) => {
     
     // Send instructions
     const instructions = lang === "am" 
-      ? "በተግዳሮቱ ዝርዝሮች ላይ ለውጥ ማድረግ ከፈለጉ 'ተግዳሮት አርትዕ' የሚለውን ቁልፍ ይጫኑ። እንደነበረው ለመለጠፍ 'ተግዳሮት ልጥፍ' ይጫኑ።"
+      ? "በስራው ዝርዝር ላይ ማስተካከያ ማድረግ ከፈለጉ 'የስራው ዝርዝሮች ይስተካከል' የሚለውን ይጫኑ። ምንም ሳይቀይሩ እንዳለ ለመለጠፍ ከሆነ ደግሞ 'ስራው ይለጠፍ' የሚለውን ይጫኑ።"
       : "Click 'Edit Task' if you want to make changes to the task details. Click 'Post Task' to repost as is.";
     
     await ctx.reply(instructions);
@@ -8995,7 +9005,7 @@ bot.action("TASK_EDIT", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
   const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራው ሳይለጠፍ ጊዜው አለፈበት። እባክዎ ከአዲስ ይሞክሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
 
   // Get user's language
@@ -9011,19 +9021,19 @@ bot.action("TASK_EDIT", async (ctx) => {
 
   // Present the list of fields that can be edited (in user's language)
   const buttons = [
-    [Markup.button.callback(lang === "am" ? "✏️ መግለጫ አርትዕ" : "✏️ Edit Description", "EDIT_description")],
+    [Markup.button.callback(lang === "am" ? "✏️ የሥራውን መግለጫ ላስተካክል" : "✏️ Edit Description", "EDIT_description")],
     
-    [Markup.button.callback(lang === "am" ? "🏷️ መስኮች አርትዕ" : "🏷️ Edit Fields", "EDIT_fields")],
-    [Markup.button.callback(lang === "am" ? "🎯 የስልጠና ደረጃ አርትዕ" : "🎯 Edit Skill Level", "EDIT_skillLevel")],
-    [Markup.button.callback(lang === "am" ? "💰 የክፍያ መጠን አርትዕ" : "💰 Edit Payment Fee", "EDIT_paymentFee")],
-    [Markup.button.callback(lang === "am" ? "⏳ የማጠናቀቂያ ጊዜ አርትዕ" : "⏳ Edit Time to Complete", "EDIT_timeToComplete")],
-    [Markup.button.callback(lang === "am" ? "🔄 የማሻሻል ጊዜ አርትዕ" : "🔄 Edit Revision Time", "EDIT_revisionTime")],
-    [Markup.button.callback(lang === "am" ? "⏱️ በሰዓት ቅጣት አርትዕ" : "⏱️ Edit Penalty per Hour", "EDIT_penaltyPerHour")],
-    [Markup.button.callback(lang === "am" ? "⌛ የማብቂያ ጊዜ አርትዕ" : "⌛ Edit Expiry Hours", "EDIT_expiryHours")]
+    [Markup.button.callback(lang === "am" ? "🏷️ የሥራ ዘርፎችን/ምድቦችን ላስተካክል" : "🏷️ Edit Fields", "EDIT_fields")],
+    [Markup.button.callback(lang === "am" ? "🎯 የሚፈለገውን የክህሎት ደረጃ ላስተካክል" : "🎯 Edit Skill Level", "EDIT_skillLevel")],
+    [Markup.button.callback(lang === "am" ? "💰 የክፍያ መጠኑን ላስተካክል" : "💰 Edit Payment Fee", "EDIT_paymentFee")],
+    [Markup.button.callback(lang === "am" ? "⏳ ሥራው የሚፈጀውን ጊዜ ላስተካክል" : "⏳ Edit Time to Complete", "EDIT_timeToComplete")],
+    [Markup.button.callback(lang === "am" ? "🔄 የማስተካከያ ጊዜን ላስተካክል" : "🔄 Edit Revision Time", "EDIT_revisionTime")],
+    [Markup.button.callback(lang === "am" ? "⏱️ የቅጣት መጠኑን ላስተካክል" : "⏱️ Edit Penalty per Hour", "EDIT_penaltyPerHour")],
+    [Markup.button.callback(lang === "am" ? "⌛ ለሥራው ስሪ ለማግኘት ያለው ጊዜ ላስተካክል" : "⌛ Edit Expiry Hours", "EDIT_expiryHours")]
   ];
 
   return ctx.reply(
-    lang === "am" ? "ለመስተካከል የሚፈልጉትን የተግዳሮቱን ክፍል ይምረጡ:" : "Select which piece of the task you'd like to edit:",
+    lang === "am" ? "ሊያስተካክሉት የሚፈልጉትን የስራ ክፍል ይምረጡ" : "Select which piece of the task you'd like to edit:",
     Markup.inlineKeyboard(buttons)
   );
 });
@@ -9126,12 +9136,12 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
         ].join("\n");
 
         const textAm = [
-          "🚫 ከ Taskifii አገልግሎት ታግደዋል።",
+          "🚫 ከታስኪፌይ (Taskifay) አገልግሎት ታግደዋል።",
           "",
-          `እገዳው እንዲነሳልዎት የ *${amountStr} ብር* ቅጣት መክፈል ይኖርብዎታል።`,
+          `ድጋሚ መጠቀም እንዲችሉ የቅጣት ክፍያ *${amountStr}* ብር መክፈል ይኖርብዎታል።`,
           "",
-          "ከታች ያለውን የክፍያ ቁልፍ በመጫን ክፍያውን ይፈጽሙ።",
-          "ክፍያዎ እንደተረጋገጠ ከ Taskifii እና ከግሩፑ ላይ የተጣለብዎት እገዳ በራስ-ሰር ይነሳል።"
+          "ከታች ያለውን የክፍያ ቁልፍ በመጫን ክፍያውን ያጠናቅቁ።",
+          "ክፍያውን እንደፈጸሙ ወዲያውኑ ከታስኪፌይ እና ከግሩፑ ላይ እገዳዎ ይነሳል።"
         ].join("\n");
 
         await ctx.telegram.sendMessage(
@@ -9143,7 +9153,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               inline_keyboard: [[
                 {
                   text: lang === "am"
-                    ? "🔗 የቅጣት ክፍያ መክፈቻ"
+                    ? "🔗 የቅጣት ክፍያው ልክፈል"
                     : "🔗 Open punishment payment",
                   url: intent.checkoutUrl
                 }
@@ -9180,7 +9190,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       if (!task) {
           delete ctx.session.applyFlow;
           return ctx.reply(lang === "am" 
-              ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+              ? "❌ የዚህ ስራ ማመለከቻ ጊዜ አልፎበታል።" 
               : "❌ This task is no longer available.");
       }
 
@@ -9189,7 +9199,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           delete ctx.session.applyFlow;
           return ctx.reply(
               lang === "am" 
-                  ? "አስቀድመው ለዚህ ተግዳሮት ማመልከት ተገቢውን አግኝተዋል።" 
+                  ? "አስቀድመው ለዚህ ስራ አመልክተዋል።" 
                   : "You've already applied to this task."
           );
       }
@@ -9201,13 +9211,13 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       // validation
       if (!text || text.length < 20) {
           const err = lang === "am"
-              ? "እባክዎን መልእክት 20 ቁምፊ በላይ እንዲሆን ያረጋግጡ።"
+              ? "እባክዎን ከ20 ፊደላት መብለጡን ያርጋግጡ።"
               : "Please make sure your message is at least 20 characters!";
           return ctx.reply(err);
       }
       if (text.length > 500) {
           const err = lang === "am"
-              ? "እባክዎን መልእክት ከ500 ቁምፊ በታች እንዲሆን ያረጋግጡ።"
+              ? "እባክዎን ከ500 ፊደላት ማነሱን ያረጋግጡ።"
               : "Please keep your message under 500 characters!";
           return ctx.reply(err);
       }
@@ -9216,7 +9226,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       if (!task) {
           delete ctx.session.applyFlow;
           return ctx.reply(lang === "am" 
-              ? "❌ ይህ ተግዳሮት ከማግኘት አልቋል።" 
+              ? "❌ የዚህ ስራ ማመልከቻ ጊዜ አልፎበታል።" 
               : "❌ This task is no longer available.");
       }
 
@@ -9255,11 +9265,11 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           
           // Build the notification message
           const notificationText = creatorLang === "am"
-              ? `📩 አዲስ አመልካች ለተግዳሮትዎ!\n\n` +
-                `ተግዳሮት:  ${task.description}\n\n` +
+              ? `📩 አዲስ አመልካች !\n\n` +
+                `ስራው:  ${task.description}\n\n` +
                 `አመልካች: ${applicantName}\n` +
-                `ጠቅላላ የተሰሩ ተግዳሮቶች: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
-                `ተደጋጋሚ የስራ መስኮች: ${topFields}\n` +
+                `እስከዛሬ የሰሩት ብር: ${user.stats.totalEarned.toFixed(2)} ብር\n` +
+                `በተደጋጋሚ የሰሩት የስራ መስኮች: ${topFields}\n` +
                 `ደረጃ: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)\n` +
                 `መልእክት: ${text}`
 
@@ -9319,8 +9329,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
 
       // Confirm to applicant
       const confirmationText = lang === "am"
-          ? "✅ ማመልከቻዎ ተቀብልናል! የተግዳሮቱ ባለቤት በቅርቡ ያግኝዎታል።"
-          : "✅ Application received! The task creator will contact you soon.";
+          ? "✅ ማመልከቻዎ ተልክዋለ! ምላሽ ይጠብቁ።"
+          : "✅ Application received! Wait for the updates.";
 
       delete ctx.session.applyFlow;
       return ctx.reply(confirmationText);
@@ -9372,12 +9382,31 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     const accountRaw = ctx.message.text || "";
     const accountNumber = accountRaw.trim();
 
+    // Figure out language for messages (stored when payout was created)
+    // Use a separate name here to avoid clashing with the later `langForMsg`
+    const langForAccountValidation = pending.language || "en";
+
     // NEW flexible validation:
     // 1) Length between 5 and 30 characters (so it's not too short or insane)
     if (accountNumber.length < 5 || accountNumber.length > 30) {
-      const errMsg = (pending.selectedBankName)
-        ? `❌ The account number for your ${pending.selectedBankName} account looks unusual. Please enter between 5 and 30 characters.`
-        : "❌ The account number looks unusual. Please enter between 5 and 30 characters.";
+      let errMsg;
+
+      if (pending.selectedBankName) {
+        // With bank name in the message
+        if (langForAccountValidation === "am") {
+          errMsg = `❌ ያስገቡት የ${pending.selectedBankName} ሂሳብ ቁጥር ትክክል አይመስልም። እባክዎ ርዝመቱ ከ5 እስከ 30 የሚደርስ የሂሳብ ቁጥር ያስገቡ።`;
+        } else {
+          errMsg = `❌ The account number for your ${pending.selectedBankName} account looks unusual. Please enter between 5 and 30 characters.`;
+        }
+      } else {
+        // Generic message (no specific bank)
+        if (langForAccountValidation === "am") {
+          errMsg = "❌ ያስገቡት የሂሳብ ቁጥር ትክክል አይመስልም። እባክዎ ርዝመቱ ከ5 እስከ 30 የሚደርስ የሂሳብ ቁጥር ያስገቡ።";
+        } else {
+          errMsg = "❌ The account number looks unusual. Please enter between 5 and 30 characters.";
+        }
+      }
+
       await ctx.reply(errMsg);
       return;
     }
@@ -9385,12 +9414,26 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     // 2) Allow letters, numbers, spaces and dashes.
     //    This supports things like Abyssinia accounts with letters.
     if (!/^[A-Za-z0-9\- ]+$/.test(accountNumber)) {
-      const errMsg = (pending.selectedBankName)
-        ? `❌ The account number for your ${pending.selectedBankName} account looks unusual. Please use only letters, numbers, spaces, or dashes.`
-        : "❌ The account number looks unusual. Please use only letters, numbers, spaces, or dashes.";
+      let errMsg;
+
+      if (pending.selectedBankName) {
+        if (langForAccountValidation === "am") {
+          errMsg = `❌ ያስገቡት የ${pending.selectedBankName} ሂሳብ ቁጥር ትክክል አይመስልም። እባክዎ ፊደላትን፣ ቁጥሮችን፣ ክፍት ቦታ (Space) ወይም ሰረዝን (-) ብቻ ይጠቀሙ።`;
+        } else {
+          errMsg = `❌ The account number for your ${pending.selectedBankName} account looks unusual. Please use only letters, numbers, spaces, or dashes.`;
+        }
+      } else {
+        if (langForAccountValidation === "am") {
+          errMsg = "❌ ያስገቡት የሂሳብ ቁጥር ትክክል አይመስልም። እባክዎ ፊደላትን፣ ቁጥሮችን፣ ክፍት ቦታ (Space) ወይም ሰረዝን (-) ብቻ ይጠቀሙ።";
+        } else {
+          errMsg = "❌ The account number looks unusual. Please use only letters, numbers, spaces, or dashes.";
+        }
+      }
+
       await ctx.reply(errMsg);
       return;
     }
+
 
     // Bank info (we’ll reuse this later for bankName)
     const bankInfo = pending.banks.find(b => b.id === pending.selectedBankId) || null;
@@ -9538,7 +9581,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       if (!normalized) {
         return ctx.reply(
           user.language === "am"
-            ? "📱 የስልክ ቁጥር ያልተቀበለ ነው። እባክዎ ይህን አቅጣጫ ይጠቀሙ: +2519xxxxxxxx ወይም +2517xxxxxxxx"
+            ? "📱 የስልክ ቁጥሩ ትክክል አደለም። እባክዎ ይህን አቅጣጫ ይጠቀሙ: +2519xxxxxxxx ወይም +2517xxxxxxxx"
             : "📱 That phone number isn’t valid. Please send it like this: +2519xxxxxxxx or +2517xxxxxxxx"
         );
       }
@@ -9548,7 +9591,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       if (exists && String(exists._id) !== String(user._id)) {
         return ctx.reply(
           user.language === "am"
-            ? "📱 ይህ ስልክ ቁጥር ቀድሞ ተይዟል። እባክዎ ሌላ ቁጥር ይላኩ።"
+            ? "📱 ይህ ስልክ ቁጥር በሌላ ሰው ተይዝዋል። እባክዎ ሌላ ቁጥር ይላኩ።"
             : "📱 This phone number is already used. Please send another one."
         );
       }
@@ -9593,7 +9636,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       if (exists && String(exists._id) !== String(user._id)) {
         return ctx.reply(
           user.language === "am"
-            ? "✉️ ይህ ኢሜይል ቀድሞ ተጠቅመዋል። እባክዎ ሌላ ኢሜይል ይላኩ።"
+            ? "✉️ ይህ ኢሜይል ተይዝዋል። እባክዎ ሌላ ኢሜይል ይላኩ።"
             : "✉️ This email is already in use. Please send another one."
         );
       }
@@ -9648,7 +9691,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           {
             inline_keyboard: [[
               Markup.button.callback(
-                user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+                user.language === "am" ? "አዎ ይሁን" : "Yes, keep it",
                 "_DISABLED_USERNAME_KEEP_EDIT"
               )
             ]]
@@ -9663,7 +9706,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       
       return ctx.reply(
         user.language === "am" 
-          ? `ይህንን አዲስ የቴሌግራም የተጠቃሚ ስም ማቆየት ይፈልጋሉ? @${reply}`
+          ? `ይሄ፣ አዲሱ የቴሌግራም የተጠቃሚ ስሞዉት እንዲሆን ይፈልጋሉ? @${reply}`
           : `Do you want to keep this new username? @${reply}`,
         Markup.inlineKeyboard([
           [
@@ -9739,7 +9782,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     if (!normalized) {
       return ctx.reply(
         user.language === "am"
-          ? "📱 የስልክ ቁጥር ያልተቀበለ ነው። እባክዎ ይህን አቅጣጫ ይጠቀሙ: +2519xxxxxxxx ወይም +2517xxxxxxxx"
+          ? "📱 ይሄ ስልክ ቁጥር ትክክል አደለም ። እባክዎ ይህን አቅጣጫ ይጠቀሙ: +2519xxxxxxxx ወይም +2517xxxxxxxx"
           : "📱 That phone number isn’t valid. Please send it like this: +2519xxxxxxxx or +2517xxxxxxxx"
       );
     }
@@ -9749,7 +9792,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     if (existingPhone) {
       return ctx.reply(
         user.language === "am"
-          ? "📱 ይህ ስልክ ቁጥር ቀድሞ ተይዟል። እባክዎ ሌላ ቁጥር ይላኩ።"
+          ? "📱 ይህ ስልክ ቁጥር በሌላ ሰው ተይዝዋል። እባክዎ ሌላ ቁጥር ይላኩ።"
           : "📱 This phone number is already used. Please send another one."
       );
     }
@@ -9776,7 +9819,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
     if (existingEmail) {
       return ctx.reply(
         user.language === "am"
-          ? "✉️ ይህ ኢሜይል ቀድሞ ተጠቅመዋል። ሌላ ኢሜይል ይላኩ።"
+          ? "✉️ ይህ ኢሜይል ተይዝዋል። ሌላ ኢሜይል ይላኩ።"
           : "✉️ That email is already in use. Please send another one."
       );
     }
@@ -9795,7 +9838,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
       promptText,
       Markup.inlineKeyboard([
         [Markup.button.callback(
-          user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+          user.language === "am" ? "አዎ ይሁን" : "Yes, keep it",
           "USERNAME_KEEP"
         )]
       ])
@@ -9834,7 +9877,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
         {
           inline_keyboard: [[
             Markup.button.callback(
-              user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+              user.language === "am" ? "አዎ ይሁን" : "Yes, keep it",
               `_DISABLED_USERNAME_KEEP`
             )
           ]]
@@ -9986,17 +10029,17 @@ async function handleDescription(ctx, draft) {
 
   // EDIT MODE: just update description and go back to preview
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ መግለጫው ተዘምኗል" : "✅ Description updated.");
+    await ctx.reply(lang === "am" ? "✅ የስራው መግለጫ ተስተካክልዋል" : "✅ Description updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [
           locked
-            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+            ? Markup.button.callback(lang === "am" ? "ስራው የለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -10410,7 +10453,7 @@ function askFieldsPage(ctx, page) {
   
   const nav = [];
   if (page > 0) {
-    nav.push(Markup.button.callback("⬅️ " + (lang === "am" ? "ቀዳሚ" : "Prev"), `TASK_FIELDS_PAGE_${page-1}`));
+    nav.push(Markup.button.callback("⬅️ " + (lang === "am" ? "ወደኋላ" : "Prev"), `TASK_FIELDS_PAGE_${page-1}`));
   }
   if (end < ALL_FIELDS.length) {
     nav.push(Markup.button.callback(lang === "am" ? "ቀጣይ ➡️" : "Next ➡️", `TASK_FIELDS_PAGE_${page+1}`));
@@ -10430,7 +10473,7 @@ bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "ረቂቁ ጊዜው አልፎታል" : "Draft expired.");
+    return ctx.reply(lang === "am" ? "ስራው ለመለጠፍ ጊዜው አልፎበታል" : "Draft expired.");
   }
 
   const MAX_FIELDS = 7;
@@ -10460,16 +10503,16 @@ bot.action(/TASK_FIELD_(\d+)/, async (ctx) => {
 
     // Follow the same flow as TASK_FIELDS_DONE:
     if (ctx.session.taskFlow?.isEdit) {
-      await ctx.reply(lang === "am" ? "✅ መስኮች ተዘምነዋል" : "✅ Fields updated.");
+      await ctx.reply(lang === "am" ? "✅ መስኮች ተስተካክልዋል" : "✅ Fields updated.");
       const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
       const locked = await isEngagementLocked(ctx.from.id);
       await ctx.reply(
         buildPreviewText(updatedDraft, user),
         Markup.inlineKeyboard([
-          [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+          [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
           [ locked
-            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+            ? Markup.button.callback(lang === "am" ? "ስራው የለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ስራው የለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
           ]
         ], { parse_mode: "Markdown" })
       );
@@ -10521,16 +10564,16 @@ bot.action("TASK_FIELDS_DONE", async (ctx) => {
   );
 
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ መስኮች ተዘምነዋል" : "✅ Fields updated.");
+    await ctx.reply(lang === "am" ? "✅ መስኮች ተስተካክልዋል" : "✅ Fields updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+          ? Markup.button.callback(lang === "am" ? "ስራው የለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -10715,13 +10758,13 @@ bot.action(/USER_FIELD_(\d+)/, async (ctx) => {
   // Text used while user is still choosing (1–6 skills) – with buttons
   const summaryTextWithButtons =
     lang === "am"
-      ? `✅ የችሎታ መስኮች ምርጫዎ ተመዝግቧል። እስካሁን ያመረጡት:\n${numbered}\n\nሌላ መስክ ለመጨመር \"Add another field\" ይጫኑ ወይም ለመቀጠል \"Done\" ይጫኑ።`
+      ? `✅ የመረጡት መስክ ተመዝግቧል። እስካሁን የመረጧቸው፦\n${numbered}\n\nተጨማሪ ለመምረጥ "ልጨምር" የሚለውን፣ ወይም ለመቀጠል "ተጠናቅዋል" የሚለውን ይጫኑ።`
       : `✅ Your field selection has been recorded. So far you've chosen:\n${numbered}\n\nTap \"Add another field\" to pick more, or \"Done\" to continue.`;
 
   // Text used when user reaches the hard cap (7 skills) – NO buttons
   const summaryTextFinal =
     lang === "am"
-      ? `✅ የችሎታ መስኮች ምርጫዎ ተመዝግቧል። ያመረጡት:\n${numbered}`
+      ? `✅ የመረጡት መስክ ተመዝግቧል። የመረጧቸው፦\n${numbered}`
       : `✅ Your field selection has been recorded. You've chosen:\n${numbered}`;
 
   // Auto-complete if they hit the hard cap (7 skills)
@@ -10737,13 +10780,13 @@ bot.action(/USER_FIELD_(\d+)/, async (ctx) => {
     Markup.inlineKeyboard([
       [
         Markup.button.callback(
-          lang === "am" ? "ይጨመር" : "Add another field",
+          lang === "am" ? "ልጨምር" : "Add another field",
           "USER_FIELDS_PAGE_0"
         )
       ],
       [
         Markup.button.callback(
-          lang === "am" ? "በቃ" : "Done",
+          lang === "am" ? "ተጠናቅዋል" : "Done",
           "USER_FIELDS_DONE"
         )
       ]
@@ -10768,7 +10811,7 @@ bot.action("USER_FIELDS_DONE", async (ctx) => {
 
   const summaryText =
     lang === "am"
-      ? `✅ የመረጧቸው የስራ መስኮች ተመዝግበዋል። እስካሁን የመረጧቸው፦\n${numbered}\n\nተጨማሪ ለመጨመር «ይጨመር» የሚለውን፣ ለመቀጠል ደግሞ «በቃ» የሚለውን ይጫኑ።`
+      ? `✅ የመረጡት መስክ ተመዝግቧል። እስካሁን የመረጧቸው፦\n${numbered}\n\nተጨማሪ ለመምረጥ "ልጨምር" የሚለውን፣ ወይም ለመቀጠል "ተጠናቅዋል" የሚለውን ይጫኑ።`
       : `✅ Your field selection has been recorded. So far you've chosen:\n${numbered}\n\nTap \"Add another field\" to pick more, or \"Done\" to continue.`;
 
   // Edit the existing message:
@@ -10781,13 +10824,13 @@ bot.action("USER_FIELDS_DONE", async (ctx) => {
       Markup.inlineKeyboard([
         [
           Markup.button.callback(
-            lang === "am" ? "ይጨመር" : "Add another field",
+            lang === "am" ? "ልጨምር" : "Add another field",
             "_DISABLED_USER_FIELDS_ADD"
           )
         ],
         [
           Markup.button.callback(
-            lang === "am" ? `✔ በቃ` : `✔ Done`,
+            lang === "am" ? `✔ ተጠናቅዋል` : `✔ Done`,
             "_DISABLED_USER_FIELDS_DONE"
           )
         ]
@@ -10812,7 +10855,7 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   
   const lang = user.language || "en";
   const draft = await TaskDraft.findOne({ creatorTelegramId: ctx.from.id });
-  if (!draft) return ctx.reply(lang === "am" ? "ረቂቁ ጊዜው አልፎታል" : "Draft expired.");
+  if (!draft) return ctx.reply(lang === "am" ? "ስራውን ለመለጠፍ ጊዜው አልፎበታል" : "Draft expired.");
 
   // Highlight selected button and disable all
   await ctx.editMessageReplyMarkup({
@@ -10842,16 +10885,16 @@ bot.action(/TASK_SKILL_(.+)/, async (ctx) => {
   await draft.save();
 
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ የስልጠና ደረጃ ተዘምኗል" : "✅ Skill level updated.");
+    await ctx.reply(lang === "am" ? "✅ የስልጠና ደረጃው ተስተካክሏል" : "✅ Skill level updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+          ? Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -10904,7 +10947,7 @@ async function handlePaymentFee(ctx, draft) {
 
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am"
-      ? "✅ የክፍያ መጠን ተዘምኗል"
+      ? "✅ የክፍያው መጠን ተስተካክሏል "
       : "✅ Payment fee updated."
     );
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
@@ -10913,11 +10956,11 @@ async function handlePaymentFee(ctx, draft) {
     await ctx.reply(
       buildPreviewText(updatedDraft, userAgain),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [
           locked
-            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+            ? Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -10967,7 +11010,7 @@ async function handleTimeToComplete(ctx, draft) {
   
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am"
-      ? "✅ የስራ ጊዜ ተዘምኗል"
+      ? "✅ የስራው ማብቂያ ጊዜ ተስተካክሏል"
       : "✅ Time to complete updated."
     );
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
@@ -10976,11 +11019,11 @@ async function handleTimeToComplete(ctx, draft) {
     await ctx.reply(
       buildPreviewText(updatedDraft, userAgain),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [
           locked
-            ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-            : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+            ? Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+            : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -11023,7 +11066,7 @@ async function handleRevisionTime(ctx, draft) {
   // If in edit‐mode, show updated preview
   if (ctx.session.taskFlow?.isEdit) {
     await ctx.reply(lang === "am"
-      ? "✅ የማሻሻል ጊዜ ተመዘገበ።"
+      ? "✅ የማሻሻያ ጊዜው ተስተካክሏል።"
       : "✅ Revision time updated.");
 
     const updated = await TaskDraft.findById(ctx.session.taskFlow.draftId);
@@ -11031,8 +11074,8 @@ async function handleRevisionTime(ctx, draft) {
     await ctx.reply(
       buildPreviewText(updated, user),
       Markup.inlineKeyboard([
-        [ Markup.button.callback(lang==="am"?"ተግዳሮት አርትዕ":"Edit Task", "TASK_EDIT") ],
-        [ Markup.button.callback(lang==="am"?"ተግዳሮት ልጥፍ":"Post Task", "TASK_POST_CONFIRM") ]
+        [ Markup.button.callback(lang==="am"?"የስራው ዝርዝሮች ይስተካከል":"Edit Task", "TASK_EDIT") ],
+        [ Markup.button.callback(lang==="am"?"ስራው ይለጠፍ":"Post Task", "TASK_POST_CONFIRM") ]
       ], { parse_mode: "Markdown" })
     );
 
@@ -11076,17 +11119,17 @@ async function handlePenaltyPerHour(ctx, draft) {
   await draft.save();
   
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ የቅጣት መጠን ተዘምኗል" : "✅ Penalty per hour updated.");
+    await ctx.reply(lang === "am" ? "✅ የቅጣት መጠን ተስተካክሏል" : "✅ Penalty per hour updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+          ? Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -11115,17 +11158,17 @@ async function handleExpiryHours(ctx, draft) {
   await draft.save();
   
   if (ctx.session.taskFlow?.isEdit) {
-    await ctx.reply(lang === "am" ? "✅ የማብቂያ ጊዜ ተዘምኗል" : "✅ Expiry time updated.");
+    await ctx.reply(lang === "am" ? "✅ ሰሪ ለማግኘት ማብቂያ ጊዜው ተስተካክሏል" : "✅ Expiry time updated.");
     const updatedDraft = await TaskDraft.findById(ctx.session.taskFlow.draftId);
     const user = await User.findOne({ telegramId: ctx.from.id });
     const locked = await isEngagementLocked(ctx.from.id);
     await ctx.reply(
       buildPreviewText(updatedDraft, user),
       Markup.inlineKeyboard([
-        [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+        [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
         [ locked
-          ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-          : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+          ? Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+          : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
         ]
       ], { parse_mode: "Markdown" })
     );
@@ -11152,10 +11195,10 @@ async function handleExpiryHours(ctx, draft) {
   return ctx.reply(
     preview,
     Markup.inlineKeyboard([
-      [Markup.button.callback(lang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
+      [Markup.button.callback(lang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
       [ locked
-        ? Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
-        : Markup.button.callback(lang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")
+        ? Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")
+        : Markup.button.callback(lang === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")
       ]
     ], { parse_mode: "Markdown" })
   );
@@ -11339,7 +11382,7 @@ bot.action("EDIT_description", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "description",
@@ -11358,7 +11401,7 @@ bot.action("EDIT_relatedFile", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -11453,7 +11496,7 @@ bot.action("EDIT_fields", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   draft.fields = [];
   await draft.save();
@@ -11472,7 +11515,7 @@ bot.action("EDIT_skillLevel", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "skillLevel",
@@ -11498,7 +11541,7 @@ bot.action("EDIT_paymentFee", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "paymentFee",
@@ -11516,7 +11559,7 @@ bot.action("EDIT_timeToComplete", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "timeToComplete",
@@ -11534,7 +11577,7 @@ bot.action("EDIT_revisionTime", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "revisionTime",
@@ -11552,7 +11595,7 @@ bot.action("EDIT_penaltyPerHour", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "penaltyPerHour",
@@ -11570,7 +11613,7 @@ bot.action("EDIT_expiryHours", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራውን ለመለጠፍ ጊዜ አልፎበታል። እባክዎ ከነደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   ctx.session.taskFlow = {
     step: "expiryHours",
@@ -11594,15 +11637,15 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     try {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [
-          [Markup.button.callback(meLang === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-          [Markup.button.callback(meLang === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")]
+          [Markup.button.callback(meLang === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
+          [Markup.button.callback(meLang === "am" ? "ስራው የለጠፍ" : "Post Task", "_DISABLED_TASK_POST_CONFIRM")]
         ]
       });
     } catch (_) {}
 
     await ctx.answerCbQuery(
       meLang === 'am'
-        ? "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ተግዳሮት መለጠፍ አይችሉም።"
+        ? "በአሁን ሰዓት በሌላ ስራ ላይ ስለሆኑ፤ የያዙት ስራ ሙሉ ለሙሉ እስኪጠናቀቅ ድረስ አዲስ ስራ መለጠፍ አይችሉም።"
         : "You're actively involved in a task right now, so you can't post a task until this one is fully sorted.",
       { show_alert: true }
     );
@@ -11616,7 +11659,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   if (!draft) {
     const user = await User.findOne({ telegramId: ctx.from.id });
     const lang = user?.language || "en";
-    return ctx.reply(lang === "am" ? "❌ ረቂቁ ጊዜው አልፎታል። እባክዎ ተግዳሮት ልጥፍ እንደገና ይጫኑ።" : "❌ Draft expired. Please click Post a Task again.");
+    return ctx.reply(lang === "am" ? "❌ ስራው ለመለጠፍ ጊዜው አልፎበታል። እባክዎ ከንደገና ሌላ ይጀምሩ።" : "❌ Draft expired. Please click Post a Task again.");
   }
   
   const user = await User.findOne({ telegramId: ctx.from.id });
@@ -11627,11 +11670,11 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [Markup.button.callback(
-          user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", 
+          user.language === "am" ? "የስራው ዝርዝሮች ይስተካክል" : "Edit Task", 
           "_DISABLED_TASK_EDIT"
         )],
         [Markup.button.callback(
-          `✔ ${user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task"}`,
+          `✔ ${user.language === "am" ? "ስራው ይለጠፍ" : "Post Task"}`,
           "_DISABLED_TASK_POST_CONFIRM"
         )]
       ]
@@ -11690,12 +11733,12 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
         // Show the pay link + a “I’ve paid” verify button
         await ctx.reply(
           user.language === "am"
-            ? "💳 ክፍያ ለማጠናቀቅ ይህን ክፍትዎ፣ ከዚያ ‘ክፍያ አጠናቀርሁ’ ይጫኑ።"
-            : "💳 Open this to pay, then tap “I’ve paid”.",
+            ? "የስራውን ክፍያ ለመፈጸም ከታች ያለውን ቁልፍ ይጫኑ። የከፈሉት ገንዘብ ሰሪው ስራውን እርሶን በሚያረካ መልኩ እስኪያጠናቅቅ ወይም ገንዘብዎ ተመላሽ (Refund) እስኪደረግ ድረስ፣ በእኛ የአደራ ሂሳብ (Escrow Account) ውስጥ በአስተማማኝ ሁኔታ ተይዞ ይቆያል።"
+            : "💳 Click the button below to pay the task fee to our escrow account in which the funds will be securely held there until task doer satisfies your needs or until refund is triggered.",
           {
             reply_markup: {
               inline_keyboard: [
-                [{ text: "🔗 Open payment (Chapa)", url: checkout_url }],
+                [{ text: "🔗 Open payment link (Chapa)", url: checkout_url }],
                 // keep callback_data short (Telegram limit 64 bytes)
                 
               ]
@@ -11714,8 +11757,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
         try {
           await ctx.editMessageReplyMarkup({
             inline_keyboard: [
-              [Markup.button.callback(user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-              [Markup.button.callback(user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+              [Markup.button.callback(user.language === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
+              [Markup.button.callback(user.language === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")]
             ]
           });
         } catch (_) {}
@@ -11783,8 +11826,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     try {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [
-          [Markup.button.callback(user.language === "am" ? "ተግዳሮት አርትዕ" : "Edit Task", "TASK_EDIT")],
-          [Markup.button.callback(user.language === "am" ? "ተግዳሮት ልጥፍ" : "Post Task", "TASK_POST_CONFIRM")]
+          [Markup.button.callback(user.language === "am" ? "የስራው ዝርዝሮች ይስተካከል" : "Edit Task", "TASK_EDIT")],
+          [Markup.button.callback(user.language === "am" ? "ስራው ይለጠፍ" : "Post Task", "TASK_POST_CONFIRM")]
         ]
       });
     } catch (_) {}
@@ -11835,7 +11878,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.url(
-      me.language === "am" ? "ያመልክቱ / Apply" : "Apply / ያመልክቱ",
+      me.language === "am" ? "ላመልክት / Apply" : "Apply / ላመልክት",
       applyDeepLink(ctx, BOT_USERNAME, task._id)
     )]
   ]);
@@ -11869,7 +11912,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
     console.error("Failed to post task to channel:", err);
     const lang = user?.language || "en";
     return ctx.reply(lang === "am" 
-      ? "❌ ተግዳሮቱን ለማስቀመጥ አልተቻለም። እባክዎ ቆይተው እንደገና ይሞክሩ።" 
+      ? "❌ ስራውን መለጠፍ አልተቻለም። እባክዎ እንደገና ይሞክሩ።" 
       : "❌ Failed to post task. Please wait and try again."
     );
   }
@@ -11896,8 +11939,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
         const minutesLeft = Math.floor((timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
 
         const message = lang === "am" 
-          ? `⏰ ማስታወሻ: ሰራውን ለመስራት ያመለከቱትን ለመምረጥ የቀረው ሰዓት እያለቀ ነው!\n\n` +
-            `የሚቀረውም ሰዓት: ${hoursLeft} ሰዓት እና ${minutesLeft} ደቂቃ\n\n` 
+          ? `⏰ ማሳሰቢያ፡ የስራው ጊዜ ሊያልቅ ነው!\n\n` +
+            `ለስራው የቀረው ጊዜ፡ ${hoursLeft} ሰዓት ከ${minutesLeft} ደቂቃ\n\n`+ `አመልካቾችን ለመቀበል የቀረዎት ጊዜ በጣም አጭር ነው። እባክዎ (አመልካቾች ካሉ) በፍጥነት ይምረጡ።` 
           : `⏰ Reminder: Your task time is running out!\n\n` +
             `Time remaining for your task: ${hoursLeft} hours and ${minutesLeft} minutes\n\n` +
             `You have very little time left to accept applicants. Please select an applicant soon(if there are any).`;
@@ -11916,12 +11959,12 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   
   // Send confirmation message to user with Cancel Task button
   const confirmationText = user.language === "am" 
-    ? `✅ ተግዳሮቱ በተሳካ ሁኔታ ተለጥፏል!\n\nሌሎች ተጠቃሚዎች አሁን ማመልከት ይችላሉ።` 
-    : `✅ Task posted successfully!\n\nOther users can now apply.`;
+    ? `✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።` 
+    : `✅ Task posted successfully!\n\nOther users can now apply. But please note that once you accept any applications for here on out , you can't cancel this task.`;
   
   return ctx.reply(confirmationText, Markup.inlineKeyboard([
     [Markup.button.callback(
-      user.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", 
+      user.language === "am" ? "ስራው ይሰረዝ" : "Cancel Task", 
       `CANCEL_TASK_${task._id}`
     )]
   ]));
@@ -11955,7 +11998,7 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
     if (!verifyResp.ok || txStatus !== "success") {
       return ctx.answerCbQuery(
         me.language === "am"
-          ? "እስካሁን ክፍያዎ አልተቀበለም። እባክዎ መክፈሉን ያረጋግጡ።"
+          ? "የፈጸሙት ክፍያ እስካሁን አልደረሰንም። እባክዎ የክፍያውን ሂደት ማጠናቀቅዎን ያረጋግጡ።"
           : "We haven’t received your payment yet. Please make sure you’ve completed it.",
         { show_alert: true }
       );
@@ -12065,7 +12108,7 @@ bot.on('successful_payment', async (ctx) => {
       // No matching intent (should be rare); just stop.
       return ctx.reply(
         me.language === "am"
-          ? "⚠️ የክፍያ መረጃ አልተገኘም። እባክዎ ከስራ አስኪያጆች ጋር ያግኙ።"
+          ? "⚠️ የክፍያ ሂደቱን ማግኘት አልተቻለም። እባክዎ የደንበኞች አገልግሎትን ያግኙ።"
           : "⚠️ We couldn’t find the payment session. Please contact support."
       );
     }
@@ -12114,7 +12157,7 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
   const task = await Task.findById(taskId).populate("applicants.user");
   if (!task) {
     return ctx.reply(lang === "am" 
-      ? "❌ ተግዳሮቱ አልተገኘም" 
+      ? "❌ ስራው አልተገኘም" 
       : "❌ Task not found"
     );
   }
@@ -12129,7 +12172,7 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
       await ctx.editMessageReplyMarkup({
         inline_keyboard: [[
           Markup.button.callback(
-            user.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task", 
+            user.language === "am" ? "ስራው ይሰረዝ" : "Cancel Task", 
             "_DISABLED_CANCEL_TASK"
           )
         ]]
@@ -12139,7 +12182,7 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
     }
     
     return ctx.reply(lang === "am" 
-      ? "❌ ተግዳሮቱን መሰረዝ አይቻልም - አስቀድሞ አመልካች መርጠዋል ወይም ጊዜው አልፎታል" 
+      ? "❌ ይህን ስራ መሰረዝ አይችሉም፤ አመልካች ተቀብለዋል ወይም የስራው ጊዜ አልፎበታል" 
       : "❌ Task cannot be canceled - you've already accepted an applicant or it's expired"
     );
   }
@@ -12189,7 +12232,7 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
         }
 
         const okMsg = (lang === "am")
-          ? "💸 የኢስክሮ ገንዘብዎ ወደ መጀመሪያ የክፍያ መንገድዎ ተመልሷል።"
+          ? "💸 በአደራ ተይዞ የነበረው ገንዘብዎ ወደ መጀመሪያው የመክፈያ ሂሳብዎ ተመላሽ ተደርጓል።"
           : "💸 Your escrow funds have been refunded to your original payment method.";
         await ctx.reply(okMsg);
       } catch (apiErr) {
@@ -12217,7 +12260,7 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
         }
 
         const sorry = (lang === "am")
-          ? "💸 የተግዳሮቱ ክፍያ ወደ መጀመሪያ የክፍያ መንገድዎ እንመልሳለን። መመለሱ በሂደት ላይ ነው።"
+          ? "ለስራው የከፈሉት ገንዘብ መጀመሪያ ክፍያ ወደፈጸሙበት የመክፈያ ዘዴ ተመላሽ ይደረጋል። ገንዘቡን የመመለስ ሂደቱም በመከናወን ላይ ይገኛል።"
           : "💸 Your task fee will be refunded back to your original payment method. The refund is being processed.";
 
         await ctx.reply(sorry);
@@ -12260,7 +12303,7 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[
         Markup.button.callback(
-          `✔ ${user.language === "am" ? "ተግዳሮት ሰርዝ" : "Cancel Task"}`, 
+          `✔ ${user.language === "am" ? "ስራው ይሰረዝ" : "Cancel Task"}`, 
           "_DISABLED_CANCEL_TASK"
         )
       ]]
@@ -12288,30 +12331,30 @@ function buildProfileText(user, showCongrats = false) {
   
   const profileLines = user.language === "am" 
     ? [
-        showCongrats ? "🎉 እንኳን ደስ አለዎት! ይህ የዎት Taskifii ፕሮፋይል ነው፦" : "📋 የእርስዎ Taskifii ፕሮፋይል፦",
+        showCongrats ? "🎉 እንኳን ደስ አለዎት! ይህ የእርስዎ Taskifay ፕሮፋይል ነው፦" : "📋 የእርስዎ Taskifay ፕሮፋይል፦",
         `• ሙሉ ስም: ${user.fullName}`,
         `• ስልክ: ${user.phone}`,
         `• ኢሜይል: ${user.email}`,
         `• ተጠቃሚ ስም: @${user.username}`,
-        `• Taskifii መታወቂያ (ID): ${user._id}`,
+        `• Taskifay መታወቂያ (ID): ${user._id}`,
         `• የስራ ልምድ(ዕውቀት):\n${skillsList}`,
         `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`,
-        `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
+        `• የተመዘገቡበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
           month: "short", day: "numeric", year: "numeric",
           hour: "numeric", minute: "2-digit", hour12: true
         })} GMT+3`,
-        `🔹 እስካሁን የተቀበሉት: ${user.stats.totalEarned.toFixed(2)} ብር`,
-        `🔹 እስካሁን ያከፈሉት: ${user.stats.totalSpent.toFixed(2)} ብር`,
-        `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
+        `🔹 እስከዛሬ የሰሩት ብር: ${user.stats.totalEarned.toFixed(2)} ብር`,
+        `🔹 እስከዛሬ ያወጡት ብር: ${user.stats.totalSpent.toFixed(2)} ብር`,
+        `🔹 ለእርሶ የተሰጦት አማካኝ ግምገማዎች: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
       ]
     : [
-        showCongrats ? "🎉 Congratulations! Here is your Taskifii profile:" : "📋 Your Taskifii Profile:",
+        showCongrats ? "🎉 Congratulations! Here is your Taskifay profile:" : "📋 Your Taskifii Profile:",
         `• Full Name: ${user.fullName}`,
         `• Phone: ${user.phone}`,
         `• Email: ${user.email}`,
         `• Username: @${user.username}`,
-        `• Taskifii ID: ${user._id}`,
+        `• Taskifay ID: ${user._id}`,
         `• Your skills:\n${skillsList}`,
         `• Language: ${user.language === "am" ? "Amharic" : "English"}`,
         `• Registered: ${user.createdAt.toLocaleString("en-US", { 
@@ -12585,12 +12628,12 @@ bot.action("EDIT_USERNAME", async (ctx) => {
   const buttons = [];
   if (!ctx.session.usernameProvided) {
     buttons.push(Markup.button.callback(
-      user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+      user.language === "am" ? "አዎ ይሁን" : "Yes, keep it",
       "USERNAME_KEEP_EDIT"
     ));
   } else {
     buttons.push(Markup.button.callback(
-      user.language === "am" ? "አዎን፣ ይቀበሉ" : "Yes, keep it",
+      user.language === "am" ? "አዎ ይሁን" : "Yes, keep it",
       "_DISABLED_USERNAME_KEEP_EDIT"
     ));
   }
@@ -12647,15 +12690,21 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
 
   // If username was already provided, don't proceed
   if (ctx.session?.usernameProvided) {
-    return ctx.answerCbQuery("Please confirm the new username first", { show_alert: true });
+    const lang = user.language || "en";
+    const msg = lang === "am"
+      ? "እባክዎ መጀመሪያ አዲሱን ዩዘር ኔም ያረጋግጡ።"
+      : "Please confirm the new username first";
+
+    return ctx.answerCbQuery(msg, { show_alert: true });
   }
+
 
   // Highlight "Yes, keep it" and disable it
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[
         Markup.button.callback(
-          user.language === "am" ? "✔ አዎን፣ ይቀበሉ" : "✔ Yes, keep it",
+          user.language === "am" ? "✔ አዎ ይሁን" : "✔ Yes, keep it",
           "_DISABLED_USERNAME_KEEP_EDIT"
         )
       ]]
@@ -12668,7 +12717,7 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
   if (!handle) {
     return ctx.reply(
       user.language === "am"
-        ? "ምንም Telegram የተጠቃሚ ስም የለዎትም። እባክዎ ትክክለኛ ይጻፉ።"
+        ? "ምንም የTelegram የተጠቃሚ ስም የለዎትም። እባክዎ ትክክለኛ የTelegram የተጠቃሚ ስሞ ይላኩ።"
         : "It seems you don't have a Telegram username. Please type a valid one."
     );
   }
@@ -13012,7 +13061,11 @@ bot.action("CONFIRM_NEW_USERNAME", async (ctx) => {
   if (!user) return ctx.reply("User not found. Please /start again.");
 
   if (!ctx.session?.newUsername) {
-    return ctx.reply("No username to confirm. Please try again.");
+    return ctx.reply(
+      user.language === "am"
+        ? TEXT.noUsernameToConfirm.am
+        : TEXT.noUsernameToConfirm.en
+    );
   }
 
   // Highlight "Yes" and disable both buttons
@@ -13271,7 +13324,7 @@ bot.action("FIND_TASK", async (ctx) => {
     // Send message with the channel link
     return ctx.reply(
       user.language === "am" 
-        ? `🔍 ተግዳሮቶችን ለማግኘት ወደ የተግዳሮት ሰርጥ ይሂዱ: ${channelLink}` 
+        ? `🔍 የተለያዩ ስራዎችን ለማግኘት ወደ ቴሌግራም ቻናላችን ይሂዱ: ${channelLink}` 
         : `🔍 To find tasks, visit our tasks channel: ${channelLink}`,
       { disable_web_page_preview: true }
     );
@@ -13280,7 +13333,7 @@ bot.action("FIND_TASK", async (ctx) => {
     // Fallback message if link generation fails
     return ctx.reply(
       user.language === "am" 
-        ? "የተግዳሮት ሰርጡን ለማግኘት እባክዎ በቀጥታ ወደ ሰርጣችን ይሂዱ" 
+        ? "የተለያዩ ስራዎችን ለማግኘት እባክዎ በቀጥታ ወደ ቴሌግራም ቻናላችን ይሂዱ" 
         : "Please visit our channel directly to find tasks"
     );
   }
@@ -13297,8 +13350,18 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
     // Verify with Chapa (hosted checkout)
     const ok = await verifyChapaTxRef(intent.chapaTxRef);
     if (!ok) {
-      return ctx.reply("🚧 We haven't received a success from Chapa yet. Please complete the payment page and try again.");
+      // Try to detect the language (Amharic vs English)
+      const langCode = (ctx.from && ctx.from.language_code) || "en";
+      const lang = String(langCode).toLowerCase().startsWith("am") ? "am" : "en";
+
+      const msg =
+        (TEXT.chapaHostedPending && TEXT.chapaHostedPending[lang]) ||
+        (TEXT.chapaHostedPending && TEXT.chapaHostedPending.en) ||
+        "🚧 We haven't received a success from Chapa yet. Please complete the payment page and try again.";
+
+      return ctx.reply(msg);
     }
+
 
     // Mark paid if not already
     if (intent.status !== "paid") {
@@ -13403,7 +13466,7 @@ bot.on('message', async (ctx, next) => {
     // Filter out the two system prompts you explicitely do NOT want included
     const txt = ctx.message?.text || ctx.message?.caption || "";
     const blockedEn = "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
-    const blockedAm = "ይቅርታ፣ አሁን በአንድ ተግዳሮት ላይ በቀጥታ ተሳትፈዋል። ይህ ተግዳሮት እስከሚጠናቀቅ ወይም የመጨረሻ ውሳኔ እስኪሰጥ ድረስ ምናሌን መክፈት፣ ተግዳሮት መለጠፍ ወይም ሌሎች ተግዳሮቶች ላይ መመዝገብ አይችሉም።";
+    const blockedAm = "በአሁን ሰዓት በሂደት ላይ ያለ ስራ ስላለዎት፤ ይህ ጉዳይ ተጠናቆ እልባት እስኪያገኝ ድረስ ሜኑ መክፈት፣ አዲስ ስራ መለጠፍ ወይም ለሌሎች ስራዎች ማመልከት አይችሉም።";
 
     
     if (
@@ -13564,13 +13627,13 @@ bot.action(/^PAYOUT_PAGE_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
       // A bank has already been selected; show which one is marked
       promptText =
         lang === "am"
-          ? "እባክዎ የእርስዎን ባንክ ይምረጡ። (የተመረጠው በ ✔ ይታያል)"
+          ? "እባክዎ የእርስዎን ባንክ ይምረጡ። (አሁን ላይ የተመረጠው በ ✔ ይታያል)"
           : "Choose a bank for payout (current selection marked with ✔):";
     } else {
       // No bank has been selected yet
       promptText =
         lang === "am"
-          ? "እባክዎ የእርስዎን ባንክ ይምረጡ።"
+          ? "እባክዎ ክፍያውን የሚቀበሉበት ባንክ ይምረጡ።"
           : "Please choose your bank for payout:";
     }
   } else {
@@ -13586,7 +13649,7 @@ bot.action(/^PAYOUT_PAGE_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
   const penaltyLine =
     latePenalty > 0
       ? (lang === "am"
-          ? `\n\n⚠️ ስራውን በዘገይተው ስለላኩ፣ ከTaskifii እና Chapa ኮሚሽን በተጨማሪ *${latePenalty} ብር* ቅጣት ከክፍያዎ ይቀነሳል።`
+          ? `\n\n⚠️ ስራውን ያስረከቡት ዘግይተው ስለሆነ፤ ከTaskifii እና Chapa ኮሚሽን በተጨማሪ አጠቃላይ የ*${latePenalty} ብር* ቅጣት ከክፍያዎ ላይ ተቀናሽ ይደረጋል።`
           : `\n\n⚠️ Because you submitted late, in addition to Taskifii + Chapa commission, a total penalty of *${latePenalty} birr* will be deducted from your task fee.`)
       : "";
 
@@ -13628,7 +13691,7 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
   // Prompt user for the account number of the selected bank
   const lang = (await User.findOne({ telegramId: userId }))?.language || "en";
   const promptText = (lang === "am") 
-    ? `🏦 ${bank.name} ተመርጧል። እባክዎ የሂሳብ ቁጥር ያስገቡ፦` 
+    ? `🏦 ${bank.name} ተመርጧል። እባክዎ የዚህ ባንክ ሂሳብ ቁጥሮ ያስገቡ፦` 
     : `🏦 *${bank.name}* selected. Please enter the account number:`;
   // If a prompt message was sent before, edit it; otherwise, send a new prompt
   if (pending.accountPromptMessageId) {
@@ -13800,7 +13863,7 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
       // None of the stored messages could be copied -> treat as "no submission"
       const btnText = TEXT.completedSentBtn[doerLang] || TEXT.completedSentBtn.en;
       const errText = (doerLang === 'am')
-        ? `እባክዎ የተጠናቀቀውን ስራ ወይም ግልጽ ማረጋገጫ ከላኩ በኋላ ብቻ "${btnText}" ይጫኑ።`
+        ? `እባክዎ የተጠናቀቀውን ስራ ወይም ስራው መጠናቀቁን የሚያሳይ ግልጽ ማረጋገጫ ከላኩ በኋላ ብቻ "${btnText}" ይጫኑ።`
         : `Please send the completed task or clear proof of completion first, then press "${btnText}."`;
 
       await ctx.reply(errText);
@@ -13857,8 +13920,8 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     
     // Send the creator a decision prompt with "Valid" and "Needs Fixing" options
     const decisionMsg = (lang === 'am')
-      ? "የተጠናቋል ስራ ተልኳል። እባክዎ በታች ያሉትን አማራጮች ይምረጡ።"
-      : "The completed work has been submitted. Please choose below.";
+      ? "የተጠናቀቀው ሥራ ቀርቧል። የክለሳ ጊዜው (Revision time) ከአሁን ጀምሮ የሚቆጠር ሲሆን፣ በተሰጠው የጊዜ ገደብ የመጀመሪያ አጋማሽ ውስጥ ከታች ያሉትን ቁልፎች በመጠቀም ሥራውን ማፅደቅ ወይም ማስተካከያ መጠየቅ ይጠበቅብዎታል። በዚህ ጊዜ ውስጥ ውሳኔ ካልሰጡ ግን፣ ጉዳዩን መርምረን ተገቢውን የዲሲፕሊን እርምጃ የምንወስድ ይሆናል።"
+      : "The completed work has been submitted. Please validate the task or request fix/es with the buttons below within the first half of the revision time (which starts now)in which if you don't decide within that time ,we will study this case and give the appropriate disciplinary measurement.";
     const decisionKeyboard = Markup.inlineKeyboard([
       [
         Markup.button.callback(TEXT.validBtn[lang], `CREATOR_VALID_${task._id}`),
@@ -13924,7 +13987,7 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
                 {
                   inline_keyboard: [[
                     Markup.button.callback(
-                      (freshTask.creator.language === 'am' ? "🛠 ማስተካከል ማሳወቂያ ላክ" : "🛠 Send Fix Notice"),
+                      (freshTask.creator.language === 'am' ? "🛠 የማስተካከያው ዝርዝሮች ይላኩ" : "🛠 Send Fix Notice"),
                       "_DISABLED_SEND_FIX_NOTICE"
                     )
                   ]]
@@ -13953,11 +14016,13 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
             );
           } catch (_) {}
 
-          // 4) Notifications
+         // 4) Notifications
           try {
             await globalThis.TaskifiiBot.telegram.sendMessage(
               creatorUser.telegramId,
-              "🚫 You’ve been temporarily banned from Taskifii for not giving the required feedback (Valid vs Needs Fixing) within the first half of the revision period. Taskifii will investigate and make a final decision."
+              creatorUser.language === 'am'
+                ? "🚫 በክለሳ ጊዜው የመጀመሪያ አጋማሽ ላይ መስጠት የነበረብዎትን ግብረ-መልስ (ማለትም 'ትክክል ነው' ወይም 'ማስተካከያ ይፈልጋል' ብለው) ባለመስጠትዎ ምክንያት፤ ከTaskifii ለጊዜው ታግደዋል። እኛ Taskifay ጉዳዩን አጣርተን የመጨረሻ ውሳኔ እስከምንሰት ድረስ ይታገሱ ።"
+                : "🚫 You’ve been temporarily banned from Taskifii for not giving the required feedback (Valid vs Needs Fixing) within the first half of the revision period. Taskifii will investigate and make a final decision."
             );
           } catch (_) {}
 
@@ -13967,7 +14032,9 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
             if (doerUser) {
               await globalThis.TaskifiiBot.telegram.sendMessage(
                 doerUser.telegramId,
-                "ℹ️ The task creator didn’t provide feedback in time. Taskifii will review and decide as soon as possible. You can use Taskifii again in the meantime."
+                doerUser.language === 'am'
+                  ? "ℹ️ የስራው ፈጣሪ በተሰጠው ጊዜ ገደብ ውስጥ ግብረ-መልስ አልሰጠም። ስለሆነም Taskifay ጉዳዩን ገምግሞ በተቻለ ፍጥነት ውሳኔ ይሰጣል። እስከዚያው ድረስ Taskifayን እንደተለመደው መጠቀም መቀጠል ይችላሉ።"
+                  : "ℹ️ The task creator didn’t provide feedback in time. Taskifii will review and decide as soon as possible. You can use Taskifii again in the meantime."
               );
             }
           } catch (_) {}
@@ -14116,13 +14183,13 @@ bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
 
   // Notify the creator to list all issues and provide a "Send Fix Notice" button
   const instructMsg = (lang === 'am')
-    ? "❗ እባክዎን ያስተካክሏቸው ሁሉንም ጉዳዮች በመልእክቶች ተዝርዞ ይጻፉ። ከተግባሩ ግልባጭ ውጪ ማስፈልግ አይፈቀድም። የቀረውን ጊዜ ተጠቅመው ይህን ዝርዝር ያቅርቡ። ከተጨረሱ በኋላ “ማስተካከል ማሳወቂያ ላክ” የሚለውን ቁልፍ ይጫኑ።"
+    ? "❗ እባክዎ መስተካከል ያለባቸውን ነገሮች በሙሉ ከታች ለየብቻ በተነጠሉ መልዕክቶች ይዘርዝሩ። ከመጀመሪያው የስራ ትዕዛዝ (Task description) ውጪ የሆኑ አዳዲስ ለውጦችን መጠየቅ አይችሉም። ይህንን ዝርዝር ለመላክ ጊዜ ያለዎት፣ ለማስተካከያ የተሰጠው ጊዜ ግማሽ እስኪጠናቀቅ ድረስ ብቻ ነው። ዝርዝሩን ልከው ሲጨርሱ 🛠 የማስተካከያ ዝርዝሮች ይላኩ የሚለውን ይጫኑ።"
     : "❗ Please *list everything* that needs fixing in separate messages below. You cannot request changes beyond the original task description. You have until halfway through the revision period to send this list. Once done, tap **Send Fix Notice**.";
   const sentPrompt = await ctx.reply(instructMsg, {
   parse_mode: "Markdown",
   ...Markup.inlineKeyboard([
     [ Markup.button.callback(
-        lang === 'am' ? "🛠 ማስተካከል ማሳወቂያ ላክ" : "🛠 Send Fix Notice",
+        lang === 'am' ? "🛠 የማስተካከያ ዝርዝሮች ይላኩ" : "🛠 Send Fix Notice",
         `CREATOR_SEND_FIX_NOTICE_${taskId}`
     ) ]
   ])
@@ -14165,8 +14232,8 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   // ✅ VALIDATION FIRST (so NOTHING ELSE happens if invalid)
   if (!work.fixRequests || work.fixRequests.length === 0) {
     const alertMsg = (lang === 'am')
-      ? "❌ እባክዎ ቢያንስ አንድ ነገር ይላኩ ወይም ይጻፉ—ተግዳሮቱን አድራጊ ትክክል ምን እንዲያስተካክል እንዲያውቅ።"
-      : "❌ Please send at least one thing that explains to the task doer what to fix.";
+      ? "❌ እባክዎ ስራውን ለሰራው ሰው በትክክል ምን መስተካከል እንዳለበት የሚገልጽ ቢያንስ አንድ ማብራሪያ ይላኩ።"
+      : "❌ Please send at least one thing that explains to the task doer exactly what to fix.";
     return ctx.answerCbQuery(alertMsg, { show_alert: true });
   }
 
@@ -14210,7 +14277,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
     try { await work.save(); } catch (e) { console.error("Failed to clear deleted fixRequests:", e); }
 
     const alertMsg = (lang === 'am')
-      ? "❌ ያላኩት ማስተካከል መልዕክቶች ተሰርዘዋል ወይም አልተገኙም። እባክዎ እንደገና ቢያንስ አንድ መልዕክት/ፋይል ይላኩ፣ ከዚያ ቁልፉን ይጫኑ።"
+      ? "የላኳቸው የማስተካከያ መልዕክቶች አልተገኙም ወይም ተሰርዘዋል። እባክዎ ቢያንስ አንድ የማስተካከያ መልዕክት ወይም ፋይል ድጋሚ ይላኩ፤ ከዚያም ቁልፉን ይጫኑ።"
       : "❌ Your fix notice messages were deleted or could not be found. Please send at least one fix message/file again, then tap the button.";
 
     return ctx.answerCbQuery(alertMsg, { show_alert: true });
@@ -14230,7 +14297,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   try {
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[ Markup.button.callback(
-        lang === 'am' ? "✔ ማስተካከል ማሳወቂያ ተልኳል" : "✔ Fix Notice Sent",
+        lang === 'am' ? "✔ 🛠 የማስተካከያ ዝርዝሮች ይላኩ" : "✔ 🛠 Fix Notice Sent",
         `_DISABLED_SEND_FIX_NOTICE`
       ) ]]
     });
@@ -14238,7 +14305,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   // Notify the doer with options to report or send corrected work
   const doerLang = doerUser.language || 'en';
   const doerMsgText = (doerLang === 'am')
-    ? "⚠️ ተግዳሮቱን ፈጣሪ ማስተካከል እንዳለበት ጠይቋል። እባክዎን የተጠየቁትን ነገሮች አስተካክሏቸው የተስተካከለውን ስራ ይላኩ። የተሳሳቱ ጥያቄዎች እንዳሉ ቢያስቡ ሪፖርት ማድረግ ይችላሉ።"
+    ? "⚠️ አስሪው በስራው ላይ ማስተካከያ እንዲደረግ ጠይቋል። እባክዎን የተሰጠውን አስተያየት መሰረት በማድረግ ሥራውን አስተካክለው ይላኩ። ከስምምነቱ ውጪ የሆነ ጥያቄ ካለ ሪፖርት ማድረግ ይችላሉ።"
     : "⚠️ The client has requested some revisions. Please address the issues and send the corrected work. If any request seems out of scope, you may report it.";
   // capture the buttons message id so we can inactivate later without deleting it
   const sentToDoer = await ctx.telegram.sendMessage(
@@ -14556,13 +14623,20 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
 
   // 2. Immediate popup to the doer so they know something happened
   try {
+    // Get the user's language (default to English if not set)
+    const me = ctx.session?.user || await User.findOne({ telegramId: ctx.from.id });
+    const lang = me?.language || "en";
+
     await ctx.answerCbQuery(
-      "Your report has been registered. Taskifii is locking the task and will investigate.",
+      lang === "am"
+        ? "ሪፖርትዎ ተመዝግቧል፤ ታስኪፌይ ስራውን አግዶ ጉዳዩን ያጣራል።"
+        : "Your report has been registered. Taskif is locking the task and will investigate.",
       { show_alert: true }
     );
   } catch (e) {
     // not critical
   }
+
 
   // 3. Run the escalation logic (ban both, notify both, dump evidence, etc.)
   try {
@@ -14608,7 +14682,7 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     if (new Date() > effectiveEnd) {
       await ctx.answerCbQuery(
         (work.doer?.language || 'en') === 'am'
-          ? "የማሻሻያ ጊዜ አልፎታል።"
+          ? "የማሻሻያ ጊዜ አልፎበታል።"
           : "The revision window has expired.",
         { show_alert: true }
       );
@@ -14626,7 +14700,7 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   if (!correctedEntries.length) {
     await ctx.answerCbQuery(
       (work.doer?.language || 'en') === 'am'
-        ? "አስተካክሏት ያላኩት ምንም መልእክት አልተገኘም። እባክዎን የተስተካከለውን ስራ በመመልከት ማስተላለፊያ ላኩ።"
+        ? "የታረመ ሥራ አልተገኘም። እባክዎ ይህን ቁልፍ ከመጫንዎ በፊት የታረሙ ፋይሎችን ወይም መልዕክቶችን ይላኩ።"
         : "No corrected work was detected. Please send the corrected files or messages before tapping this button.",
       { show_alert: true }
     );
@@ -14662,7 +14736,7 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   if (successCount === 0) {
     await ctx.answerCbQuery(
       (work.doer?.language || "en") === "am"
-        ? "አስተካክሏት ያላኩት ምንም መልእክት አልተገኘም። እባክዎን የተስተካከለውን ስራ እንደገና ላኩ።"
+        ? "ምንም የተስተካከለ ፋይል ወይም መልእክት አልተገኘም (ምናልባት መልእክቶቹ ተሰርዘው ይሆናል)። ይህንን ቁልፍ ከመጫንዎ በፊት፤ እባክዎ የተስተካከሉትን ፋይሎች ወይም መልእክቶች እንደገና ይላኩ።"
         : "No corrected work was detected (the messages may have been deleted). Please send the corrected files/messages again before tapping this button.",
       { show_alert: true }
     );
@@ -14692,10 +14766,10 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
 
   // send a prompt to the creator to approve or reject the corrected work
   const creatorLang = creatorUser.language || 'en';
-  const approveLabel = creatorLang === 'am' ? "✅ አጸድቅ" : "✅ Approve";
-  const rejectLabel  = creatorLang === 'am' ? "❌ እስት ፍቀድ" : "❌ Reject";
+  const approveLabel = creatorLang === 'am' ? "✅ አሪፍ ነው በቃ" : "✅ Approve";
+  const rejectLabel  = creatorLang === 'am' ? "❌ አሁንም ችግር አለበት" : "❌ Reject";
   const infoText = creatorLang === 'am'
-    ? "የተስተካከለው ስራ ተልኳል። እባክዎ ይመልከቱና ለመቀበል ወይም ለመካከል ቁልፍ ይጫኑ።"
+    ? "የተስተካከለው ስራ ቀርቧል፤ እባክዎ ያጽድቁት ወይም ውድቅ ያድርጉት።"
     : "The corrected work has been submitted. Please review and approve or reject.";
 
   const sent = await ctx.telegram.sendMessage(
