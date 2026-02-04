@@ -390,6 +390,22 @@ const DoerWorkSchema = new mongoose.Schema({
   // so we can flip it to a checked/inert state.
   doerControlMessageId: { type: Number },
   // Add these fields inside DoerWorkSchema
+    // --- NEW: creator decision + revision-first-half helpers ---
+  // Message id of the "Valid / Needs Fixing" keyboard sent to the creator
+  creatorDecisionMessageId: { type: Number },
+
+  // Set to true as soon as the creator clicks either "Valid" or "Needs Fixing"
+  creatorDecisionMessageIdChosen: { type: Boolean, default: false },
+
+  // When the creator chose "Needs Fixing" (used by the half-window timer)
+  needsFixChosenAt: { type: Date },
+
+  // Message id of the "🛠 Send Fix Notice" prompt shown to the creator
+  fixPromptMessageId: { type: Number },
+
+  // When the creator first started listing fixes (for tracking / audits)
+  revisionRequestedAt: { type: Date },
+
   reminder65SentAt: { type: Date },       // ensures the 65% reminder is sent once
   timeUpNotifiedAt: { type: Date },       // ensures the "time up" notice is sent once
   penaltyStartAt:   { type: Date },       // when the late-penalty window begins
