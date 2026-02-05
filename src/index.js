@@ -2857,7 +2857,7 @@ function splitIntoChunks(text, maxLen = 3500) {
 
 // Chapa refund — verify first, then refund using Chapa's canonical reference if present
 // Chapa refund — verify first, then refund using the correct mode/secret
-async function refundEscrowWithChapa(intent, reason = "Task canceled by creator", options = {}) {
+async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
   if (intent?.provider !== "chapa_hosted" || !intent?.chapaTxRef) {
     const err = new Error("Not a Chapa-hosted transaction (no chapaTxRef/provider mismatch).");
     err.code = "NOT_CHAPA_HOSTED";
@@ -2875,40 +2875,27 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
     throw e;
   }
 
+  // Pick the matching secret for refund
+  const secret = v.mode === "test" ? CHAPA_SECRETS.test : CHAPA_SECRETS.live;
+  if (!secret) throw new Error(`Missing Chapa ${v.mode} secret key`);
+
   // 2) Prefer Chapa canonical reference if provided
   const chapaReference =
     (v.data && v.data.data && (v.data.data.reference || v.data.data.tx_ref)) || originalTxRef;
 
-  // 3) Decide the refund amount:
-  //    - if options.amountOverride is provided → partial refund
-  //    - otherwise → full refund of intent.amount
-  const override =
-    options && typeof options.amountOverride === "number"
-      ? Number(options.amountOverride)
-      : null;
-
+  // 3) Refund (amount omitted = full refund; include if you want partial)
   const form = new URLSearchParams();
-  const amountToRefund =
-    override && override > 0
-      ? override
-      : (intent.amount || null);
-
-  if (amountToRefund) {
-    form.append("amount", String(amountToRefund));
-  }
+  if (intent.amount) form.append("amount", String(intent.amount));
   form.append("reason", reason);
 
-  const res = await fetch(
-    `https://api.chapa.co/v1/refund/${encodeURIComponent(chapaReference)}`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${secret}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: form.toString(),
-    }
-  );
+  const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(chapaReference)}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secret}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  });
 
   const data = await res.json().catch(() => ({}));
   if (!res.ok || (data?.status && String(data.status).toLowerCase() !== "success")) {
@@ -2918,7 +2905,6 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
   }
   return data;
 }
-
 async function refundStaleOrDuplicateEscrow({ intent, user, reason }) {
   try {
     if (!intent || !user) return;
@@ -6513,51 +6499,9 @@ async function retryQueuedRefunds() {
 
     for (const intent of queued) {
       try {
-        // Load the related task & creator once (used both for amount logic and audit)
-        const task = intent.task ? await Task.findById(intent.task) : null;
+        const data = await refundEscrowWithChapa(intent, "Retry queued refund");
+        const task = await Task.findById(intent.task);
         const creator = task ? await User.findById(task.creator) : null;
-
-        // Decide whether this refund is full or a late-penalty partial refund
-        let amountOverride = null;
-        if (task && intent.user) {
-          try {
-            const totalAmountRaw = intent.amount ?? task.paymentFee ?? 0;
-            const totalAmount = Number(totalAmountRaw) || 0;
-            const penaltyPerHour = Number((task.penaltyPerHour ?? task.latePenalty) || 0);
-
-            if (totalAmount > 0 && penaltyPerHour > 0) {
-              const work = await DoerWork.findOne({ task: task._id, doer: intent.user })
-                .select("penaltyStartAt completedAt")
-                .lean();
-
-              if (work?.penaltyStartAt && work?.completedAt) {
-                const start = new Date(work.penaltyStartAt);
-                const end = new Date(work.completedAt);
-
-                if (end > start) {
-                  const hoursLate = Math.ceil((end.getTime() - start.getTime()) / 3600000);
-                  const maxDeduct = Math.max(0, totalAmount * 0.65);
-                  let latePenaltyDeduction = Math.min(maxDeduct, hoursLate * penaltyPerHour);
-                  latePenaltyDeduction = round2(latePenaltyDeduction);
-
-                  const candidate = round2(Math.max(0, latePenaltyDeduction * 0.5));
-                  if (candidate > 0 && candidate < totalAmount) {
-                    // This looks like a late-penalty partial refund
-                    amountOverride = candidate;
-                  }
-                }
-              }
-            }
-          } catch (calcErr) {
-            console.error(
-              "Failed to recompute late-penalty refund amount for queued refund:",
-              calcErr
-            );
-          }
-        }
-
-        const refundOptions = amountOverride ? { amountOverride } : undefined;
-        const data = await refundEscrowWithChapa(intent, "Retry queued refund", refundOptions);
 
         const chapaReference =
           (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
@@ -6569,18 +6513,11 @@ async function retryQueuedRefunds() {
           { $set: { refundStatus: "pending", refundedAt: null, chapaReference, refundId } }
         );
 
-        if (task && creator) {
+        if (task) {
           await sendRefundAudit(globalThis.TaskifiiBot, {
-            tag: "#refund successful",
-            task,
-            creator,
-            intent,
-            extra: {
-              reason: "Retry queued refund (provider accepted)",
-              chapaReference,
-              refundId,
-              refundAmount: amountOverride || intent.amount
-            }
+            tag: "#refund successful", // ✅ new text
+            task, creator, intent,
+            extra: { reason: "Retry queued refund (provider accepted)", chapaReference, refundId }
           });
         }
         console.log("Queued refund request accepted by provider:", intent._id.toString());
@@ -6601,7 +6538,6 @@ async function retryQueuedRefunds() {
     console.error("retryQueuedRefunds error:", e);
   }
 }
-
 
 
 
@@ -7002,6 +6938,31 @@ bot.use(applyGatekeeper);
 
     // Rest of your existing start handler...
     if (user && user.onboardingStep === "completed") {
+      // 🔹 NEW: whenever a fully registered, unbanned user (with no active task)
+      // hits /start, clear any half-finished flows so the bot doesn't get confused.
+      //
+      // This makes all older "waiting for reply" sessions stop, and any buttons
+      // that depended on them become effectively inert (they stay visible but
+      // no longer control anything).
+
+      if (ctx.session) {
+        // Posting / editing task flow
+        delete ctx.session.taskFlow;
+
+        // Applying-to-task pitch flow
+        delete ctx.session.applyFlow;
+
+        // For deep-link /start apply flows for unregistered users (not needed here anymore)
+        delete ctx.session.pendingTaskId;
+
+        // Profile / username / bank editing flow
+        delete ctx.session.editing;
+        delete ctx.session.newUsername;
+        delete ctx.session.usernameProvided;
+        delete ctx.session.editUsernamePromptId;
+      }
+
+      // ⬇️ Leave everything that was already here as-is
       // If there's a start payload for applying to a task, process it
       if (startPayload && startPayload.startsWith('apply_')) {
         const taskId = startPayload.split('_')[1];
@@ -7014,8 +6975,12 @@ bot.use(applyGatekeeper);
         const prompt = lang === "am"
           ? "ለዚህ ስራ ብቁ የሚያደርጎትን ክህሎት እና ልምድ የሚገልጽ አጭር መልዕክት (ከ20–500 ፊደላት) ይጻፉ። በስራው አቅራቢ የመመረጥ እድሎን ለማስፋት፤ ቀደም ብለው የሰሯቸውን ስራዎች ናሙና ወይም የፖርትፎሊዮ ሊንክ (ለምሳሌ፡ የLinkedIn፣ የግል ዌብሳይት፣ ወይም የቴሌግራም ቻናል ሊንክዎን) አብረው ያካቱ።"
           : "Please write a brief message about what you bring(the skills and expertise) to this task (20–500 characters). And for a better chance of the task creator picking you to do the task, make sure to also include your portfolio links(your linkedln link, your portfolio website link, your portfolio telegram channel link, etc.).";
+
         return ctx.reply(prompt);
       }
+
+      // ... and then your existing "show main menu" code ...
+
       
       // If no start payload, show menu with new buttons
       const lang = user.language || "en";
@@ -9576,98 +9541,6 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
         } else {
           // already succeeded, just log and continue (no double payout)
           console.log("Payout already marked succeeded for task", String(task._id));
-        }
-        // === NEW: Partial refund of 50% of the late penalty back to the creator (if any) ===
-        try {
-          const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
-
-          const latePenaltyTotal = Number(pending.latePenaltyBirr || 0);
-          const totalAmountRaw = intent ? intent.amount : (task.paymentFee || 0);
-          const totalAmount = Number(totalAmountRaw) || 0;
-
-          // Only attempt a partial refund when there was a late-penalty deduction,
-          // and when we know the original funded amount.
-          if (intent && latePenaltyTotal > 0 && totalAmount > 0 && intent.refundStatus !== "succeeded") {
-            const rawRefund = latePenaltyTotal * 0.5;
-            const refundAmount = round2(Math.max(0, Math.min(totalAmount, rawRefund)));
-
-            if (refundAmount > 0) {
-              // Mark as "requested" (so retryQueuedRefunds can also pick it up later)
-              await PaymentIntent.updateOne(
-                { _id: intent._id, refundStatus: { $ne: "succeeded" } },
-                { $set: { refundStatus: "requested" } }
-              );
-
-              try {
-                const dataRefund = await refundEscrowWithChapa(
-                  intent,
-                  "Late completion – 50% of penalty refunded to creator",
-                  { amountOverride: refundAmount }
-                );
-
-                const chapaReference =
-                  (dataRefund && dataRefund.data && (dataRefund.data.reference || dataRefund.data.tx_ref)) ||
-                  intent.chapaTxRef ||
-                  null;
-                const refundId =
-                  (dataRefund && dataRefund.data && (dataRefund.data.refund_id || dataRefund.data.refundId)) ||
-                  null;
-
-                await PaymentIntent.updateOne(
-                  { _id: intent._id },
-                  {
-                    $set: {
-                      refundStatus: "pending",
-                      refundedAt: new Date(),
-                      chapaReference,
-                      refundId
-                    }
-                  }
-                );
-
-                try {
-                  await sendRefundAudit(globalThis.TaskifiiBot, {
-                    tag: "#refund successful",
-                    task,
-                    creator: creatorUser,
-                    intent,
-                    extra: {
-                      reason: "Late completion – 50% of penalty refunded to creator",
-                      refundAmount,
-                      latePenaltyTotal
-                    }
-                  });
-                } catch (auditErr) {
-                  console.error("Refund audit send failed (late-penalty partial success):", auditErr);
-                }
-              } catch (apiErr) {
-                // Queue for infinite automatic retries on any provider error
-                await PaymentIntent.updateOne(
-                  { _id: intent._id },
-                  { $set: { refundStatus: "queued" } }
-                );
-
-                try {
-                  await sendRefundAudit(globalThis.TaskifiiBot, {
-                    tag: "#refundfailed",
-                    task,
-                    creator: creatorUser,
-                    intent,
-                    extra: {
-                      reason: "Late completion – 50% of penalty refund failed (initial attempt)",
-                      refundAmount,
-                      latePenaltyTotal,
-                      error: String(apiErr?.message || "")
-                    }
-                  });
-                } catch (auditErr) {
-                  console.error("Refund audit send failed (late-penalty partial failure):", auditErr);
-                }
-              }
-            }
-          }
-        } catch (refundErr) {
-          console.error("Late-penalty partial refund logic error:", refundErr);
         }
 
 
