@@ -70,6 +70,7 @@ const userSchema = new Schema({
     ratingCount:   { type: Number, default: 0 }
   },
   lastReminderInterval: { type: Number, default: 0 },
+  
   createdAt:      { type: Date, default: Date.now }
 });
 
@@ -6628,6 +6629,56 @@ function startBot() {
 
     return next();
   });
+  // ─────────── Global "old menus become inert after /start" guard ───────────
+  bot.use(async (ctx, next) => {
+    try {
+      // Only care about button clicks (callback queries)
+      if (!ctx.callbackQuery || !ctx.callbackQuery.message) {
+        return next();
+      }
+
+      const msg = ctx.callbackQuery.message;
+
+      // Only in private chat with the bot (do NOT touch channel buttons)
+      if (!msg.chat || msg.chat.type !== 'private') {
+        return next();
+      }
+
+      // We only know about /start resets if the session has this flag
+      if (!ctx.session || !ctx.session.lastStartAt) {
+        return next();
+      }
+
+      // Telegram gives message.date in seconds since epoch
+      const msgDateSec = msg.date;
+      const lastStartAtMs = ctx.session.lastStartAt;
+      const lastStartAtSec = Math.floor(lastStartAtMs / 1000);
+
+      // If this message is older than the latest /start, treat its buttons as dead
+      if (msgDateSec < lastStartAtSec) {
+        try {
+          // Use the same language source you already keep in session
+          const lang = ctx.session?.user?.language || "en";
+
+          const text =
+            lang === "am"
+              ? "⏹ ይህ ሜኑ ከጥቅም ውጪ ነው። እባክዎ /start የሚለውን ተጭነው አዲሱን ሜኑ ይጠቀሙ።"
+              : "⏹ This menu is no longer active. Please use the latest menu after /start.";
+
+          await ctx.answerCbQuery(text);
+        } catch (_) {}
+
+        // Do NOT call next() – we stop here so the button does nothing
+        return;
+      }
+
+
+      return next();
+    } catch (err) {
+      console.error("old-menu guard error:", err);
+      return next();
+    }
+  });
 
   // ─────────── Global "first button wins" throttle (per message) ───────────
   bot.use(async (ctx, next) => {
@@ -6946,6 +6997,8 @@ bot.use(applyGatekeeper);
       // no longer control anything).
 
       if (ctx.session) {
+        // 👉 NEW: remember when this /start happened
+        ctx.session.lastStartAt = Date.now();
         // Posting / editing task flow
         delete ctx.session.taskFlow;
 
@@ -6960,6 +7013,18 @@ bot.use(applyGatekeeper);
         delete ctx.session.newUsername;
         delete ctx.session.usernameProvided;
         delete ctx.session.editUsernamePromptId;
+      }
+      // 🔹 If this is the main admin, also cancel any manual punishment
+      // flows that were waiting for a birr amount.
+      if (ctx.from.id === SUPER_ADMIN_TG_ID) {
+        try {
+          await ManualPunishment.updateMany(
+            { adminTelegramId: SUPER_ADMIN_TG_ID, status: "awaiting_amount" },
+            { $set: { status: "canceled" } }
+          );
+        } catch (e) {
+          console.error("Failed to cancel pending ManualPunishment on /start:", e);
+        }
       }
 
       // ⬇️ Leave everything that was already here as-is
