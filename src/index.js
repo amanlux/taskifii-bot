@@ -6713,7 +6713,10 @@ function startBot() {
         data.startsWith("PUNISH_PAY_") ||
         data.startsWith("COMPLETED_SENT_") ||
         data.startsWith("DOER_SEND_CORRECTED_") ||
-        data.startsWith("CREATOR_SEND_FIX_NOTICE_")
+        data.startsWith("CREATOR_SEND_FIX_NOTICE_") ||
+        // ✅ NEW: allow bank selection + payout pagination to be clicked freely
+        data.startsWith("PAYOUT_SELECT_") ||
+        data.startsWith("PAYOUT_PAGE_")
       ) {
         return next();
       }
