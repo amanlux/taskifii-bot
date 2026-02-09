@@ -1524,7 +1524,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
   },
   acceptBtn: {
     en: "Accept",
-    am: "ለቀበለው"
+    am: "ልቀበለው"
   },
   declineBtn: {
     en: "Decline",
@@ -2101,7 +2101,7 @@ function buildPreviewText(draft, user) {
   // ⚠️ New: explain why "Post Task" might not do anything
   lines.push(
     lang === "am"
-      ? "ℹ️ ከታች ያለውን “ስራው ይለቀቅ” ቁልፍ ሲጫኑት ምንም ነገር ካልተፈጠረ፣ በፕሮፋይልዎ ያስገቡት የስልክ ቁጥር ወይም ኢሜይል ትክክል አደለም ማለት ነው።"
+      ? "ℹ️ ከታች ያለውን “ስራው ይለጠፍ” ቁልፍ ሲጫኑት ምንም ነገር ካልተፈጠረ፣ በፕሮፋይልዎ ያስገቡት የስልክ ቁጥር ወይም ኢሜይል ትክክል አደለም ማለት ነው።"
       : "ℹ️ If the *Post Task* button below does nothing when you tap it, it means the phone number or email you gave in your profile is not valid."
   );
 
@@ -4086,10 +4086,10 @@ async function checkPendingReminders(bot) {
         const message = lang === "am" 
           ? `⏰ ማሳሰቢያ፦ የሥራው ጊዜ እያበቃ ነው!\n\n` +
             `ለሥራው የቀረው ጊዜ፦ ${hoursLeft} ሰዓት ከ ${minutesLeft} ደቂቃ\n\n` +
-            `አመልካቾችን ለመቀበል ያለዎት ጊዜ በጣም አጭር ነው። እባክዎ በተቻለ ፍጥነት አንዱን አመልካች ይምረጡ።`
+            `አመልካቾችን ለመቀበል ያለዎት ጊዜ በጣም አጭር ነው። እባክዎ በተቻለ ፍጥነት አንዱን አመልካች(ቢያንስ አንድ ካለ) ይምረጡ።`
           : `⏰ Reminder: Your task time is running out!\n\n` +
             `Time remaining for your task: ${hoursLeft} hours and ${minutesLeft} minutes\n\n` +
-            `You have very little time left to accept applicants. Please select an applicant soon.`;
+            `You have very little time left to accept applicants. Please select an applicant(if there are any) soon.`;
 
         await bot.telegram.sendMessage(task.creator.telegramId, message);
         task.reminderSent = true;
@@ -6716,7 +6716,17 @@ function startBot() {
         data.startsWith("CREATOR_SEND_FIX_NOTICE_") ||
         // ✅ NEW: allow bank selection + payout pagination to be clicked freely
         data.startsWith("PAYOUT_SELECT_") ||
-        data.startsWith("PAYOUT_PAGE_")
+        data.startsWith("PAYOUT_PAGE_") ||
+        // ✅ NEW: exclude profile edit & back buttons from "first button wins"
+        data === "EDIT_PROFILE" ||
+        data === "EDIT_BACK" ||
+        data === "EDIT_NAME" ||
+        data === "EDIT_PHONE" ||
+        data === "EDIT_EMAIL" ||
+        data === "EDIT_USERNAME" ||
+        data === "EDIT_SKILLS" ||
+        // and all the disabled profile-edit buttons so they don't 'consume' the message
+        data.startsWith("_DISABLED_EDIT_")
       ) {
         return next();
       }
@@ -9442,8 +9452,8 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
 
       // Confirm to applicant
       const confirmationText = lang === "am"
-          ? "✅ ማመልከቻዎ ተልክዋለ! ምላሽ ይጠብቁ።"
-          : "✅ Application received! Wait for the updates.";
+          ? "✅ ማመልከቻዎ ደርሶናል! እባክዎ ውጤቱን በትዕግስት ይጠብቁ። ነገር ግን ለሥራው ሰሪ ለማግኘት የተሰጠው የጊዜ ገደብ ከማለቁ በፊት ምንም አይነት ምላሽ ካልደረስዎ፣ ማመልከቻዎ ተቀባይነት አላገኘም ማለት መሆኑን ልብ ይበሉ።"
+          : "✅ Application received! Wait for the updates but also please note that if you don't recieve any response before this task's expiry time , it means you didn't get accepted.";
 
       delete ctx.session.applyFlow;
       return ctx.reply(confirmationText);
@@ -14134,7 +14144,7 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
             await globalThis.TaskifiiBot.telegram.sendMessage(
               creatorUser.telegramId,
               creatorUser.language === 'am'
-                ? "🚫 በክለሳ ጊዜው የመጀመሪያ አጋማሽ ላይ መስጠት የነበረብዎትን ግብረ-መልስ (ማለትም 'ትክክል ነው' ወይም 'ማስተካከያ ይፈልጋል' ብለው) ባለመስጠትዎ ምክንያት፤ ከTaskifii ለጊዜው ታግደዋል። እኛ Taskifay ጉዳዩን አጣርተን የመጨረሻ ውሳኔ እስከምንሰት ድረስ ይታገሱ ።"
+                ? "🚫 በክለሳ ጊዜው የመጀመሪያ አጋማሽ ላይ መስጠት የነበረብዎትን ግብረ-መልስ (ማለትም 'ትክክል ነው' ወይም 'መስተካከል ያስፈልገዋል' ብለው) ባለመስጠትዎ ምክንያት፤ ከTaskifii ለጊዜው ታግደዋል። እኛ Taskifay ጉዳዩን አጣርተን የመጨረሻ ውሳኔ እስከምንሰት ድረስ ይታገሱ ።"
                 : "🚫 You’ve been temporarily banned from Taskifii for not giving the required feedback (Valid vs Needs Fixing) within the first half of the revision period. Taskifii will investigate and make a final decision."
             );
           } catch (_) {}
@@ -14418,8 +14428,8 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
   // Notify the doer with options to report or send corrected work
   const doerLang = doerUser.language || 'en';
   const doerMsgText = (doerLang === 'am')
-    ? "⚠️ አስሪው በስራው ላይ ማስተካከያ እንዲደረግ ጠይቋል። እባክዎን የተሰጠውን አስተያየት መሰረት በማድረግ ሥራውን አስተካክለው ይላኩ። ከስምምነቱ ውጪ የሆነ ጥያቄ ካለ ሪፖርት ማድረግ ይችላሉ።"
-    : "⚠️ The client has requested some revisions. Please address the issues and send the corrected work. If any request seems out of scope, you may report it.";
+    ? "⚠️ ማሳሰቢያ! ደንበኛው በሥራው ላይ ማሻሻያ (Revision) እንዲደረግ ጠይቋል።እባክዎ የተጠየቁትን ማስተካከያዎች ካደረጉ በኋላ የተስተካከለውን ሥራ ይላኩ፤ በመጨረሻም ከታች የሚገኘውን የተስተካከለው ስራ ይላክ የሚለውን ይጫኑ።ነገር ግን፣ ደንበኛው ያቀረበው ጥያቄ ከመጀመሪያው ስምምነት ወይም የሥራ ማግለጫ ውጪ (Out of scope) መስሎ ከታየዎት፣ ከታች ያለውን ይህን ላሳውቅ የሚለውን ቁልፍ በመጫን ጉዳዩን ሪፖርት ማድረግ ይችላሉ።በተጨማሪም፣ ቀጣይ እርምጃዎ ምን መሆን እንዳለበት ለመወሰን ያለዎት ጊዜ፣ ለክለሳ (Revision) ከተሰጠው አጠቃላይ ጊዜ ግማሽ ያህሉ መሆኑን ልብ ይበሉ፤ ስለዚህ ጊዜዎን በአግባቡ ይጠቀሙበት።"
+    : "⚠️ The client has requested some revisions. Please address the issues and then send the corrected work and finally click the SEND CORRECTED VERSION below. If any request seems out of scope or outside the original task description , you may report this situation by clicking on the REPORT THIS  button below. And also please note that the time you have left to decide your next actions is half of the revision time so use it wisely please.";
   // capture the buttons message id so we can inactivate later without deleting it
   const sentToDoer = await ctx.telegram.sendMessage(
     doerUser.telegramId,
@@ -14427,11 +14437,11 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
     Markup.inlineKeyboard([
       [
         Markup.button.callback(
-          (doerUser.language === 'am' ? "🚩 ይህን ያሳውቁ" : "🚩 Report this"),
+          (doerUser.language === 'am' ? "🚩 ይህን ላሳውቅ" : "🚩 Report this"),
           `DOER_REPORT_${String(task._id)}`
         ),
         Markup.button.callback(
-          (doerUser.language === 'am' ? "📤 የተስተካከለ ስራ ላክ" : "📤 Send corrected version"),
+          (doerUser.language === 'am' ? "📤 የተስተካከለው ስራ ይላክ" : "📤 Send corrected version"),
           `DOER_SEND_CORRECTED_${String(task._id)}`
         )
       ]
@@ -14882,8 +14892,8 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   const approveLabel = creatorLang === 'am' ? "✅ አሪፍ ነው በቃ" : "✅ Approve";
   const rejectLabel  = creatorLang === 'am' ? "❌ አሁንም ችግር አለበት" : "❌ Reject";
   const infoText = creatorLang === 'am'
-    ? "የተስተካከለው ስራ ቀርቧል፤ እባክዎ ያጽድቁት ወይም ውድቅ ያድርጉት።"
-    : "The corrected work has been submitted. Please review and approve or reject.";
+    ? "የታረመው ሥራ ተልኳል። እባክዎን አሁን ከጀመረው የማሻሻያ ጊዜ ግማሽ ባልበለጠ ጊዜ ውስጥ ተመልክተው ያጽድቁ ወይም ውድቅ ያድርጉ።"
+    : "The corrected work has been submitted. Please review and approve or reject within half of the revision time which starts now.";
 
   const sent = await ctx.telegram.sendMessage(
     creatorUser.telegramId,
