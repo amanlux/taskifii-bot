@@ -1302,12 +1302,12 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
     am: "ፕሮፋይል ላስተካክል"
   },
    descriptionPrompt: {
-    en: "Write the task description (20–1280 characters). And make sure that you make everything clear down to the minor details because the task doer is only obligated to do what the task description instructs. If you have a file(a video, audio, image, etc.) related to this task, you will send it later directly to the task doer, but for now make sure that you describe the file/s properly here so that the task doer knows what they are getting themselves into. ",
-    am: "የሥራውን መግለጫ ይጻፉ (ከ20–1280 ፊደላት)። ሥራውን የሚሰራው ሰው ግዴታ ያለበት በዚህ መግለጫ ላይ የሰፈረውን ትዕዛዝ ለመፈጸም ብቻ ስለሆነ፣ እያንዳንዱን ዝርዝር ጉዳይ በግልጽ ማስቀመጥዎን ያረጋግጡ። ከዚህ ሥራ ጋር የተያያዘ ፋይል (ቪዲዮ፣ ኦዲዮ፣ ምስል፣ ወዘተ) ካለዎት፣ በኋላ ላይ ለሰራተኛው በቀጥታ የሚልኩት ይሆናል። ለጊዜው ግን፣ ሰራተኛው ምን አይነት ሥራ ውስጥ እንደሚገባ በቅድሚያ እንዲያውቅ፣ ስለ ፋይሎቹ ምንነት እዚሁ በደንብ መግለጽ ይኖርብዎታል።"
+    en: "Write the task description (20–1250 characters). And make sure that you make everything clear down to the minor details because the task doer is only obligated to do what the task description instructs. If you have a file(a video, audio, image, etc.) related to this task, you will send it later directly to the task doer, but for now make sure that you describe the file/s properly here so that the task doer knows what they are getting themselves into. ",
+    am: "የሥራውን መግለጫ ይጻፉ (ከ20–1250 ፊደላት)። ሥራውን የሚሰራው ሰው ግዴታ ያለበት በዚህ መግለጫ ላይ የሰፈረውን ትዕዛዝ ለመፈጸም ብቻ ስለሆነ፣ እያንዳንዱን ዝርዝር ጉዳይ በግልጽ ማስቀመጥዎን ያረጋግጡ። ከዚህ ሥራ ጋር የተያያዘ ፋይል (ቪዲዮ፣ ኦዲዮ፣ ምስል፣ ወዘተ) ካለዎት፣ በኋላ ላይ ለሰራተኛው በቀጥታ የሚልኩት ይሆናል። ለጊዜው ግን፣ ሰራተኛው ምን አይነት ሥራ ውስጥ እንደሚገባ በቅድሚያ እንዲያውቅ፣ ስለ ፋይሎቹ ምንነት እዚሁ በደንብ መግለጽ ይኖርብዎታል።"
   },
   descriptionError: {
-    en: "Sorry, Task Description must be 20–1280 characters. Try again.",
-    am: "ይቅርታ፣ የሥራውን መግለጫ 20–1280 ፊደላት መሆን አለበት። እንደገና ይሞክሩ።"
+    en: "Sorry, Task Description must be 20–1250 characters. Try again.",
+    am: "ይቅርታ፣ የሥራውን መግለጫ 20–1250 ፊደላት መሆን አለበት። እንደገና ይሞክሩ።"
   },
   relatedFilePrompt: {
     en: "If you have any related file for this task (like a reference document, image, or example), send it now.\n\nYou can send multiple files (photos, documents, videos, audio, etc.). When you finish, click Done. If you don't have any, you can click Skip.",
@@ -6637,10 +6637,11 @@ function startBot() {
         return next();
       }
 
-      const msg = ctx.callbackQuery.message;
+      const msg  = ctx.callbackQuery.message;
+      const data = ctx.callbackQuery.data || "";
 
       // Only in private chat with the bot (do NOT touch channel buttons)
-      if (!msg.chat || msg.chat.type !== 'private') {
+      if (!msg.chat || msg.chat.type !== "private") {
         return next();
       }
 
@@ -6650,14 +6651,25 @@ function startBot() {
       }
 
       // Telegram gives message.date in seconds since epoch
-      const msgDateSec = msg.date;
+      const msgDateSec    = msg.date;
       const lastStartAtMs = ctx.session.lastStartAt;
       const lastStartAtSec = Math.floor(lastStartAtMs / 1000);
 
       // If this message is older than the latest /start, treat its buttons as dead
       if (msgDateSec < lastStartAtSec) {
+        // 🔹 EXCEPTION: allow "Do the task" and "Cancel" buttons to stay active
+        //    (they use DO_TASK_CONFIRM and DO_TASK_CANCEL callback_data)
+        const isDoTaskOrCancel =
+          /^DO_TASK_CONFIRM/.test(data) ||
+          /^DO_TASK_CANCEL/.test(data);
+
+        if (isDoTaskOrCancel) {
+          // Let these through even if the message is older than /start
+          return next();
+        }
+
+        // For all other buttons, keep the "old menu is inert" behavior
         try {
-          // Use the same language source you already keep in session
           const lang = ctx.session?.user?.language || "en";
 
           const text =
@@ -6672,13 +6684,14 @@ function startBot() {
         return;
       }
 
-
+      // Otherwise, let it through
       return next();
     } catch (err) {
       console.error("old-menu guard error:", err);
       return next();
     }
   });
+
 
   // ─────────── Global "first button wins" throttle (per message) ───────────
   bot.use(async (ctx, next) => {
@@ -6954,7 +6967,7 @@ bot.use(applyGatekeeper);
     const startPayload = ctx.startPayload;
     const tgId = ctx.from.id;
     let user = await User.findOne({ telegramId: tgId });
-
+    
     // ===== ADD THIS CHECK RIGHT HERE =====
     // Check for expired task application and duplicate applications
     if (startPayload && startPayload.startsWith('apply_')) {
