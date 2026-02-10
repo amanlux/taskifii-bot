@@ -8190,6 +8190,46 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
   } catch (e) {
     console.error("failed to set engagement locks:", e);
   }
+  // 2.5 — once this user has chosen THIS task as winner,
+  // stop halfway reminders on any OTHER tasks where they were accepted.
+  try {
+    const now = new Date();
+
+    // Find other open tasks where this same user is in "Accepted" state
+    const otherAcceptedTasks = await Task.find({
+      _id: { $ne: updated._id },           // not this winning task
+      status: "Open",                      // still open
+      expiry: { $gt: now },                // not expired
+      "applicants.user": user._id,
+      "applicants.status": "Accepted"
+    }).select("_id");
+
+    for (const t of otherAcceptedTasks) {
+      await Task.updateOne(
+        {
+          _id: t._id,
+          applicants: {
+            $elemMatch: {
+              user: user._id,
+              status: "Accepted",
+              canceledAt: null,
+              confirmedAt: null
+            }
+          }
+        },
+        {
+          // Mark this applicant as "already reminded"
+          // so sendReminders(...) will never send the halfway message.
+          $set: { "applicants.$.reminderSent": true }
+        }
+      );
+    }
+  } catch (e) {
+    console.error(
+      "Failed to disable halfway reminders on other accepted tasks for this winner doer:",
+      e
+    );
+  }
 
   // 3. if the task had attached related file(s), send them to the doer
   try {
