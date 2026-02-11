@@ -7246,7 +7246,10 @@ bot.use(applyGatekeeper);
     user.language = "en";
     user.onboardingStep = "setupProfile";
     await user.save();
-
+    // ✅ Keep session language in sync
+    if (ctx.session?.user) {
+      ctx.session.user.language = "en";
+    }
     // Prompt Setup Profile
     return ctx.reply(
       "Language set to English.",
@@ -7273,7 +7276,10 @@ bot.use(applyGatekeeper);
     user.language = "am";
     user.onboardingStep = "setupProfile";
     await user.save();
-
+    // ✅ Keep session language in sync
+    if (ctx.session?.user) {
+      ctx.session.user.language = "am";
+    }
     // Prompt Setup Profile
     return ctx.reply(
       "ቋንቋው ወደ አማርኛ ተቀይሯል።",
@@ -8076,7 +8082,10 @@ bot.action("SET_LANG_EN", async (ctx) => {
 
   user.language = "en";
   await user.save();
-  
+  // ✅ Keep session language in sync
+  if (ctx.session?.user) {
+    ctx.session.user.language = "en";
+  }
   // Return to menu with new language
   return ctx.reply(
     "Language set to English.",
@@ -8107,7 +8116,10 @@ bot.action("SET_LANG_AM", async (ctx) => {
 
   user.language = "am";
   await user.save();
-  
+  // ✅ Keep session language in sync
+  if (ctx.session?.user) {
+    ctx.session.user.language = "am";
+  }
   // Return to menu with new language
   return ctx.reply(
     "ቋንቋው ወደ አማርኛ ተቀይሯል።",
