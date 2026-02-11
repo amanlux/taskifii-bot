@@ -6670,7 +6670,27 @@ function startBot() {
 
         // For all other buttons, keep the "old menu is inert" behavior
         try {
-          const lang = ctx.session?.user?.language || "en";
+          // Try session language first
+          let lang = ctx.session?.user?.language;
+
+          // If session is missing or stale, fall back to DB
+          if (!lang && ctx.from?.id) {
+            const userDoc = await User.findOne({ telegramId: ctx.from.id })
+              .select("language")
+              .lean();
+
+            if (userDoc?.language) {
+              lang = userDoc.language;
+              // (Optional but safe) keep session in sync:
+              if (ctx.session?.user) {
+                ctx.session.user.language = userDoc.language;
+              }
+            }
+          }
+
+          if (!lang) {
+            lang = "en";
+          }
 
           const text =
             lang === "am"
@@ -6682,6 +6702,7 @@ function startBot() {
 
         // Do NOT call next() – we stop here so the button does nothing
         return;
+
       }
 
       // Otherwise, let it through
@@ -6880,6 +6901,7 @@ function askSkillLevel(ctx, lang = null) {
   );
 }
 // ───────────────── Engagement-lock guard (read-only gate) ─────────────────
+// ───────────────── Engagement-lock guard (read-only gate) ─────────────────
 bot.use(async (ctx, next) => {
   try {
     if (!ctx.from) return next();
@@ -6897,31 +6919,82 @@ bot.use(async (ctx, next) => {
       : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
     // Detect both plain /start and /start with payload; also deep-link apply payloads
-    const isStartCmd   = !!(ctx.message?.text?.startsWith('/start') || typeof ctx.startPayload === 'string');
+    const isStartCmd      = !!(ctx.message?.text?.startsWith('/start') || typeof ctx.startPayload === 'string');
     const isDeepLinkApply = !!(typeof ctx.startPayload === 'string' && ctx.startPayload.startsWith('apply_'));
-    const isApplyCmd   = !!(ctx.message?.text?.startsWith('/apply_')); // /apply_<id>
-    const data         = ctx.callbackQuery?.data;
-    const isApplyBtn   = !!(data && data.startsWith('APPLY_'));
-    const isFindTask   = (data === 'FIND_TASK');
-    const isPostTask   = (data === 'POST_TASK');
-    const isEditBack   = (data === 'EDIT_BACK');
+    const isApplyCmd      = !!(ctx.message?.text?.startsWith('/apply_')); // /apply_<id>
+
+    const data = ctx.callbackQuery?.data || null;
+
+    // Existing: task apply / menu entry flows
+    const isApplyBtn    = !!(data && data.startsWith('APPLY_'));
+    const isFindTask    = (data === 'FIND_TASK');
+    const isPostTask    = (data === 'POST_TASK');
+    const isEditBack    = (data === 'EDIT_BACK');
     const isPostConfirm = (data === 'TASK_POST_CONFIRM');
 
-    // Intercept these while locked
-    if (isStartCmd || isDeepLinkApply || isApplyCmd || isApplyBtn || isFindTask || isPostTask || isEditBack || isPostConfirm) {
-      if (ctx.callbackQuery) await ctx.answerCbQuery();
+    // NEW: profile / language / terms flows that existed before engagement lock
+
+    // Main menu / profile
+    const isEditProfile  = (data === 'EDIT_PROFILE');
+    const isEditName     = (data === 'EDIT_NAME');
+    const isEditPhone    = (data === 'EDIT_PHONE');
+    const isEditEmail    = (data === 'EDIT_EMAIL');
+    const isEditUsername = (data === 'EDIT_USERNAME');
+    const isEditSkills   = (data === 'EDIT_SKILLS'); // opens bank-details menu
+
+    // Bank editing
+    const isAddBank          = (data === 'ADD_BANK');
+    const isRemoveBank       = (data === 'REMOVE_BANK');
+    const isBankEditDone     = (data === 'BANK_EDIT_DONE');
+    const isBankRemoveBack   = (data === 'BANK_REMOVE_BACK');
+    const isBankRemoveCancel = (data === 'BANK_REMOVE_CANCEL');
+    const isEditBankEntry    = !!(data && data.startsWith('EDIT_BANK_'));
+    const isRemoveBankEntry  = !!(data && data.startsWith('REMOVE_BANK_'));
+
+    // Username confirmation (profile)
+    const isConfirmNewUsername = (data === 'CONFIRM_NEW_USERNAME');
+    const isCancelNewUsername  = (data === 'CANCEL_NEW_USERNAME');
+
+    // Language + terms from the menu
+    const isChangeLanguage = (data === 'CHANGE_LANGUAGE');
+    const isSetLangEn      = (data === 'SET_LANG_EN');
+    const isSetLangAm      = (data === 'SET_LANG_AM');
+    const isViewTerms      = (data === 'VIEW_TERMS');
+
+    // Single place to decide if we block this update
+    const shouldBlock =
+      // Commands & deep-links
+      isStartCmd || isDeepLinkApply || isApplyCmd ||
+
+      // Task-find/post entry points
+      isApplyBtn || isFindTask || isPostTask || isEditBack || isPostConfirm ||
+
+      // Profile / banks
+      isEditProfile || isEditName || isEditPhone || isEditEmail || isEditUsername ||
+      isEditSkills || isAddBank || isRemoveBank || isBankEditDone ||
+      isBankRemoveBack || isBankRemoveCancel || isEditBankEntry || isRemoveBankEntry ||
+      isConfirmNewUsername || isCancelNewUsername ||
+
+      // Language & terms
+      isChangeLanguage || isSetLangEn || isSetLangAm || isViewTerms;
+
+    if (shouldBlock) {
+      if (ctx.callbackQuery) {
+        // remove the 'loading' spinner on the button
+        await ctx.answerCbQuery();
+      }
       await ctx.reply(lockedMsg);
       return;
     }
 
-
-    // Everything else continues normally
+    // Everything else (including task-flow buttons) continues normally
     return next();
   } catch (e) {
     console.error('engagement lock guard error:', e);
     return next();
   }
 });
+
  
 // After you create `bot` and before existing start/onboarding handlers:
 bot.use(applyGatekeeper);
