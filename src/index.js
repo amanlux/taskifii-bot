@@ -1706,12 +1706,12 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
     en: (h, m) => [
       "⏰ Heads up: time is ticking!",
       `You have ${h} hour(s) and ${m} minute(s) left to complete and submit your task.`,
-      "Please send your completed work to the bot, to @taskifay, and to the task creator, then tap “Completed task sent”."
+      "Please send your completed work to the bot, to @taskifaysupport, and to the task creator, then tap “Completed task sent”."
     ].join("\n"),
     am: (h, m) => [
       "⏰ ማሳሰቢያ፡ ጊዜው እያለቀ ነው!",
       `ስራዎን አጠናቀው ለማስረከብ ${h} ሰዓት ከ ${m} ደቂቃ ይቀሮታል።`,
-      "እባክዎ የተሰጠዎትን ስራ አጠናቀው ለቦቱ፣ ለ @taskifay እና ስራውን ለሰጠዎት አካል ይላኩ፤ ከዚያም “ያለቀ ስራ ተልክዋል” የሚለውን ይጫኑ።"
+      "እባክዎ የተሰጠዎትን ስራ አጠናቀው ለቦቱ፣ ለ @taskifaysupport እና ስራውን ለሰጠዎት አካል ይላኩ፤ ከዚያም “ያለቀ ስራ ተልክዋል” የሚለውን ይጫኑ።"
     ].join("\n")
   },
 
@@ -1743,7 +1743,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
           ? `Exact time until your fee would drop to 35%: ${h} hour(s) and ${m} minute(s).`
           : null,
         "If you don’t send a valid completed task and tap “Completed task sent” before the fee hits 35%, your Taskifii access will be banned until you pay a punishment fee (50% of the task fee).",
-        "Please submit to the bot, to @taskifay, and to the task creator as soon as possible."
+        "Please submit to the bot, to @taskifaysupport, and to the task creator as soon as possible."
       ].filter(Boolean).join("\n");
     },
     am: (penaltyPerHour, penaltyEndAt) => {
@@ -1760,7 +1760,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
         penaltyPerHour > 0
           ? `አገልግሎት ክፍያዎ ወደ 35% ዝቅ ለማለት የቀረው ትክክለኛ ጊዜ፡ ${h} ሰዓት ከ ${m} ደቂቃ።`
           : null,
-        "ክፍያው 35% ከመድረሱ በፊት ትክክለኛና የተጠናቀቀ ስራ ልከው “ያለቀ ስራ ተልክዋል” የሚለውን ቁልፍ ካልተጫኑ፣ የታስኪፌይ (Taskifay) አገልግሎትዎ ይታገዳል። እገዳውን ለማንሳትም የቅጣት ክፍያ (የስራው ዋጋ 50%) መክፈል ይኖርብዎታል። እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ @taskifay እና ለስራው ፈጣሪ በተቻለ ፍጥነት ያቅርቡ።"
+        "ክፍያው 35% ከመድረሱ በፊት ትክክለኛና የተጠናቀቀ ስራ ልከው “ያለቀ ስራ ተልክዋል” የሚለውን ቁልፍ ካልተጫኑ፣ የታስኪፌይ (Taskifay) አገልግሎትዎ ይታገዳል። እገዳውን ለማንሳትም የቅጣት ክፍያ (የስራው ዋጋ 50%) መክፈል ይኖርብዎታል። እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ @taskifaysupport እና ለስራው ፈጣሪ በተቻለ ፍጥነት ያቅርቡ።"
       ].filter(Boolean).join("\n");
     }
   },
@@ -6595,40 +6595,59 @@ function startBot() {
     
     return next();
   });
-  // Global ban guard: blocks all actions for banned users except "ADMIN_UNBAN_*"
+  
+  // Global ban guard: blocks all actions for banned users except "ADMIN_UNBAN_*" and punishment payments
   bot.use(async (ctx, next) => {
     const tgId = ctx.from?.id;
     if (!tgId) return next();
 
+    // Check if this user is in the Banlist
     const banned = await Banlist.findOne({ telegramId: tgId }).lean();
-    // In the global ban guard middleware:
-    const isUnbanClick = ctx.updateType === 'callback_query'
-      && (/^ADMIN_UNBAN_/.test(ctx.callbackQuery?.data || '')
-          || /^PUNISH_PAY_/.test(ctx.callbackQuery?.data || ''));  // <-- add this
 
-// leave the rest unchanged
+    // Allow specific callback buttons even when banned:
+    // - ADMIN_UNBAN_* (admin unbans)
+    // - PUNISH_PAY_* (user paying punishment fee to get unbanned)
+    const isUnbanClick =
+      ctx.updateType === "callback_query" &&
+      (
+        /^ADMIN_UNBAN_/.test(ctx.callbackQuery?.data || "") ||
+        /^PUNISH_PAY_/.test(ctx.callbackQuery?.data || "")
+      );
 
+    if (banned) {
+      // 🔹 Important: if this is a message in the Taskifii group itself,
+      // don't send any "you're banned" message here.
+      // The group-only guard will delete their message and re-apply the mute.
+      if (ctx.chat && ctx.chat.id === BAN_GROUP_ID) {
+        return next();
+      }
 
-    if (banned && !isUnbanClick) {
-      // Try to detect language; fall back safely
-      const lang =
-        ctx.session?.user?.language ||
-        (await User.findOne({ telegramId: tgId }).select("language").lean())?.language ||
-        "en";
+      // Outside the group (e.g. private chat with the bot),
+      // completely block the user from using the bot, *except* unban/payment flows.
+      if (!isUnbanClick) {
+        // Try to detect language; fall back safely
+        const lang =
+          ctx.session?.user?.language ||
+          (await User.findOne({ telegramId: tgId }).select("language").lean())?.language ||
+          "en";
 
-      // Multilingual message (always includes BOTH languages so it works even if language is unknown)
-      const bannedMsg = `${TEXT.bannedGuard.en}\n\n${TEXT.bannedGuard.am}`;
+        // Multilingual message (both languages)
+        const bannedMsg = `${TEXT.bannedGuard.en}\n\n${TEXT.bannedGuard.am}`;
 
-      if (ctx.updateType === 'callback_query') {
-        await ctx.answerCbQuery(bannedMsg, { show_alert: true });
+        if (ctx.updateType === "callback_query") {
+          await ctx.answerCbQuery(bannedMsg, { show_alert: true });
+          return;
+        }
+
+        await ctx.reply(bannedMsg);
         return;
       }
-      await ctx.reply(bannedMsg);
-      return;
     }
 
+    // If not banned, or it's an allowed unban/payment click, continue as normal
     return next();
   });
+
   // ─────────── Global "old menus become inert after /start" guard ───────────
   bot.use(async (ctx, next) => {
     try {
@@ -7005,6 +7024,11 @@ bot.use(applyGatekeeper);
   // ─────────── /start Handler ───────────
   // ─────────── /start Handler ───────────
   bot.start(async (ctx) => {
+    // 🔒 Only handle /start in private chats.
+    // If someone types /start @YourBot in a group, we ignore it.
+    if (!ctx.chat || ctx.chat.type !== "private") {
+      return;
+    }
     // Initialize session
     ctx.session = ctx.session || {};
     await cancelRelatedFileDraftIfActive(ctx);
