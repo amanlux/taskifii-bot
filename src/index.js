@@ -23,17 +23,6 @@ const { Telegraf, Markup, session } = require("telegraf");
 const mongoose = require("mongoose");
 const Task = require("./models/Task");
 const User = require("./models/User");
-// --- SAFETY NET: never save null into unique sparse fields ---
-// This wraps the real User model from ./models/User and prevents email/phone/username = null
-// from ever being written to MongoDB (we convert them to "missing" fields instead).
-if (User && User.schema) {
-  User.schema.pre("save", function (next) {
-    if (this.email === null)   this.email = undefined;
-    if (this.phone === null)   this.phone = undefined;
-    if (this.username === null) this.username = undefined;
-    next();
-  });
-}
 
 // Ensure environment variables are set
 if (!process.env.BOT_TOKEN) {
@@ -7055,7 +7044,8 @@ bot.use(applyGatekeeper);
         ? "በአሁን ሰዓት በሂደት ላይ ያለ ስራ ስላለዎት፤ ይህ ጉዳይ ተጠናቆ እልባት እስኪያገኝ ድረስ ሜኑ መክፈት፣ አዲስ ስራ መለጠፍ ወይም ለሌሎች ስራዎች ማመልከት አይችሉም።"
         : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
-      await ctx.reply(msg0);
+      await ctx.reply(lockedMsg);
+
       return;
     }
 
