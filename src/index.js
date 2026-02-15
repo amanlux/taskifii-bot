@@ -52,9 +52,10 @@ const userSchema = new Schema({
   onboardingStep: { type: String, required: true }, // "language", "fullName", etc.
   language:       { type: String, enum: ["en", "am", null], default: null },
   fullName:       { type: String, default: null },
-  phone:          { type: String, unique: true, sparse: true, default: null },
-  email:          { type: String, unique: true, sparse: true, default: null },
-  username:       { type: String, unique: true, sparse: true, default: null },
+  phone:          { type: String, unique: true, sparse: true },
+  email:          { type: String, unique: true, sparse: true },
+  username:       { type: String, unique: true, sparse: true },
+
   // NEW: skills (fields) the user is good at – used for recommendations
   skills:         { type: [String], default: [] },
   bankDetails:    [
@@ -7207,10 +7208,9 @@ bot.use(applyGatekeeper);
 
     // Continue with original onboarding flow
     if (user) {
-      // Reset all fields
+      // Reset only the fields that are safe
       user.fullName = null;
-      user.phone = null;
-      user.email = null;
+      // 🔴 DO NOT reset phone/email to null (this clashes with unique indexes)
       user.bankDetails = [];
       user.skills = []; // NEW: reset skills too
       user.stats = {
@@ -7232,10 +7232,11 @@ bot.use(applyGatekeeper);
       user = new User({
         telegramId: tgId,
         onboardingStep: "language",
-        username: safeUsername       // <-- important: not null now
+        username: safeUsername
       });
       await user.save();
     }
+
 
 
     // Send language selection
