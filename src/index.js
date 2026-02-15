@@ -7017,30 +7017,6 @@ bot.use(async (ctx, next) => {
  
 // After you create `bot` and before existing start/onboarding handlers:
 bot.use(applyGatekeeper);
-// TEMP: admin-only unban by Telegram ID
-bot.command('debug_unban_tg', async (ctx) => {
-  // Only allow the main admin to run this
-  if (ctx.from.id !== SUPER_ADMIN_TG_ID) {
-    return ctx.reply("Not authorized.");
-  }
-
-  const parts = ctx.message.text.trim().split(/\s+/);
-  if (parts.length < 2) {
-    return ctx.reply("Usage: /debug_unban_tg <telegramId>");
-  }
-
-  const tgId = Number(parts[1]);
-  if (!tgId || Number.isNaN(tgId)) {
-    return ctx.reply("Invalid Telegram ID.");
-  }
-
-  const res = await Banlist.deleteOne({ telegramId: tgId });
-  if (res.deletedCount === 0) {
-    return ctx.reply(`No Banlist entry found for Telegram ID ${tgId}.`);
-  }
-
-  return ctx.reply(`Telegram ID ${tgId} has been unbanned (Banlist row deleted).`);
-});
 
 
 
@@ -7247,12 +7223,20 @@ bot.command('debug_unban_tg', async (ctx) => {
       user.createdAt = Date.now();
       await user.save();
     } else {
+      // NEW: always give the user a non-null, unique username value
+      const safeUsername =
+        (ctx.from && ctx.from.username)
+          ? ctx.from.username         // real @username if they have one
+          : `tgid-${tgId}`;           // fallback that can never collide with real Telegram usernames
+
       user = new User({
         telegramId: tgId,
-        onboardingStep: "language"
+        onboardingStep: "language",
+        username: safeUsername       // <-- important: not null now
       });
       await user.save();
     }
+
 
     // Send language selection
     return ctx.reply(
