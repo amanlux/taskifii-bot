@@ -5,7 +5,7 @@ const { Schema } = mongoose;
 
 const UserSchema = new Schema({
   telegramId: { type: Number, unique: true, required: true },
-  username:   { type: String, unique: true, sparse: true },
+  username:   { type: String, unique: true, sparse: true, default: null },
   // NEW: skills (fields) the user is good at – used for recommendations
   skills:         { type: [String], default: [] },
 
@@ -38,8 +38,8 @@ const UserSchema = new Schema({
 
   language:    { type: String, enum: ["en", "am"], default: "en" },
   fullName:    { type: String, default: null },
-  phone:       { type: String, unique: true, sparse: true },
-  email:       { type: String, unique: true, sparse: true },
+  phone:       { type: String, unique: true, sparse: true, default: null },
+  email:       { type: String, unique: true, sparse: true, default: null },
   bankDetails: {
     type: [
       {

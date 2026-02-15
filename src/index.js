@@ -52,10 +52,9 @@ const userSchema = new Schema({
   onboardingStep: { type: String, required: true }, // "language", "fullName", etc.
   language:       { type: String, enum: ["en", "am", null], default: null },
   fullName:       { type: String, default: null },
-  phone:          { type: String, unique: true, sparse: true },
-  email:          { type: String, unique: true, sparse: true },
-  username:       { type: String, unique: true, sparse: true },
-
+  phone:          { type: String, unique: true, sparse: true, default: null },
+  email:          { type: String, unique: true, sparse: true, default: null },
+  username:       { type: String, unique: true, sparse: true, default: null },
   // NEW: skills (fields) the user is good at – used for recommendations
   skills:         { type: [String], default: [] },
   bankDetails:    [
@@ -7044,8 +7043,7 @@ bot.use(applyGatekeeper);
         ? "በአሁን ሰዓት በሂደት ላይ ያለ ስራ ስላለዎት፤ ይህ ጉዳይ ተጠናቆ እልባት እስኪያገኝ ድረስ ሜኑ መክፈት፣ አዲስ ስራ መለጠፍ ወይም ለሌሎች ስራዎች ማመልከት አይችሉም።"
         : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
-      await ctx.reply(lockedMsg);
-
+      await ctx.reply(msg0);
       return;
     }
 
@@ -7209,9 +7207,10 @@ bot.use(applyGatekeeper);
 
     // Continue with original onboarding flow
     if (user) {
-      // Reset only the fields that are safe
+      // Reset all fields
       user.fullName = null;
-      // 🔴 DO NOT reset phone/email to null (this clashes with unique indexes)
+      user.phone = null;
+      user.email = null;
       user.bankDetails = [];
       user.skills = []; // NEW: reset skills too
       user.stats = {
@@ -7224,21 +7223,12 @@ bot.use(applyGatekeeper);
       user.createdAt = Date.now();
       await user.save();
     } else {
-      // NEW: always give the user a non-null, unique username value
-      const safeUsername =
-        (ctx.from && ctx.from.username)
-          ? ctx.from.username         // real @username if they have one
-          : `tgid-${tgId}`;           // fallback that can never collide with real Telegram usernames
-
       user = new User({
         telegramId: tgId,
-        onboardingStep: "language",
-        username: safeUsername
+        onboardingStep: "language"
       });
       await user.save();
     }
-
-
 
     // Send language selection
     return ctx.reply(
