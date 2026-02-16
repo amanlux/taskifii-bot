@@ -14986,6 +14986,9 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery("Error: task not found.", { show_alert: true });
     return;
   }
+  // 👉 Get the doer's language (falls back to English if not set)
+  const me = ctx.session?.user || await User.findOne({ telegramId: ctx.from.id });
+  const lang = me?.language || "en";
 
   // enforce the total revision window: completedAt + revisionTime hours
   const revisionHours = task.revisionTime || 0;
@@ -14997,7 +15000,8 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
 
     if (new Date() > effectiveEnd) {
       await ctx.answerCbQuery(
-        (work.doer?.language || 'en') === 'am'
+        lang === "am"
+
           ? "የማሻሻያ ጊዜ አልፎበታል።"
           : "The revision window has expired.",
         { show_alert: true }
@@ -15015,7 +15019,8 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   // ✅ If no corrected work, DO NOT disable/highlight buttons.
   if (!correctedEntries.length) {
     await ctx.answerCbQuery(
-      (work.doer?.language || 'en') === 'am'
+      lang === "am"
+
         ? "የታረመ ሥራ አልተገኘም። እባክዎ ይህን ቁልፍ ከመጫንዎ በፊት የታረሙ ፋይሎችን ወይም መልዕክቶችን ይላኩ።"
         : "No corrected work was detected. Please send the corrected files or messages before tapping this button.",
       { show_alert: true }
@@ -15051,7 +15056,8 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
   // ✅ NEW: if ALL corrected messages were deleted (or otherwise failed), treat as "none sent"
   if (successCount === 0) {
     await ctx.answerCbQuery(
-      (work.doer?.language || "en") === "am"
+      lang === "am"
+
         ? "ምንም የተስተካከለ ፋይል ወይም መልእክት አልተገኘም (ምናልባት መልእክቶቹ ተሰርዘው ይሆናል)። ይህንን ቁልፍ ከመጫንዎ በፊት፤ እባክዎ የተስተካከሉትን ፋይሎች ወይም መልእክቶች እንደገና ይላኩ።"
         : "No corrected work was detected (the messages may have been deleted). Please send the corrected files/messages again before tapping this button.",
       { show_alert: true }
