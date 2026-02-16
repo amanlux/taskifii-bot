@@ -4560,6 +4560,33 @@ async function autoFinalizeByTimeout(taskId, botOrTelegram) {
     console.error("autoFinalizeByTimeout error", e);
   }
 }
+// Helper: clear any "awaiting reply" style flows for this user.
+// We call this when a user becomes engaged on a task (as doer or creator)
+// so that old pending sessions don't keep intercepting their messages.
+function clearUserInteractionSessions(ctx) {
+  try {
+    if (!ctx || !ctx.session) return;
+    // Task create / edit flow
+    delete ctx.session.taskFlow;
+    // Applying-to-task pitch flow
+    delete ctx.session.applyFlow;
+    delete ctx.session.pendingTaskId;
+    // Profile / username / bank editing flows
+    delete ctx.session.editing;
+    delete ctx.session.newUsername;
+    delete ctx.session.usernameProvided;
+    delete ctx.session.editUsernamePromptId;
+    delete ctx.session.onboardingUsernamePromptId;
+    delete ctx.session.skillsEdit;
+    // Creator "fix listing" comments
+    delete ctx.session.fixingTaskId;
+    // Payout flow (account number collection)
+    delete ctx.session.payoutFlow;
+  } catch (e) {
+    console.error("Error clearing user interaction sessions:", e);
+  }
+}
+
 async function escalateDoerReport(ctx, taskId) {
   const telegram = ctx.telegram;
 
@@ -8542,7 +8569,8 @@ bot.action(/^DO_TASK_CONFIRM(?:_(.+))?$/, async (ctx) => {
     console.error("Failed to sendWinnerTaskDoerToChannel:", e);
   }
 
-  
+  // Clear any previous interactive sessions for this doer now that they are locked on a task
+  clearUserInteractionSessions(ctx);
   
   
 
@@ -12246,7 +12274,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   const confirmationText = user.language === "am" 
     ? `✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።` 
     : `✅ Task posted successfully!\n\nOther users can now apply. But please note that once you accept any applications for here on out , you can't cancel this task.`;
-  
+  // Clear any previous interactive sessions (profile edits, drafts, etc.)
+  clearUserInteractionSessions(ctx);
   return ctx.reply(confirmationText, Markup.inlineKeyboard([
     [Markup.button.callback(
       user.language === "am" ? "ስራው ይሰረዝ" : "Cancel Task", 
@@ -12329,7 +12358,8 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
     await cancelRelatedFileDraftIfActive(ctx);
     // ✅ Use same helper to post task now
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
-
+    // Once the task is posted, stop waiting on any older interactive flows for this creator
+    clearUserInteractionSessions(ctx);
 
   } catch (err) {
     console.error("HOSTED_VERIFY error:", err);
@@ -12419,7 +12449,8 @@ bot.on('successful_payment', async (ctx) => {
 
     // ✅ Use the same unified task-posting helper
     await postTaskFromPaidDraft({ ctx, me, draft, intent });
-
+    // Once the task is posted, stop waiting on any older interactive flows for this creator
+    clearUserInteractionSessions(ctx);
 
   } catch (err) {
     console.error("successful_payment handler error:", err);
