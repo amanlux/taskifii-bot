@@ -15118,6 +15118,19 @@ bot.action(/^DOER_SEND_CORRECTED_(.+)$/, async (ctx) => {
     work.doerCorrectedClickedAt = new Date();
     work.currentRevisionStatus = 'fix_received';
     await work.save();
+    // 🔔 ARM CREATOR FINAL-DECISION TIMER (half of revision time starting now)
+    // revisionHours was already computed earlier in this handler:
+    //   const revisionHours = task.revisionTime || 0;
+    try {
+      const halfMillis = (Number(revisionHours) * 60 * 60 * 1000) / 2;
+      if (halfMillis > 0) {
+        // This will call enforceCreatorFinalDecision(taskId) after half of revision time
+        scheduleCreatorFinalDecisionEnforcement(String(task._id), halfMillis);
+      }
+    } catch (timerErr) {
+      console.error("Failed to schedule creator final decision enforcement:", timerErr);
+    }
+
   } catch (e) {
     console.error("Failed saving revision metadata:", e);
   }
