@@ -1843,6 +1843,14 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
     en: "🚧 We haven't received a success from Chapa yet. Please complete the payment page and try again.",
     am: "🚧 ከ Chapa የተሳካ የክፍያ ማረጋገጫ ገና አልደረሰንም። እባክዎ የክፍያውን ገጽ ሙሉ በሙሉ እንደጨረሱት ያረጋግጡ እና ዳግመኛ ይሞክሩ።"
   },
+  doerReportThisBtn: {
+    en: "🚩 Report this",
+    am: "🚩 ይህን ላሳውቅ"
+  },
+  doerSendCorrectedBtn: {
+    en: "📤 Send corrected version",
+    am: "📤 የተስተካከለው ስራ ይላክ"
+  },
 
 
 
@@ -14619,7 +14627,7 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
     });
   } catch {}
   // Notify the doer with options to report or send corrected work
-  const doerLang = doerUser.language || 'en';
+  const doerLang = doerUser.language === 'am' ? 'am' : 'en';
   const doerMsgText = (doerLang === 'am')
     ? "⚠️ ማሳሰቢያ! ደንበኛው በሥራው ላይ ማሻሻያ (Revision) እንዲደረግ ጠይቋል።እባክዎ የተጠየቁትን ማስተካከያዎች ካደረጉ በኋላ የተስተካከለውን ሥራ ይላኩ፤ በመጨረሻም ከታች የሚገኘውን የተስተካከለው ስራ ይላክ የሚለውን ይጫኑ።ነገር ግን፣ ደንበኛው ያቀረበው ጥያቄ ከመጀመሪያው ስምምነት ወይም የሥራ ማግለጫ ውጪ (Out of scope) መስሎ ከታየዎት፣ ከታች ያለውን ይህን ላሳውቅ የሚለውን ቁልፍ በመጫን ጉዳዩን ሪፖርት ማድረግ ይችላሉ።በተጨማሪም፣ ቀጣይ እርምጃዎ ምን መሆን እንዳለበት ለመወሰን ያለዎት ጊዜ፣ ለክለሳ (Revision) ከተሰጠው አጠቃላይ ጊዜ ግማሽ ያህሉ መሆኑን ልብ ይበሉ፤ ስለዚህ ጊዜዎን በአግባቡ ይጠቀሙበት።"
     : "⚠️ The client has requested some revisions. Please address the issues and then send the corrected work and finally click the SEND CORRECTED VERSION below. If any request seems out of scope or outside the original task description , you may report this situation by clicking on the REPORT THIS  button below. And also please note that the time you have left to decide your next actions is half of the revision time so use it wisely please.";
@@ -14630,11 +14638,11 @@ bot.action(/^CREATOR_SEND_FIX_NOTICE_(.+)$/, async (ctx) => {
     Markup.inlineKeyboard([
       [
         Markup.button.callback(
-          (doerUser.language === 'am' ? "🚩 ይህን ላሳውቅ" : "🚩 Report this"),
+          TEXT.doerReportThisBtn[doerLang] || TEXT.doerReportThisBtn.en,
           `DOER_REPORT_${String(task._id)}`
         ),
         Markup.button.callback(
-          (doerUser.language === 'am' ? "📤 የተስተካከለው ስራ ይላክ" : "📤 Send corrected version"),
+          TEXT.doerSendCorrectedBtn[doerLang] || TEXT.doerSendCorrectedBtn.en,
           `DOER_SEND_CORRECTED_${String(task._id)}`
         )
       ]
@@ -14946,7 +14954,7 @@ bot.action(/^DOER_REPORT_(.+)$/, async (ctx) => {
     await ctx.answerCbQuery(
       lang === "am"
         ? "ሪፖርትዎ ተመዝግቧል፤ ታስኪፌይ ስራውን አግዶ ጉዳዩን ያጣራል።"
-        : "Your report has been registered. Taskif is locking the task and will investigate.",
+        : "Your report has been registered. Taskifay is locking the task and will investigate.",
       { show_alert: true }
     );
   } catch (e) {
