@@ -2481,7 +2481,14 @@ async function releasePaymentAndFinalize(taskId, reason) {
         ? `እባክዎ ክፍያውን የምትቀበሉበት ባንክ ይምረጡ።${penaltyLine}`
         : `Please choose your bank for payout:${penaltyLine}`;
 
-    const firstPageButtons = buildBankKeyboard(String(task._id), banksList, 0, null);
+    const firstPageButtons = buildBankKeyboard(
+      String(task._id),
+      banksList,
+      0,
+      null,
+      lang
+    );
+
     
     await globalThis.TaskifiiBot.telegram.sendMessage(
       doer.telegramId,
@@ -2496,7 +2503,8 @@ async function releasePaymentAndFinalize(taskId, reason) {
   }
 }
 // Helper to build inline keyboard for a given page of banks (10 per page)
-function buildBankKeyboard(taskId, banks, page, selectedBankId) {
+// Helper to build inline keyboard for a given page of banks (10 per page)
+function buildBankKeyboard(taskId, banks, page, selectedBankId, lang = "en") {
   const FIELDS_PER_PAGE = 10;
   const start = page * FIELDS_PER_PAGE;
   const end = Math.min(start + FIELDS_PER_PAGE, banks.length);
@@ -2512,20 +2520,31 @@ function buildBankKeyboard(taskId, banks, page, selectedBankId) {
     ]);
   }
 
-  // Navigation buttons for pagination
+  // Navigation buttons for pagination (bilingual)
   const navButtons = [];
+  const isAmharic = (lang === "am");
+
   if (page > 0) {
-    navButtons.push(Markup.button.callback("⬅️ Prev", `PAYOUT_PAGE_${taskId}_${page-1}`));
+    const prevLabel = isAmharic ? "⬅️ ቀዳሚ" : "⬅️ Prev";
+    navButtons.push(
+      Markup.button.callback(prevLabel, `PAYOUT_PAGE_${taskId}_${page-1}`)
+    );
   }
+
   if (end < banks.length) {
-    navButtons.push(Markup.button.callback("Next ➡️", `PAYOUT_PAGE_${taskId}_${page+1}`));
+    const nextLabel = isAmharic ? "ቀጣይ ➡️" : "Next ➡️";
+    navButtons.push(
+      Markup.button.callback(nextLabel, `PAYOUT_PAGE_${taskId}_${page+1}`)
+    );
   }
+
   if (navButtons.length) {
     keyboard.push(navButtons);
   }
 
   return Markup.inlineKeyboard(keyboard);
 }
+
 async function checkPendingRefunds() {
   try {
     const pendings = await PaymentIntent.find({
@@ -13940,11 +13959,13 @@ bot.action(/^PAYOUT_PAGE_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
     taskId,
     pending.banks,
     page,
-    pending.selectedBankId
+    pending.selectedBankId,
+    pending.language || "en"
   );
 
   // Determine language and prompt text
   const lang = pending.language || "en";
+
   let promptText;
   if (pending.banks && pending.banks.length) {
     if (pending.selectedBankId) {
@@ -13993,6 +14014,8 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
   if (!pending || String(pending.taskId) !== taskId) {
     return ctx.answerCbQuery("❌ Session expired. Please try again.");
   }
+  // Language for the keyboard (from pending session)
+  const pendingLang = pending.language || "en";
   // Find the selected bank details
   const bank = pending.banks.find(b => b.id === bankId);
   if (!bank) {
@@ -14004,9 +14027,13 @@ bot.action(/^PAYOUT_SELECT_([a-f0-9]{24})_(\d+)$/, async (ctx) => {
   pending.selectedBankName = bank.name;
   // Edit the bank list message to highlight the chosen bank
   try {
-    const newMarkup = buildBankKeyboard(taskId, pending.banks, 
-                                        Math.floor(pending.banks.findIndex(b => b.id === bankId) / 10), 
-                                        pending.selectedBankId);
+    const newMarkup = buildBankKeyboard(
+      taskId,
+      pending.banks,
+      Math.floor(pending.banks.findIndex(b => b.id === bankId) / 10),
+      pending.selectedBankId,
+      pendingLang
+    );
     await ctx.editMessageReplyMarkup(newMarkup.reply_markup);
   } catch (e) {
     console.error("Failed to highlight selected bank:", e);
