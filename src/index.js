@@ -4700,7 +4700,7 @@ async function escalateDoerReport(ctx, taskId) {
     REFUND_AUDIT_CHANNEL_ID,
     ctx.telegram.sendMessage.bind(ctx.telegram),
     DISPUTE_CHANNEL_ID,
-    `#dispute\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`,
+    `#disputeReportThis\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`,
   );
   await DisputePackage.updateOne({ _id: pkg._id }, { $set: { headerMessageId: header.message_id } });
 
@@ -4837,7 +4837,7 @@ async function escalateCreatorReject(ctx, taskId) {
     REFUND_AUDIT_CHANNEL_ID,
     telegram.sendMessage.bind(telegram),
     DISPUTE_CHANNEL_ID,
-    `#dispute\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`
+    `#disputeCreatorReject\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`
   );
   await DisputePackage.updateOne(
     { _id: pkg._id },
@@ -5257,7 +5257,7 @@ async function enforceDoerSecondHalf(taskId) {
     REFUND_AUDIT_CHANNEL_ID,
     globalThis.TaskifiiBot.telegram.sendMessage.bind(globalThis.TaskifiiBot.telegram),
     DISPUTE_CHANNEL_ID,
-    `#dispute\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`
+    `#disputeneitherReportthisOrSendCorrected\nTASK ${task._id}\nCreator:${creatorUser._id} Doer:${doerUser._id}\n—— START OF DISPUTE PACKAGE ——`
   );
   await DisputePackage.updateOne({ _id: pkg._id }, { $set: { headerMessageId: header.message_id } });
 
