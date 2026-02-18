@@ -2525,7 +2525,7 @@ function buildBankKeyboard(taskId, banks, page, selectedBankId, lang = "en") {
   const isAmharic = (lang === "am");
 
   if (page > 0) {
-    const prevLabel = isAmharic ? "⬅️ ቀዳሚ" : "⬅️ Prev";
+    const prevLabel = isAmharic ? "⬅️ ወደኋላ" : "⬅️ Prev";
     navButtons.push(
       Markup.button.callback(prevLabel, `PAYOUT_PAGE_${taskId}_${page-1}`)
     );
