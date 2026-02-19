@@ -6902,50 +6902,7 @@ async function retryQueuedRefunds() {
         console.log("Queued refund request accepted by provider:", intent._id.toString());
       } catch (err) {
         const msg = String(err?.message || "").toLowerCase();
-        // ✅ First-failure audit ONCE (then keep retrying forever)
-        try {
-          const fresh = await PaymentIntent.findById(intent._id).lean();
-
-          if (fresh && !fresh[FIRST_FAIL_FIELD]) {
-            // Best-effort: load task + creator for audit (can be missing)
-            let taskDoc = null;
-            let creatorDoc = null;
-
-            try {
-              taskDoc = fresh.task ? await Task.findById(fresh.task) : null;
-            } catch (_) {}
-
-            try {
-              creatorDoc = fresh.user ? await User.findById(fresh.user) : null;
-            } catch (_) {}
-
-            const auditCreator = creatorDoc || { telegramId: null, language: "en" };
-            const auditTask =
-              taskDoc || {
-                description: "[No task posted – queued refund link]",
-                expiry: new Date(),
-                paymentFee: fresh.amount
-              };
-
-            await sendRefundAudit(globalThis.TaskifiiBot, {
-              tag: "#refundfailed_first_try",
-              task: auditTask,
-              creator: auditCreator,
-              intent: fresh,
-              extra: {
-                reason: "First queued-refund retry attempt failed; will keep retrying forever",
-                error: String(err?.message || err)
-              }
-            });
-
-            await PaymentIntent.updateOne(
-              { _id: intent._id },
-              { $set: { [FIRST_FAIL_FIELD]: new Date() } }
-            );
-          }
-        } catch (auditErr) {
-          console.error("Queued refund first-failure audit error:", auditErr);
-        }
+        
 
         // ❗ IMPORTANT: do NOT mark as failed anymore.
         // Keep it as "queued"/"requested" so this worker retries forever.
