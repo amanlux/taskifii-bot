@@ -226,14 +226,99 @@ async function sendRefundAudit(bot, {
   if (extra.reason)        messageLines.push(`Reason: ${extra.reason}`);
   if (extra.chapaReference) messageLines.push(`Chapa Reference: ${extra.chapaReference}`);
   if (extra.refundId)      messageLines.push(`Refund ID: ${extra.refundId}`);
+  if (extra.error)         messageLines.push(`Error: ${extra.error}`);
 
   const text = messageLines.join("\n");
   try {
-    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, text, { disable_web_page_preview: true });
+    const options = { disable_web_page_preview: true };
+
+    if (extra.showRefundBackButton && extra.taskIdForRefundBack) {
+      options.reply_markup = {
+        inline_keyboard: [[
+          { text: "💸 Refund back", callback_data: `PENALTY_END_REFUND_${extra.taskIdForRefundBack}` }
+        ]]
+      };
+    }
+
+    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, text, options);
+
   } catch (e) {
     console.error("Failed to send refund audit message:", e);
   }
 }
+async function safeQueueFullRefund(bot, { task, creator, intent, reason, showRefundBackButton = false }) {
+  if (!bot || !task || !creator || !intent) return;
+  if (intent.refundStatus === "succeeded") return;
+
+  // These fields are used only for audit de-duplication.
+  // (Even if your PaymentIntent schema is strict, this will still not break refunds;
+  //  worst-case it just won’t store these fields, but the refund flow still works.)
+  const FIRST_FAIL_FIELD = "refundFirstFailureAuditSentAt";
+  const SUCCESS_FIELD    = "refundSuccessAuditSentAt";
+
+  // Guard against double refunds: mark as requested first
+  await PaymentIntent.updateOne(
+    { _id: intent._id, refundStatus: { $ne: "succeeded" } },
+    { $set: { refundStatus: "requested" } }
+  );
+
+  try {
+    const data = await refundEscrowWithChapa(intent, reason);
+
+    const chapaReference =
+      (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
+    const refundId =
+      (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
+
+    // Provider accepted refund request → pending
+    await PaymentIntent.updateOne(
+      { _id: intent._id },
+      { $set: { refundStatus: "pending", refundedAt: new Date(), chapaReference, refundId } }
+    );
+
+    // Send success audit ONCE
+    const fresh = await PaymentIntent.findById(intent._id).lean();
+    if (!fresh?.[SUCCESS_FIELD]) {
+      await sendRefundAudit(bot, {
+        tag: "#refund successful",
+        task, creator, intent: fresh,
+        extra: { reason, chapaReference, refundId }
+      });
+
+      await PaymentIntent.updateOne(
+        { _id: intent._id },
+        { $set: { [SUCCESS_FIELD]: new Date() } }
+      );
+    }
+  } catch (err) {
+    // Any failure → queue forever
+    await PaymentIntent.updateOne(
+      { _id: intent._id },
+      { $set: { refundStatus: "queued" } }
+    );
+
+    // First-failure audit ONCE
+    const fresh = await PaymentIntent.findById(intent._id).lean();
+    if (!fresh?.[FIRST_FAIL_FIELD]) {
+      await sendRefundAudit(bot, {
+        tag: "#refundfailed",
+        task, creator, intent: fresh || intent,
+        extra: {
+          reason,
+          error: String(err?.message || err),
+          showRefundBackButton,
+          taskIdForRefundBack: showRefundBackButton ? String(task._id) : null
+        }
+      });
+
+      await PaymentIntent.updateOne(
+        { _id: intent._id },
+        { $set: { [FIRST_FAIL_FIELD]: new Date() } }
+      );
+    }
+  }
+}
+
 // ------------------------------------
 // Payout audit helper + TaskPayout model
 // ------------------------------------
@@ -515,6 +600,7 @@ const DoerWorkSchema = new mongoose.Schema({
   penaltyEndAt:     { type: Date },       // when fee would hit 35% (or below)
   // In DoerWorkSchema (add anywhere among other fields)
   punishmentStartedAt: { type: Date },
+  penaltyEndNoSubmitAuditSentAt: { type: Date },
   punishmentMessageId: { type: Number },
   punishmentPaidAt: { type: Date },
 
@@ -3265,6 +3351,47 @@ async function verifyChapaTxRef(txRef) {
 
 // Reuse this in both Telegram-invoice and Hosted-Checkout flows
 async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
+  // 🔒 FINAL SAFETY GATE:
+  // If the user is currently engaged in ANY task (creator or doer),
+  // this payment link must NOT be allowed to post a task.
+  try {
+    const locked = await hasActiveTask(me.telegramId);
+    if (locked) {
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Paid an old task-post link while user is engagement-locked (doer/creator)"
+      });
+
+      // Keep your exact UX message
+      try {
+        await ctx.reply(
+          me.language === "am"
+            ? TEXT.duplicateTaskPaymentNotice.am
+            : TEXT.duplicateTaskPaymentNotice.en
+        );
+      } catch (_) {}
+
+      return; // ⛔ stop here: do not post anything
+    }
+  } catch (e) {
+    console.error("postTaskFromPaidDraft lock gate error:", e);
+    // If this check errors, we DO NOT risk posting.
+    await refundStaleOrDuplicateEscrow({
+      intent,
+      user: me,
+      reason: "Safety refund: lock gate check error"
+    });
+    try {
+      await ctx.reply(
+        me.language === "am"
+          ? TEXT.duplicateTaskPaymentNotice.am
+          : TEXT.duplicateTaskPaymentNotice.en
+      );
+    } catch (_) {}
+    return;
+  }
+
   // Create the task with postedAt timestamp
   const now = new Date();
   const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
@@ -5834,6 +5961,27 @@ async function runDoerWorkTimers(bot) {
     // Store a "punishment started" timestamp to avoid repeats
     fresh.punishmentStartedAt = now;
     await fresh.save().catch(()=>{});
+    if (!fresh.penaltyEndNoSubmitAuditSentAt) {
+      try {
+        const taskDoc = w.taskDoc; // already joined via lookup
+        await sendRefundAudit(bot, {
+          tag: "#PenaltyEnd_NoSubmission",
+          task: taskDoc,
+          creator,
+          intent: await PaymentIntent.findOne({ task: taskDoc._id, status: "paid" }),
+          extra: {
+            reason: "Winner task doer did NOT send the completed task before penalty end",
+            showRefundBackButton: true,
+            taskIdForRefundBack: String(taskDoc._id)
+          }
+        });
+
+        fresh.penaltyEndNoSubmitAuditSentAt = new Date();
+        await fresh.save().catch(()=>{});
+      } catch (e) {
+        console.error("Penalty-end no-submission audit failed:", e);
+      }
+    }
 
     // 1) Make the "Completed task sent" button inert (but still displayed, not highlighted)
     try {
@@ -6169,10 +6317,46 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
         return res.status(200).send("ok");
       }
 
-      // Accept this exactly once
+      // If this is NOT the active (pending) punishment intent, do NOT unban.
+      // Instead: refund it (stale/duplicate link paid).
       if (intent.status !== "pending") {
+        try {
+          // Ensure refund system has the txRef stored (older intents may miss it)
+          if (!intent.chapaTxRef) intent.chapaTxRef = txRef;
+          if (!intent.reference)  intent.reference  = txRef;
+          await intent.save().catch(() => {});
+
+          // Build a lightweight "task-like" object for audit messages
+          const pseudoTask = {
+            _id: intent.task || intent._id,
+            description: "Stale/old punishment fee link paid (should be ignored by bot)",
+            expiry: new Date(),
+            paymentFee: intent.amount
+          };
+
+          const payer = await User.findById(intent.user);
+
+          // This function already:
+          // - sends #refundfailed on first failure
+          // - queues refund forever (refundStatus="queued")
+          // - retries in your existing retry worker
+          // - sends #refund successful when accepted by provider
+          const refundBot = globalThis.TaskifiiBot || bot;
+          await safeQueueFullRefund(refundBot, {
+            task: pseudoTask,
+            creator: payer,
+            intent,
+            reason: `Punishment fee paid on a stale link (intent status=${intent.status}). Refund only.`
+          });
+        } catch (e) {
+          // If even this fails, we still ACK IPN to prevent Chapa hammering you;
+          // your audit + retry is handled inside safeQueueFullRefund when possible.
+          console.error("Failed to queue refund for stale punishment payment:", e);
+        }
+
         return res.status(200).send("ok");
       }
+
 
       // Mark payment intent paid
       intent.status = "paid";
@@ -6653,6 +6837,8 @@ async function retryQueuedPayouts() {
 
 async function retryQueuedRefunds() {
   try {
+    const FIRST_FAIL_FIELD = "refundFirstFailureAuditSentAt";
+    const SUCCESS_FIELD    = "refundSuccessAuditSentAt";
     const queued = await PaymentIntent.find({
       status: "paid",
       refundStatus: { $in: ["queued", "requested"] }
@@ -6662,7 +6848,7 @@ async function retryQueuedRefunds() {
       try {
         const data = await refundEscrowWithChapa(intent, "Retry queued refund");
         const task = await Task.findById(intent.task);
-        const creator = task ? await User.findById(task.creator) : null;
+        const taskCreator = task ? await User.findById(task.creator) : null;
 
         const chapaReference =
           (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
@@ -6671,19 +6857,95 @@ async function retryQueuedRefunds() {
 
         await PaymentIntent.updateOne(
           { _id: intent._id },
-          { $set: { refundStatus: "pending", refundedAt: null, chapaReference, refundId } }
+          { $set: { refundStatus: "pending", refundedAt: new Date(), chapaReference, refundId } }
         );
 
-        if (task) {
+        const fresh = await PaymentIntent.findById(intent._id).lean();
+
+        // Load creator even if task is missing (DO NOT redeclare "creator")
+        let creatorFromIntent = null;
+        try {
+          creatorFromIntent = fresh?.user ? await User.findById(fresh.user) : null;
+        } catch (_) {}
+
+        const auditCreator = taskCreator || creatorFromIntent || { telegramId: null, language: "en" };
+        const auditTask =
+          task || {
+            description: "[No task posted – queued refund link]",
+            expiry: new Date(),
+            paymentFee: fresh?.amount
+          };
+
+        if (!fresh?.[SUCCESS_FIELD]) {
           await sendRefundAudit(globalThis.TaskifiiBot, {
-            tag: "#refund successful", // ✅ new text
-            task, creator, intent,
-            extra: { reason: "Retry queued refund (provider accepted)", chapaReference, refundId }
+            tag: "#refund successful",
+            task: auditTask,
+            creator: auditCreator,
+            intent: fresh || intent,
+            extra: {
+              reason: task
+                ? "Retry queued refund (provider accepted)"
+                : "Retry queued refund for stale/duplicate link (provider accepted)",
+              chapaReference,
+              refundId
+            }
           });
+
+          await PaymentIntent.updateOne(
+            { _id: intent._id },
+            { $set: { [SUCCESS_FIELD]: new Date() } }
+          );
         }
+
+
+
         console.log("Queued refund request accepted by provider:", intent._id.toString());
       } catch (err) {
         const msg = String(err?.message || "").toLowerCase();
+        // ✅ First-failure audit ONCE (then keep retrying forever)
+        try {
+          const fresh = await PaymentIntent.findById(intent._id).lean();
+
+          if (fresh && !fresh[FIRST_FAIL_FIELD]) {
+            // Best-effort: load task + creator for audit (can be missing)
+            let taskDoc = null;
+            let creatorDoc = null;
+
+            try {
+              taskDoc = fresh.task ? await Task.findById(fresh.task) : null;
+            } catch (_) {}
+
+            try {
+              creatorDoc = fresh.user ? await User.findById(fresh.user) : null;
+            } catch (_) {}
+
+            const auditCreator = creatorDoc || { telegramId: null, language: "en" };
+            const auditTask =
+              taskDoc || {
+                description: "[No task posted – queued refund link]",
+                expiry: new Date(),
+                paymentFee: fresh.amount
+              };
+
+            await sendRefundAudit(globalThis.TaskifiiBot, {
+              tag: "#refundfailed_first_try",
+              task: auditTask,
+              creator: auditCreator,
+              intent: fresh,
+              extra: {
+                reason: "First queued-refund retry attempt failed; will keep retrying forever",
+                error: String(err?.message || err)
+              }
+            });
+
+            await PaymentIntent.updateOne(
+              { _id: intent._id },
+              { $set: { [FIRST_FAIL_FIELD]: new Date() } }
+            );
+          }
+        } catch (auditErr) {
+          console.error("Queued refund first-failure audit error:", auditErr);
+        }
 
         // ❗ IMPORTANT: do NOT mark as failed anymore.
         // Keep it as "queued"/"requested" so this worker retries forever.
@@ -6698,6 +6960,7 @@ async function retryQueuedRefunds() {
   } catch (e) {
     console.error("retryQueuedRefunds error:", e);
   }
+
 }
 async function queueLatePenaltyCreatorRefundForTask(taskId, triggerReason = "Creator approved late task") {
   try {
@@ -9463,49 +9726,13 @@ async function disableExpiredTaskButtons(bot) {
           }
 
           if (shouldRefund) {
-            // Mark as requested so we never double-refund
-            await PaymentIntent.updateOne(
-              { _id: intent._id, refundStatus: { $ne: "succeeded" } },
-              { $set: { refundStatus: "requested" } }
-            );
+            await safeQueueFullRefund(bot, {
+              task,
+              creator,
+              intent,
+              reason: `Auto-refund on expiry: ${reason}`
+            });
 
-            try {
-              // Attempt the refund via Chapa
-              const data = await refundEscrowWithChapa(intent, `Auto-refund on expiry: ${reason}`);
-
-              // Try to extract reference / refund id from provider payload (if present)
-              const chapaReference =
-                (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
-              const refundId =
-                (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
-
-              await PaymentIntent.updateOne(
-                { _id: intent._id },
-                { $set: { refundStatus: "pending", refundedAt: new Date(), chapaReference, refundId } }
-              );
-
-              // ✅ On success: #taskRefund + "#refund successful"
-              await sendRefundAudit(bot, {
-                tag: "#refund successful",
-                task, creator, intent,
-                extra: { reason, chapaReference, refundId }
-              });
-            } catch (apiErr) {
-              const msg = String(apiErr?.message || "").toLowerCase();
-
-              // ❗ Any type of failure → mark as queued so the worker keeps retrying forever
-              await PaymentIntent.updateOne(
-                { _id: intent._id },
-                { $set: { refundStatus: "queued" } }
-              );
-
-              // ✅ On first failure: #taskRefund + "#refundfailed" (only once for this refund attempt)
-              await sendRefundAudit(bot, {
-                tag: "#refundfailed",
-                task, creator, intent,
-                extra: { reason }
-              });
-            }
 
             // --- NEW: cleanup when accepted doer never started (no "Do the task" before expiry) ---
             if (reason === "Accepted doer did not start (no 'Do the task' before expiry)") {
@@ -9822,7 +10049,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           amount:   amount,
           currency: "ETB",
           status:   "pending",
-          provider: "chapa",
+          provider: "chapa_hosted",
           createdAt:new Date()
         });
 
@@ -12935,79 +13162,38 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
     });
 
     if (intent && intent.refundStatus !== "succeeded") {
-      // Mark as requested (so double taps don't double-refund)
-      await PaymentIntent.updateOne(
-        { _id: intent._id, refundStatus: { $ne: "succeeded" } },
-        { $set: { refundStatus: "requested" } }
-      );
+      // ✅ One unified safe flow:
+      // - tries immediately
+      // - on failure queues for infinite retries
+      // - first-failure audit ONCE
+      // - success audit ONCE
+      await safeQueueFullRefund(bot, {
+        task,
+        creator: user,
+        intent,
+        reason: "Creator canceled before engagement"
+      });
 
-      try {
-        console.log("Attempting Chapa refund", {
-          provider: intent?.provider,
-          chapaTxRef: intent?.chapaTxRef,
-          amount: intent?.amount,
-        });
+      // Decide which user-facing message to show (without breaking anything else)
+      const freshIntent = await PaymentIntent.findById(intent._id).lean();
 
-        await refundEscrowWithChapa(intent, "Creator canceled before engagement");
-        await PaymentIntent.updateOne(
-          { _id: intent._id },
-          { $set: { refundStatus: "pending", refundedAt: new Date() } }
-        );
-
-        // ✅ Audit for immediate success
-        try {
-          await sendRefundAudit(bot, {
-            tag: "#refund successful",
-            task,
-            creator: user,
-            intent,
-            extra: { reason: "Creator canceled before engagement" }
-          });
-        } catch (auditErr) {
-          console.error("Refund audit send failed (cancel success):", auditErr);
-        }
-
+      if (freshIntent?.refundStatus === "pending" || freshIntent?.refundStatus === "succeeded") {
         const okMsg = (lang === "am")
           ? "💸 በአደራ ተይዞ የነበረው ገንዘብዎ ወደ መጀመሪያው የመክፈያ ሂሳብዎ ተመላሽ ተደርጓል።"
           : "💸 Your escrow funds have been refunded to your original payment method.";
         await ctx.reply(okMsg);
-      } catch (apiErr) {
-        console.error("Chapa refund failed:", apiErr);
-
-        const msg = String(apiErr?.message || "").toLowerCase();
-
-        // ❗ Any kind of problem → queue it for unlimited retries
-        await PaymentIntent.updateOne(
-          { _id: intent._id },
-          { $set: { refundStatus: "queued" } } // retryQueuedRefunds keeps trying
-        );
-
-        // ✅ On first failure: #taskRefund + "#refundfailed" (only once)
-        try {
-          await sendRefundAudit(bot, {
-            tag: "#refundfailed",
-            task,
-            creator: user,
-            intent,
-            extra: { reason: "Creator canceled before engagement (initial auto-refund failed)" }
-          });
-        } catch (auditErr) {
-          console.error("Refund audit send failed (cancel failure):", auditErr);
-        }
-
+      } else {
         const sorry = (lang === "am")
           ? "ለስራው የከፈሉት ገንዘብ መጀመሪያ ክፍያ ወደፈጸሙበት የመክፈያ ዘዴ ተመላሽ ይደረጋል። ገንዘቡን የመመለስ ሂደቱም በመከናወን ላይ ይገኛል።"
           : "💸 Your task fee will be refunded back to your original payment method. The refund is being processed.";
-
         await ctx.reply(sorry);
       }
-
-
     }
   } catch (e) {
     console.error("Refund flow error:", e);
     // Intentionally silent for the user—task has been canceled already.
   }
+
 
 
   // Disable all application buttons for pending applications
@@ -13265,6 +13451,38 @@ bot.action("EDIT_NAME", async (ctx) => {
   }
 
   return ctx.reply(user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en);
+});
+bot.action(/^PENALTY_END_REFUND_(.+)$/, async (ctx) => {
+  try {
+    // Only allow presses from the audit channel
+    const chatId = String(ctx?.update?.callback_query?.message?.chat?.id || "");
+    if (chatId !== String(REFUND_AUDIT_CHANNEL_ID)) {
+      return ctx.answerCbQuery("Not allowed here.", { show_alert: true });
+    }
+
+    const taskId = ctx.match[1];
+    const task = await Task.findById(taskId);
+    if (!task) return ctx.answerCbQuery("Task not found.", { show_alert: true });
+
+    const creator = await User.findById(task.creator);
+    const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
+
+    if (!intent) {
+      return ctx.answerCbQuery("No paid intent found.", { show_alert: true });
+    }
+
+    await safeQueueFullRefund(globalThis.TaskifiiBot, {
+      task,
+      creator,
+      intent,
+      reason: "Admin refund back (penalty end reached without submission)"
+    });
+
+    await ctx.answerCbQuery("Refund triggered (will retry until success).");
+  } catch (e) {
+    console.error("Penalty-end refund back button error:", e);
+    try { await ctx.answerCbQuery("Error triggering refund.", { show_alert: true }); } catch (_) {}
+  }
 });
 
 bot.action("EDIT_PHONE", async (ctx) => {
@@ -14495,9 +14713,10 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
     currency: 'ETB',
     type: 'punishment',
     status: 'pending',
-    provider: 'chapa',
+    provider: 'chapa_hosted',
     createdAt: new Date()
   });
+
 
   // Build hosted checkout via Chapa (tx_ref unique per intent)
   const txRef = `punish_${intent._id}`;
@@ -14516,8 +14735,13 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
 
   await PaymentIntent.updateOne(
     { _id: intent._id },
-    { $set: { reference: txRef, checkoutUrl: checkout?.data?.checkout_url || null } }
+    { $set: {
+        reference: txRef,
+        chapaTxRef: txRef,
+        checkoutUrl: checkout?.data?.checkout_url || null
+    } }
   );
+
 
   const lang = user.language || 'en';
   const lead = (TEXT.punishLinkReady?.[lang] || TEXT.punishLinkReady.en);
