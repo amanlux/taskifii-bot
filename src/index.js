@@ -248,7 +248,28 @@ async function sendRefundAudit(bot, {
 }
 async function safeQueueFullRefund(bot, { task, creator, intent, reason, showRefundBackButton = false }) {
   if (!bot || !task || !creator || !intent) return;
-  if (intent.refundStatus === "succeeded") return;
+
+  // Fresh check first (never trust stale in-memory intent)
+  const latestIntent = await PaymentIntent.findById(intent._id).lean();
+  if (!latestIntent) return;
+
+  const currentStatus = String(latestIntent.refundStatus || "");
+  if (["requested", "pending", "succeeded"].includes(currentStatus)) {
+    return; // already in progress or already handled
+  }
+
+  // Atomic claim: only one caller can move it into "requested"
+  const claim = await PaymentIntent.updateOne(
+    {
+      _id: intent._id,
+      refundStatus: { $nin: ["requested", "pending", "succeeded"] }
+    },
+    { $set: { refundStatus: "requested" } }
+  );
+
+  if (!claim || claim.modifiedCount !== 1) {
+    return; // another click/process already claimed it
+  }
 
   // These fields are used only for audit de-duplication.
   // (Even if your PaymentIntent schema is strict, this will still not break refunds;
@@ -256,11 +277,7 @@ async function safeQueueFullRefund(bot, { task, creator, intent, reason, showRef
   const FIRST_FAIL_FIELD = "refundFirstFailureAuditSentAt";
   const SUCCESS_FIELD    = "refundSuccessAuditSentAt";
 
-  // Guard against double refunds: mark as requested first
-  await PaymentIntent.updateOne(
-    { _id: intent._id, refundStatus: { $ne: "succeeded" } },
-    { $set: { refundStatus: "requested" } }
-  );
+ 
 
   try {
     const data = await refundEscrowWithChapa(intent, reason);
@@ -601,6 +618,7 @@ const DoerWorkSchema = new mongoose.Schema({
   // In DoerWorkSchema (add anywhere among other fields)
   punishmentStartedAt: { type: Date },
   penaltyEndNoSubmitAuditSentAt: { type: Date },
+  penaltyEndRefundBackClickedAt: { type: Date },
   punishmentMessageId: { type: Number },
   punishmentPaidAt: { type: Date },
 
@@ -5961,14 +5979,21 @@ async function runDoerWorkTimers(bot) {
     // Store a "punishment started" timestamp to avoid repeats
     fresh.punishmentStartedAt = now;
     await fresh.save().catch(()=>{});
+    // Fetch users EARLY (needed by penalty-end audit-with-button)
+    const doer = await User.findById(fresh.doer);
+    const creator = await User.findById(w.taskDoc.creator);
+
+    // Send ONE audit for no-submission at penalty end (with refund button)
     if (!fresh.penaltyEndNoSubmitAuditSentAt) {
       try {
-        const taskDoc = w.taskDoc; // already joined via lookup
+        const taskDoc = w.taskDoc;
+        const paidIntent = await PaymentIntent.findOne({ task: taskDoc._id, status: "paid" });
+
         await sendRefundAudit(bot, {
           tag: "#PenaltyEnd_NoSubmission",
           task: taskDoc,
           creator,
-          intent: await PaymentIntent.findOne({ task: taskDoc._id, status: "paid" }),
+          intent: paidIntent,
           extra: {
             reason: "Winner task doer did NOT send the completed task before penalty end",
             showRefundBackButton: true,
@@ -6003,8 +6028,7 @@ async function runDoerWorkTimers(bot) {
     }
 
     // Fetch users
-    const doer = await User.findById(fresh.doer);
-    const creator = await User.findById(w.taskDoc.creator);
+    
     const doerLang = doer?.language || 'en';
     const creatorLang = creator?.language || 'en';
 
@@ -6097,7 +6121,14 @@ async function runDoerWorkTimers(bot) {
         `Original Fee: ${original}`,
         `Punishment (50%): ${half}`
       ].join("\n");
-      await bot.telegram.sendMessage("-1002616271109", audit, { disable_web_page_preview: true });
+      await bot.telegram.sendMessage("-1002616271109", audit, {
+        disable_web_page_preview: true,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "💸 Refund back", callback_data: `PENALTY_END_REFUND_${w.taskDoc._id}` }
+          ]]
+        }
+      });
     } catch (e) {
       console.error("Failed to send #notoriousWTD audit:", e);
     }
@@ -6840,9 +6871,13 @@ async function retryQueuedRefunds() {
     const FIRST_FAIL_FIELD = "refundFirstFailureAuditSentAt";
     const SUCCESS_FIELD    = "refundSuccessAuditSentAt";
     const queued = await PaymentIntent.find({
-      status: "paid",
-      refundStatus: { $in: ["queued", "requested"] }
+      refundStatus: { $in: ["queued", "requested"] },
+      $or: [
+        { status: "paid" }, // normal escrow / stale-draft refunds
+        { type: "punishment", status: { $in: ["voided", "paid"] } } // stale punishment links too
+      ]
     }).limit(25);
+
 
     for (const intent of queued) {
       try {
@@ -6940,21 +6975,25 @@ async function queueLatePenaltyCreatorRefundForTask(taskId, triggerReason = "Cre
     const commission = round2(totalAmount * 0.05);
 
     const work = await DoerWork.findOne({ task: task._id })
-      .select("penaltyStartAt penaltyEndAt completedAt deadlineAt")
+      .select("penaltyStartAt penaltyEndAt completedAt")
       .lean();
 
     const penaltyPerHour = Number((task.penaltyPerHour ?? task.latePenalty) || 0);
     if (!work || penaltyPerHour <= 0) return;
 
     const completedAt  = work.completedAt ? new Date(work.completedAt) : null;
-    const deadlineAt   = work.deadlineAt ? new Date(work.deadlineAt) : null;
     const penaltyStart = work.penaltyStartAt ? new Date(work.penaltyStartAt) : null;
     const penaltyEnd   = work.penaltyEndAt ? new Date(work.penaltyEndAt) : null;
 
-    // Must be late, but submitted before the 35% floor point is reached
-    if (!completedAt || !deadlineAt || !penaltyStart || !penaltyEnd) return;
-    if (!(completedAt > deadlineAt)) return;
-    if (!(completedAt < penaltyEnd)) return; // if fee already hit 35% floor, no refund
+    // Mirror releasePaymentAndFinalize late-penalty logic:
+    // If there is no penaltyStart/completedAt, there was no computable late penalty.
+    if (!completedAt || !penaltyStart) return;
+
+    // Must actually be late enough to incur penalty
+    if (!(completedAt > penaltyStart)) return;
+
+    // If penaltyEnd exists, only refund when submitted before 35% floor point
+    if (penaltyEnd && !(completedAt < penaltyEnd)) return;
 
     const hoursLate = Math.max(0, Math.ceil((completedAt.getTime() - penaltyStart.getTime()) / 3600000));
     if (!(hoursLate > 0)) return;
@@ -13416,7 +13455,6 @@ bot.action("EDIT_NAME", async (ctx) => {
 });
 bot.action(/^PENALTY_END_REFUND_(.+)$/, async (ctx) => {
   try {
-    // Only allow presses from the audit channel
     const chatId = String(ctx?.update?.callback_query?.message?.chat?.id || "");
     if (chatId !== String(REFUND_AUDIT_CHANNEL_ID)) {
       return ctx.answerCbQuery("Not allowed here.", { show_alert: true });
@@ -13426,11 +13464,47 @@ bot.action(/^PENALTY_END_REFUND_(.+)$/, async (ctx) => {
     const task = await Task.findById(taskId);
     if (!task) return ctx.answerCbQuery("Task not found.", { show_alert: true });
 
+    // ATOMIC anti-spam lock: first click wins, later clicks do nothing
+    const work = await DoerWork.findOneAndUpdate(
+      {
+        task: task._id,
+        penaltyEndAt: { $exists: true },
+        completedAt: { $exists: false },
+        penaltyEndRefundBackClickedAt: { $exists: false }
+      },
+      { $set: { penaltyEndRefundBackClickedAt: new Date() } },
+      { new: true }
+    );
+
+    if (!work) {
+      // Either already clicked before, or task no longer eligible
+      try {
+        await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
+      } catch (_) {}
+      return ctx.answerCbQuery("Refund already triggered (or not eligible).");
+    }
+
+    // Disable button immediately in the audit message to prevent re-clicks
+    try {
+      await ctx.editMessageReplyMarkup({
+        inline_keyboard: [[
+          { text: "✅ Refund back triggered", callback_data: "_DISABLED_PENALTY_END_REFUND" }
+        ]]
+      });
+    } catch (e) {
+      console.error("Failed to disable PENALTY_END_REFUND button:", e);
+    }
+
     const creator = await User.findById(task.creator);
     const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
 
     if (!intent) {
       return ctx.answerCbQuery("No paid intent found.", { show_alert: true });
+    }
+
+    // Extra safety: if already in progress / done, don't trigger again
+    if (["requested", "pending", "succeeded"].includes(String(intent.refundStatus || ""))) {
+      return ctx.answerCbQuery("Refund already in progress/already handled.");
     }
 
     await safeQueueFullRefund(globalThis.TaskifiiBot, {
@@ -13446,7 +13520,9 @@ bot.action(/^PENALTY_END_REFUND_(.+)$/, async (ctx) => {
     try { await ctx.answerCbQuery("Error triggering refund.", { show_alert: true }); } catch (_) {}
   }
 });
-
+bot.action("_DISABLED_PENALTY_END_REFUND", async (ctx) => {
+  await ctx.answerCbQuery();
+});
 bot.action("EDIT_PHONE", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
