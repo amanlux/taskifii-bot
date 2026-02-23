@@ -205,9 +205,9 @@ function formatExpiresAtForAudit(date) {
 
 // Compose and send the giant audit message to the private channel
 async function sendRefundAudit(bot, {
-  tag, // "#refundfailed" or "#refundsuccessful"
+  tag, // "#refundfailed" or "#refund successful"
   task, creator, intent,
-  extra = {} // { reason, chapaReference, refundId }
+  extra = {} // { reason, chapaReference, refundId, error }
 }) {
   const creatorName = creator?.fullName || creator?.username || String(creator?.telegramId || "");
   const creatorUserId = creator?._id ? String(creator._id) : "-";
@@ -215,6 +215,8 @@ async function sendRefundAudit(bot, {
 
   const messageLines = [
     `#taskRefund ${tag}`,
+    `Task ID: ${task?._id ? String(task._id) : "-"}`,
+    `PaymentIntent ID: ${intent?._id ? String(intent._id) : "-"}`,
     `Task Description: ${task?.description || "-"}`,
     `Expiry (as shown): ${formatExpiresAtForAudit(task?.expiry)}`,
     `Fee (ETB): ${task?.paymentFee ?? intent?.amount ?? "-"}`,
@@ -223,9 +225,10 @@ async function sendRefundAudit(bot, {
     `Creator Name: ${creatorName}`,
   ];
 
-  if (extra.reason)        messageLines.push(`Reason: ${extra.reason}`);
+  if (extra.reason)         messageLines.push(`Reason: ${extra.reason}`);
   if (extra.chapaReference) messageLines.push(`Chapa Reference: ${extra.chapaReference}`);
-  if (extra.refundId)      messageLines.push(`Refund ID: ${extra.refundId}`);
+  if (extra.refundId)       messageLines.push(`Refund ID: ${extra.refundId}`);
+  if (extra.error)          messageLines.push(`Error: ${extra.error}`);
 
   const text = messageLines.join("\n");
   try {
@@ -1829,7 +1832,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
   },
   duplicateTaskPaymentNotice: {
     en: "⚠️ You can only have one task active at a time. This payment link was for an older task draft, so the money you just paid will be refunded back to your original payment method shortly.",
-    am: "⚠️ በአንድ ጊዜ ከአንድ በላይ ስራ ማሰራት አይቻልም። የከፈሉት ክፍያ የቆየ (ጊዜው ያለፈበት) የስራ ረቂቅ ላይ ስለሆነ፣ የከፈሉት ገንዘብ በቅርቡ ወደተጠቀሙበት የክፍያ አካውንት ይመለስልዎታል።"
+    am: "⚠️ በአንድ ጊዜ ከአንድ በላይ ስራ ማሰራት ወይም መስራት አይቻልም። የከፈሉት ክፍያ የቆየ (ጊዜው ያለፈበት) የስራ ረቂቅ ላይ ስለሆነ፣ የከፈሉት ገንዘብ በቅርቡ ወደተጠቀሙበት የክፍያ አካውንት ይመለስልዎታል።"
   },
   bannedGuard: {
     en: "You’re currently banned from using taskifay.",
@@ -6707,6 +6710,34 @@ async function retryQueuedRefunds() {
     for (const intent of queued) {
       try {
         const data = await refundEscrowWithChapa(intent, "Retry queued refund");
+
+        // ✅ Extract identifiers before using them in audit (this was the hidden bug)
+        const chapaReference =
+          (data && data.data && (data.data.reference || data.data.tx_ref)) ||
+          intent.chapaTxRef ||
+          intent.reference ||
+          null;
+
+        const refundId =
+          (data && data.data && (data.data.refund_id || data.data.refundId)) ||
+          null;
+
+        // ✅ Mark provider-accepted retry so we stop infinite re-requesting for this intent
+        // Final settlement can still be confirmed later by checkPendingRefunds().
+        await PaymentIntent.updateOne(
+          { _id: intent._id },
+          {
+            $set: {
+              refundStatus: "pending",
+              refundedAt: new Date(),
+              lastRefundAttemptAt: new Date(),
+              lastRefundError: null,
+              chapaReference,
+              refundId
+            }
+          }
+        );
+
         const task = intent.task ? await Task.findById(intent.task) : null;
 
         // Who should appear in audit as the refunded user?
@@ -6716,7 +6747,9 @@ async function retryQueuedRefunds() {
         if (intent.type === "punishment") {
           refundUser = intent.user ? await User.findById(intent.user) : null;
         } else {
-          refundUser = task?.creator ? await User.findById(task.creator) : (intent.user ? await User.findById(intent.user) : null);
+          refundUser = task?.creator
+            ? await User.findById(task.creator)
+            : (intent.user ? await User.findById(intent.user) : null);
         }
 
         const auditTask = task || {
@@ -6728,6 +6761,7 @@ async function retryQueuedRefunds() {
           paymentFee: intent.amount
         };
 
+        // ✅ Success audit for retry success
         await sendRefundAudit(globalThis.TaskifiiBot, {
           tag: "#refund successful",
           task: auditTask,
@@ -6742,18 +6776,32 @@ async function retryQueuedRefunds() {
             refundId
           }
         });
+
         console.log("Queued refund request accepted by provider:", intent._id.toString());
       } catch (err) {
         const msg = String(err?.message || "").toLowerCase();
 
-        // ❗ IMPORTANT: do NOT mark as failed anymore.
-        // Keep it as "queued"/"requested" so this worker retries forever.
+        // ✅ Keep audit trail/details for each failed attempt but keep infinite retry behavior
+        try {
+          await PaymentIntent.updateOne(
+            { _id: intent._id },
+            {
+              $set: {
+                refundStatus: "queued", // keep queued forever until success
+                lastRefundAttemptAt: new Date(),
+                lastRefundError: String(err?.message || "")
+              }
+            }
+          );
+        } catch (_) {}
+
+        // ❗ IMPORTANT: do NOT mark as failed.
+        // Keep it as queued/requested so this worker retries forever.
         if (msg.includes("insufficient balance")) {
           console.log("Queued refund still waiting for funds:", intent._id.toString());
         } else {
           console.error("Queued refund attempt failed, will retry:", intent._id.toString(), err);
         }
-        // No status update here → infinite automatic retries
       }
     }
   } catch (e) {
