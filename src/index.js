@@ -4428,7 +4428,21 @@ async function createChapaCheckoutLink({
   // Match the shape your callers use: checkout?.data?.checkout_url
   return { data: { checkout_url: checkout } };
 }
+async function getAlreadyPostedTaskFromIntent(intentId) {
+  try {
+    if (!intentId) return null;
 
+    // Re-read latest PaymentIntent state from DB (important for race conditions)
+    const latestIntent = await PaymentIntent.findById(intentId).lean();
+    if (!latestIntent?.task) return null;
+
+    const existingTask = await Task.findById(latestIntent.task).lean();
+    return existingTask || null;
+  } catch (e) {
+    console.error("getAlreadyPostedTaskFromIntent error:", e);
+    return null;
+  }
+}
 async function finalizeAndRequestRatings(reason, taskId, botOrTelegram) {
   const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
   if (!task) return;
@@ -6293,7 +6307,22 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
       console.error("IPN user missing for intent", intent._id.toString());
       return res.status(404).send("user_missing");
     }
+    if (!draft) {
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        return res.status(200).send("already_posted");
+      }
 
+      console.warn("IPN: stale or missing draft for intent", intent._id.toString(), "txRef:", txRef);
+
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft paid via Chapa IPN"
+      });
+
+      return res.status(200).send("stale_draft_refunded");
+    }
     if (!draft) {
       console.warn("IPN: stale or missing draft for intent", intent._id.toString(), "txRef:", txRef);
 
@@ -6309,6 +6338,30 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
       userId: me._id,
       currentDraftId: draft?._id || null
     });
+    if (conflict.conflict) {
+      // If this same payment was already consumed to post a task, do NOT refund.
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        // For webhook handlers return ack; for Telegram handlers send a friendly message
+        return ctx
+          ? ctx.reply(
+              me.language === "am"
+                ? "✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።"
+                : "✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled."
+            )
+          : res.status(200).send("already_posted");
+      }
+
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `Paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+
+      return ctx
+        ? ctx.reply(me.language === "am" ? TEXT.duplicateTaskPaymentNotice.am : TEXT.duplicateTaskPaymentNotice.en)
+        : res.status(200).send("conflict_refunded");
+    }
     if (conflict.conflict) {
       await refundStaleOrDuplicateEscrow({
         intent,
@@ -12549,7 +12602,31 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
 
     // Now verified – load draft and continue
     const draft = await TaskDraft.findById(draftId);
+    // If another handler already posted the task using this same intent, do NOT refund.
+    if (!draft) {
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        // Optional: tell the user the task is already posted instead of duplicate notice
+        return ctx.reply(
+          me.language === "am"
+            ? "✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።"
+            : "✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled."
+        );
+      }
 
+      // Draft is truly gone (not already consumed) => stale payment, refund it
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft (Telegram successful_payment)"
+      });
+
+      return ctx.reply(
+        me.language === "am"
+          ? TEXT.duplicateTaskPaymentNotice.am
+          : TEXT.duplicateTaskPaymentNotice.en
+      );
+    }
     if (!draft) {
       // Draft is gone => this payment is for an abandoned draft; refund it.
       await refundStaleOrDuplicateEscrow({
@@ -12568,7 +12645,30 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
       userId: me._id,
       currentDraftId: draft?._id || null
     });
+    if (conflict.conflict) {
+      // If this same payment was already consumed to post a task, do NOT refund.
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        // For webhook handlers return ack; for Telegram handlers send a friendly message
+        return ctx
+          ? ctx.reply(
+              me.language === "am"
+                ? "✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።"
+                : "✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled."
+            )
+          : res.status(200).send("already_posted");
+      }
 
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `Paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+
+      return ctx
+        ? ctx.reply(me.language === "am" ? TEXT.duplicateTaskPaymentNotice.am : TEXT.duplicateTaskPaymentNotice.en)
+        : res.status(200).send("conflict_refunded");
+    }
     if (conflict.conflict) {
       await refundStaleOrDuplicateEscrow({
         intent,
@@ -12656,6 +12756,31 @@ bot.on('successful_payment', async (ctx) => {
 
     // Load draft
     const draft = await TaskDraft.findById(draftId);
+    // If another handler already posted the task using this same intent, do NOT refund.
+    if (!draft) {
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        // Optional: tell the user the task is already posted instead of duplicate notice
+        return ctx.reply(
+          me.language === "am"
+            ? "✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።"
+            : "✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled."
+        );
+      }
+
+      // Draft is truly gone (not already consumed) => stale payment, refund it
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft (Telegram successful_payment)"
+      });
+
+      return ctx.reply(
+        me.language === "am"
+          ? TEXT.duplicateTaskPaymentNotice.am
+          : TEXT.duplicateTaskPaymentNotice.en
+      );
+    }
     if (!draft) {
       // Draft is gone => refund this Telegram/Chapa escrow payment as stale
       await refundStaleOrDuplicateEscrow({
@@ -12674,7 +12799,30 @@ bot.on('successful_payment', async (ctx) => {
       userId: me._id,
       currentDraftId: draft?._id || null
     });
+    if (conflict.conflict) {
+      // If this same payment was already consumed to post a task, do NOT refund.
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        // For webhook handlers return ack; for Telegram handlers send a friendly message
+        return ctx
+          ? ctx.reply(
+              me.language === "am"
+                ? "✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።"
+                : "✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled."
+            )
+          : res.status(200).send("already_posted");
+      }
 
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `Paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+
+      return ctx
+        ? ctx.reply(me.language === "am" ? TEXT.duplicateTaskPaymentNotice.am : TEXT.duplicateTaskPaymentNotice.en)
+        : res.status(200).send("conflict_refunded");
+    }
     if (conflict.conflict) {
       await refundStaleOrDuplicateEscrow({
         intent,
@@ -13886,7 +14034,31 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
     if (!me) {
       return ctx.reply("❌ User not found. Please try again.");
     }
+    // If another handler already posted the task using this same intent, do NOT refund.
+    if (!draft) {
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        // Optional: tell the user the task is already posted instead of duplicate notice
+        return ctx.reply(
+          me.language === "am"
+            ? "✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።"
+            : "✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled."
+        );
+      }
 
+      // Draft is truly gone (not already consumed) => stale payment, refund it
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: "Stale or abandoned draft (Telegram successful_payment)"
+      });
+
+      return ctx.reply(
+        me.language === "am"
+          ? TEXT.duplicateTaskPaymentNotice.am
+          : TEXT.duplicateTaskPaymentNotice.en
+      );
+    }
     if (!draft) {
       // Draft is gone => payment is stale/duplicate; refund and inform.
       await refundStaleOrDuplicateEscrow({
@@ -13905,7 +14077,30 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
       userId: me._id,
       currentDraftId: draft?._id || null
     });
+    if (conflict.conflict) {
+      // If this same payment was already consumed to post a task, do NOT refund.
+      const alreadyPostedTask = await getAlreadyPostedTaskFromIntent(intent._id);
+      if (alreadyPostedTask) {
+        // For webhook handlers return ack; for Telegram handlers send a friendly message
+        return ctx
+          ? ctx.reply(
+              me.language === "am"
+                ? "✅ ስራው በተሳካ ሁኔታ ተለጥፏል!!\n\nአሁን ሌሎች ተጠቃሚዎች ማመልከት ይችላሉ። ነገር ግን፣ አንዴ የአመልካቾችን (applicants) መቀበል ከጀመሩ በኋላ ይህንን ስራ መሰረዝ እንደማይችሉ እባክዎ ልብ ይበሉ።"
+                : "✅ Task posted successfully!\n\nOther users can now apply. And please note that you can't cancel this task once you accept at least one task doer's application so be 100% sure before clicking the accept button in any applications sent you from here on out otherwise you will have to wait till the task expiry time is up for the task to be canceled."
+            )
+          : res.status(200).send("already_posted");
+      }
 
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `Paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+
+      return ctx
+        ? ctx.reply(me.language === "am" ? TEXT.duplicateTaskPaymentNotice.am : TEXT.duplicateTaskPaymentNotice.en)
+        : res.status(200).send("conflict_refunded");
+    }
     if (conflict.conflict) {
       await refundStaleOrDuplicateEscrow({
         intent,
