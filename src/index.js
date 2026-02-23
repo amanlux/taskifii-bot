@@ -226,116 +226,14 @@ async function sendRefundAudit(bot, {
   if (extra.reason)        messageLines.push(`Reason: ${extra.reason}`);
   if (extra.chapaReference) messageLines.push(`Chapa Reference: ${extra.chapaReference}`);
   if (extra.refundId)      messageLines.push(`Refund ID: ${extra.refundId}`);
-  if (extra.error)         messageLines.push(`Error: ${extra.error}`);
 
   const text = messageLines.join("\n");
   try {
-    const options = { disable_web_page_preview: true };
-
-    if (extra.showRefundBackButton && extra.taskIdForRefundBack) {
-      options.reply_markup = {
-        inline_keyboard: [[
-          { text: "💸 Refund back", callback_data: `PENALTY_END_REFUND_${extra.taskIdForRefundBack}` }
-        ]]
-      };
-    }
-
-    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, text, options);
-
+    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, text, { disable_web_page_preview: true });
   } catch (e) {
     console.error("Failed to send refund audit message:", e);
   }
 }
-async function safeQueueFullRefund(bot, { task, creator, intent, reason, showRefundBackButton = false }) {
-  if (!bot || !task || !creator || !intent) return;
-
-  // Fresh check first (never trust stale in-memory intent)
-  const latestIntent = await PaymentIntent.findById(intent._id).lean();
-  if (!latestIntent) return;
-
-  const currentStatus = String(latestIntent.refundStatus || "");
-  if (["requested", "pending", "succeeded"].includes(currentStatus)) {
-    return; // already in progress or already handled
-  }
-
-  // Atomic claim: only one caller can move it into "requested"
-  const claim = await PaymentIntent.updateOne(
-    {
-      _id: intent._id,
-      refundStatus: { $nin: ["requested", "pending", "succeeded"] }
-    },
-    { $set: { refundStatus: "requested" } }
-  );
-
-  if (!claim || claim.modifiedCount !== 1) {
-    return; // another click/process already claimed it
-  }
-
-  // These fields are used only for audit de-duplication.
-  // (Even if your PaymentIntent schema is strict, this will still not break refunds;
-  //  worst-case it just won’t store these fields, but the refund flow still works.)
-  const FIRST_FAIL_FIELD = "refundFirstFailureAuditSentAt";
-  const SUCCESS_FIELD    = "refundSuccessAuditSentAt";
-
- 
-
-  try {
-    const data = await refundEscrowWithChapa(intent, reason);
-
-    const chapaReference =
-      (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
-    const refundId =
-      (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
-
-    // Provider accepted refund request → pending
-    await PaymentIntent.updateOne(
-      { _id: intent._id },
-      { $set: { refundStatus: "pending", refundedAt: new Date(), chapaReference, refundId } }
-    );
-
-    // Send success audit ONCE
-    const fresh = await PaymentIntent.findById(intent._id).lean();
-    if (!fresh?.[SUCCESS_FIELD]) {
-      await sendRefundAudit(bot, {
-        tag: "#refund successful",
-        task, creator, intent: fresh,
-        extra: { reason, chapaReference, refundId }
-      });
-
-      await PaymentIntent.updateOne(
-        { _id: intent._id },
-        { $set: { [SUCCESS_FIELD]: new Date() } }
-      );
-    }
-  } catch (err) {
-    // Any failure → queue forever
-    await PaymentIntent.updateOne(
-      { _id: intent._id },
-      { $set: { refundStatus: "queued" } }
-    );
-
-    // First-failure audit ONCE
-    const fresh = await PaymentIntent.findById(intent._id).lean();
-    if (!fresh?.[FIRST_FAIL_FIELD]) {
-      await sendRefundAudit(bot, {
-        tag: "#refundfailed",
-        task, creator, intent: fresh || intent,
-        extra: {
-          reason,
-          error: String(err?.message || err),
-          showRefundBackButton,
-          taskIdForRefundBack: showRefundBackButton ? String(task._id) : null
-        }
-      });
-
-      await PaymentIntent.updateOne(
-        { _id: intent._id },
-        { $set: { [FIRST_FAIL_FIELD]: new Date() } }
-      );
-    }
-  }
-}
-
 // ------------------------------------
 // Payout audit helper + TaskPayout model
 // ------------------------------------
@@ -402,65 +300,6 @@ async function sendPayoutAudit(bot, {
 }
 
 
-async function sendLatePenaltyRefundAudit(bot, {
-  tag,         // "#latePenaltyRefundFailed" or "#latePenaltyRefundSuccessful"
-  task,
-  creator,
-  doer,
-  refundDoc,
-  extra = {}   // { error, reason, chapaReference, refundId, showCancelRetryButton }
-}) {
-  try {
-    const creatorName = creator?.fullName || creator?.username || String(creator?.telegramId || "");
-    const creatorUserId = creator?._id ? String(creator._id) : "-";
-    const creatorTelegramId = creator?.telegramId ?? "-";
-
-    const doerName = doer?.fullName || doer?.username || String(doer?.telegramId || "");
-    const doerUserId = doer?._id ? String(doer._id) : "-";
-    const doerTelegramId = doer?.telegramId ?? "-";
-
-    const lines = [
-      `#taskLatePenaltyRefund ${tag}`,
-      `Task ID: ${task?._id ? String(task._id) : "-"}`,
-      `Task Description: ${task?.description || "-"}`,
-      `Expiry (as shown): ${formatExpiresAtForAudit(task?.expiry)}`,
-      `Original Fee: ${formatETBParts(refundDoc?.originalFee)}`,
-      `Late Penalty Deducted: ${formatETBParts(refundDoc?.latePenaltyDeducted)}`,
-      `Refund to Creator (85%): ${formatETBParts(refundDoc?.refundAmount)}`,
-      `Commission (for context): ${formatETBParts(refundDoc?.commission || 0)}`,
-      `Hours Late: ${refundDoc?.hoursLate ?? "-"}`,
-      `Penalty / Hour: ${refundDoc?.penaltyPerHour ?? "-"}`,
-      "",
-      `Creator User ID: ${creatorUserId}`,
-      `Creator Telegram ID: ${creatorTelegramId}`,
-      `Creator Name: ${creatorName}`,
-      "",
-      `Doer User ID: ${doerUserId}`,
-      `Doer Telegram ID: ${doerTelegramId}`,
-      `Doer Name: ${doerName}`,
-    ];
-
-    if (refundDoc?.status) lines.push(`Refund Queue Status: ${refundDoc.status}`);
-    if (extra.reason || refundDoc?.reason) lines.push(`Reason: ${extra.reason || refundDoc.reason}`);
-    if (extra.chapaReference || refundDoc?.chapaReference) lines.push(`Chapa Reference: ${extra.chapaReference || refundDoc.chapaReference}`);
-    if (extra.refundId || refundDoc?.refundId) lines.push(`Refund ID: ${extra.refundId || refundDoc.refundId}`);
-    if (extra.error) lines.push(`Error: ${extra.error}`);
-
-    const options = { disable_web_page_preview: true };
-
-    if (extra.showCancelRetryButton && refundDoc?._id) {
-      options.reply_markup = {
-        inline_keyboard: [[
-          { text: "🚫 Cancel retry", callback_data: `LATE_PENALTY_REFUND_CANCEL_RETRY_${refundDoc._id}` }
-        ]]
-      };
-    }
-
-    await bot.telegram.sendMessage(REFUND_AUDIT_CHANNEL_ID, lines.join("\n"), options);
-  } catch (e) {
-    console.error("Failed to send late-penalty refund audit message:", e);
-  }
-}
 
 // Model to track payouts and retries safely (no double payout)
 const TaskPayoutSchema = new mongoose.Schema({
@@ -491,49 +330,6 @@ const TaskPayoutSchema = new mongoose.Schema({
 
 const TaskPayout = mongoose.models.TaskPayout
   || mongoose.model('TaskPayout', TaskPayoutSchema);
-
-// -------------------------------------------------------
-// Late-penalty partial refund queue (creator refund retry)
-// -------------------------------------------------------
-const LatePenaltyRefundSchema = new mongoose.Schema({
-  task:              { type: Schema.Types.ObjectId, ref: 'Task', unique: true, required: true },
-  creator:           { type: Schema.Types.ObjectId, ref: 'User', required: true },
-  doer:              { type: Schema.Types.ObjectId, ref: 'User', required: true },
-
-  paymentIntentId:   { type: Schema.Types.ObjectId, ref: 'PaymentIntent', required: true },
-  chapaTxRef:        { type: String, required: true },
-
-  originalFee:       { type: Number, required: true },  // original task fee
-  latePenaltyDeducted:{ type: Number, required: true }, // total deducted due to lateness
-  refundAmount:      { type: Number, required: true },  // 85% of deducted amount
-
-  // Useful context for audit/debug
-  commission:        { type: Number, default: 0 },
-  hoursLate:         { type: Number, default: 0 },
-  penaltyPerHour:    { type: Number, default: 0 },
-  reason:            { type: String, default: "Creator approved late task; refund 85% of deducted penalty" },
-
-  status:            { type: String, enum: ["queued", "requested", "pending", "succeeded"], default: "queued", index: true },
-  retryCanceled:     { type: Boolean, default: false, index: true },
-
-  lastError:         { type: String },
-  lastAttemptAt:     { type: Date },
-
-  firstFailureAuditSentAt: { type: Date },
-  successAuditSentAt:      { type: Date },
-
-  chapaReference:    { type: String },
-  refundId:          { type: String },
-}, { versionKey: false, timestamps: true });
-
-const LatePenaltyRefund = mongoose.models.LatePenaltyRefund
-  || mongoose.model('LatePenaltyRefund', LatePenaltyRefundSchema);
-function formatETBParts(amount) {
-  const n = round2(Number(amount) || 0);
-  const birr = Math.trunc(n);
-  const cents = Math.round((n - birr) * 100);
-  return `${n.toFixed(2)} ETB (${birr} birr and ${String(cents).padStart(2, "0")} cents)`;
-}
 
 const FinalizationSchema = new mongoose.Schema({
   task: { type: Schema.Types.ObjectId, ref: 'Task', unique: true, required: true },
@@ -617,8 +413,6 @@ const DoerWorkSchema = new mongoose.Schema({
   penaltyEndAt:     { type: Date },       // when fee would hit 35% (or below)
   // In DoerWorkSchema (add anywhere among other fields)
   punishmentStartedAt: { type: Date },
-  penaltyEndNoSubmitAuditSentAt: { type: Date },
-  penaltyEndRefundBackClickedAt: { type: Date },
   punishmentMessageId: { type: Number },
   punishmentPaidAt: { type: Date },
 
@@ -3091,7 +2885,7 @@ function splitIntoChunks(text, maxLen = 3500) {
 
 // Chapa refund — verify first, then refund using Chapa's canonical reference if present
 // Chapa refund — verify first, then refund using the correct mode/secret
-async function refundEscrowWithChapa(intent, reason = "Task canceled by creator", opts = {}) {
+async function refundEscrowWithChapa(intent, reason = "Task canceled by creator") {
   if (intent?.provider !== "chapa_hosted" || !intent?.chapaTxRef) {
     const err = new Error("Not a Chapa-hosted transaction (no chapaTxRef/provider mismatch).");
     err.code = "NOT_CHAPA_HOSTED";
@@ -3119,11 +2913,7 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
 
   // 3) Refund (amount omitted = full refund; include if you want partial)
   const form = new URLSearchParams();
-  const refundAmount = (opts && opts.amount != null) ? Number(opts.amount) : Number(intent.amount);
-  if (Number.isFinite(refundAmount) && refundAmount > 0) {
-    form.append("amount", String(round2(refundAmount)));
-  }
-
+  if (intent.amount) form.append("amount", String(intent.amount));
   form.append("reason", reason);
 
   const res = await fetch(`https://api.chapa.co/v1/refund/${encodeURIComponent(chapaReference)}`, {
@@ -3145,100 +2935,174 @@ async function refundEscrowWithChapa(intent, reason = "Task canceled by creator"
 }
 async function refundStaleOrDuplicateEscrow({ intent, user, reason }) {
   try {
-    if (!intent || !user) return;
-    if (intent.refundStatus === "succeeded") return;
+    if (!intent || !user) return { ok: false, code: "MISSING_INTENT_OR_USER" };
 
-    // Guard against double-refund: mark as requested first
-    await PaymentIntent.updateOne(
-      { _id: intent._id, refundStatus: { $ne: "succeeded" } },
-      { $set: { refundStatus: "requested" } }
-    );
+    // Use the unified idempotent helper you already added.
+    // This keeps behavior consistent with your new cancel/expiry/manual-refund/punishment flows.
+    const result = await triggerFullRefundWithRetry({
+      bot: globalThis.TaskifiiBot,
+      intent,
+      task: {
+        description: "[No task posted – stale checkout link]",
+        expiry: new Date(),
+        paymentFee: intent.amount
+      },
+      refundUser: user,
+      reason: reason || "Stale or duplicate escrow payment",
+      auditTaskFallbackDescription: "[No task posted – stale checkout link]"
+    });
 
-    try {
-      const data = await refundEscrowWithChapa(
-        intent,
-        reason || "Stale or duplicate escrow payment"
-      );
-
-      const chapaReference =
-        (data && data.data && (data.data.reference || data.data.tx_ref)) ||
-        intent.chapaTxRef ||
-        null;
-
-      const refundId =
-        (data && data.data && (data.data.refund_id || data.data.refundId)) ||
-        null;
-
-      await PaymentIntent.updateOne(
-        { _id: intent._id },
-        {
-          $set: {
-            refundStatus: "pending",
-            refundedAt: new Date(),
-            chapaReference,
-            refundId
-          }
-        }
-      );
-
-      // Optional audit log (task-less, but still useful)
-      try {
-        await sendRefundAudit(globalThis.TaskifiiBot, {
-          tag: "#refund successful",
-          task: {
-            description: "[No task posted – stale checkout link]",
-            expiry: new Date(),
-            paymentFee: intent.amount
-          },
-          creator: user,
-          intent,
-          extra: { reason, chapaReference, refundId }
-        });
-      } catch (auditErr) {
-        console.error("Refund audit send failed (stale/duplicate success):", auditErr);
-      }
-    } catch (apiErr) {
-      console.error("Stale/duplicate escrow refund failed:", apiErr);
-
-      await PaymentIntent.updateOne(
-        { _id: intent._id },
-        { $set: { refundStatus: "queued" } }
-      );
-
-      try {
-        await sendRefundAudit(globalThis.TaskifiiBot, {
-          tag: "#refundfailed",
-          task: {
-            description: "[No task posted – stale checkout link]",
-            expiry: new Date(),
-            paymentFee: intent.amount
-          },
-          creator: user,
-          intent,
-          extra: { reason, error: String(apiErr?.message || "") }
-        });
-      } catch (auditErr) {
-        console.error("Refund audit send failed (stale/duplicate failure):", auditErr);
-      }
-    }
-
-    // Notify the creator in their language (once)
+    // Notify the user in their language.
+    // IMPORTANT:
+    // - We notify for real trigger outcomes and "already processing" outcomes
+    //   because the caller expects a user-facing duplicate/stale payment message.
+    // - We avoid notifying only when there was no valid intent/user.
     try {
       const bot = globalThis.TaskifiiBot;
       if (bot && user.telegramId) {
         const lang = user.language || "en";
         const msg =
-          TEXT.duplicateTaskPaymentNotice[lang] || TEXT.duplicateTaskPaymentNotice.en;
-        await bot.telegram.sendMessage(user.telegramId, msg);
+          (TEXT.duplicateTaskPaymentNotice && (
+            TEXT.duplicateTaskPaymentNotice[lang] ||
+            TEXT.duplicateTaskPaymentNotice.en
+          )) ||
+          "⚠️ Your payment link is no longer valid for posting a task. If money was charged, it will be refunded to your original payment method.";
+
+        // Send notice for all normal outcomes (including already-processing/succeeded).
+        // This keeps current UX behavior unchanged.
+        if (result && result.code !== "NO_INTENT") {
+          await bot.telegram.sendMessage(user.telegramId, msg);
+        }
       }
     } catch (e) {
       console.error("Failed to send stale/duplicate payment notice:", e);
     }
+
+    return result;
   } catch (err) {
     console.error("refundStaleOrDuplicateEscrow wrapper error:", err);
+    return { ok: false, code: "WRAPPER_ERROR", error: err };
   }
 }
+// Unified full-refund trigger with:
+// - idempotent guard (prevents double-trigger)
+// - immediate attempt
+// - queue for unlimited retries on failure
+// - first-failure audit (only once)
+// - success audit (immediate success)
+// NOTE: Unlimited retries are handled by retryQueuedRefunds()
+async function triggerFullRefundWithRetry({
+  bot,
+  intent,
+  task = null,
+  refundUser = null, // creator for task-fee refunds, doer for duplicate punishment refunds
+  reason = "Refund requested",
+  auditTaskFallbackDescription = "[Refund]",
+  skipUserNotification = true
+}) {
+  if (!intent) {
+    return { ok: false, code: "NO_INTENT" };
+  }
 
+  // If already fully succeeded, do nothing (idempotent)
+  if (intent.refundStatus === "succeeded") {
+    return { ok: true, code: "ALREADY_SUCCEEDED" };
+  }
+
+  // If already in progress/queued, do nothing (idempotent)
+  if (["requested", "queued", "pending"].includes(String(intent.refundStatus || "").toLowerCase())) {
+    return { ok: true, code: "ALREADY_IN_PROGRESS" };
+  }
+
+  // Atomically claim this refund trigger so repeated taps/handlers won't duplicate work
+  const claim = await PaymentIntent.updateOne(
+    {
+      _id: intent._id,
+      refundStatus: { $nin: ["succeeded", "requested", "queued", "pending"] }
+    },
+    { $set: { refundStatus: "requested" } }
+  );
+
+  // Another process already claimed it
+  if (!claim.modifiedCount) {
+    return { ok: true, code: "ALREADY_CLAIMED" };
+  }
+
+  const effectiveTask = task || {
+    description: auditTaskFallbackDescription,
+    expiry: new Date(),
+    paymentFee: intent.amount
+  };
+
+  try {
+    const data = await refundEscrowWithChapa(intent, reason);
+
+    const chapaReference =
+      (data && data.data && (data.data.reference || data.data.tx_ref)) ||
+      intent.chapaTxRef ||
+      intent.reference ||
+      null;
+
+    const refundId =
+      (data && data.data && (data.data.refund_id || data.data.refundId)) ||
+      null;
+
+    await PaymentIntent.updateOne(
+      { _id: intent._id },
+      {
+        $set: {
+          refundStatus: "pending", // provider accepted; final confirmation handled elsewhere
+          refundedAt: new Date(),
+          chapaReference,
+          refundId
+        }
+      }
+    );
+
+    // Immediate success audit (provider accepted refund request)
+    try {
+      await sendRefundAudit(bot || globalThis.TaskifiiBot, {
+        tag: "#refund successful",
+        task: effectiveTask,
+        creator: refundUser, // reusing existing audit format (works for doer too)
+        intent,
+        extra: { reason, chapaReference, refundId }
+      });
+    } catch (auditErr) {
+      console.error("Refund audit send failed (immediate success):", auditErr);
+    }
+
+    return { ok: true, code: "REFUND_REQUEST_ACCEPTED", data };
+  } catch (apiErr) {
+    console.error("triggerFullRefundWithRetry immediate attempt failed:", apiErr);
+
+    // Move to queued only if not already queued (prevents repeated first-failure audits)
+    const queueRes = await PaymentIntent.updateOne(
+      { _id: intent._id, refundStatus: { $ne: "queued" } },
+      { $set: { refundStatus: "queued" } }
+    );
+
+    // FIRST failure audit only once
+    if (queueRes.modifiedCount) {
+      try {
+        await sendRefundAudit(bot || globalThis.TaskifiiBot, {
+          tag: "#refundfailed",
+          task: effectiveTask,
+          creator: refundUser, // reused field for recipient identity
+          intent,
+          extra: {
+            reason: `${reason} (initial refund try failed; queued for automatic unlimited retry)`,
+            error: String(apiErr?.message || "")
+          }
+        });
+      } catch (auditErr) {
+        console.error("Refund audit send failed (first failure):", auditErr);
+      }
+    }
+
+    return { ok: false, code: "QUEUED_FOR_RETRY", error: apiErr };
+  }
+}
 
 
 
@@ -3366,50 +3230,39 @@ async function verifyChapaTxRef(txRef) {
   return r.ok;
 }
 
+async function hasEscrowConsumeConflict({ userId, currentDraftId = null }) {
+  // Active lock as creator or doer
+  const activeLock = await EngagementLock.findOne({ user: userId, active: true }).lean();
+  if (activeLock) return { conflict: true, reason: "User has active engagement lock" };
 
-// Reuse this in both Telegram-invoice and Hosted-Checkout flows
-async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
-  // 🔒 FINAL SAFETY GATE:
-  // If the user is currently engaged in ANY task (creator or doer),
-  // this payment link must NOT be allowed to post a task.
-  try {
-    const locked = await hasActiveTask(me.telegramId);
-    if (locked) {
-      await refundStaleOrDuplicateEscrow({
-        intent,
-        user: me,
-        reason: "Paid an old task-post link while user is engagement-locked (doer/creator)"
-      });
+  // Active doer work
+  const activeDoerWork = await DoerWork.findOne({
+    doer: userId,
+    status: "active",
+    completedAt: { $exists: false }
+  }).lean();
+  if (activeDoerWork) return { conflict: true, reason: "User has active DoerWork" };
 
-      // Keep your exact UX message
-      try {
-        await ctx.reply(
-          me.language === "am"
-            ? TEXT.duplicateTaskPaymentNotice.am
-            : TEXT.duplicateTaskPaymentNotice.en
-        );
-      } catch (_) {}
+  // Any currently open task as creator
+  const openCreatedTask = await Task.findOne({
+    creator: userId,
+    status: { $in: ["Open"] }
+  }).lean();
+  if (openCreatedTask) return { conflict: true, reason: "User already has an open task as creator" };
 
-      return; // ⛔ stop here: do not post anything
-    }
-  } catch (e) {
-    console.error("postTaskFromPaidDraft lock gate error:", e);
-    // If this check errors, we DO NOT risk posting.
-    await refundStaleOrDuplicateEscrow({
-      intent,
-      user: me,
-      reason: "Safety refund: lock gate check error"
-    });
-    try {
-      await ctx.reply(
-        me.language === "am"
-          ? TEXT.duplicateTaskPaymentNotice.am
-          : TEXT.duplicateTaskPaymentNotice.en
-      );
-    } catch (_) {}
-    return;
+  // Another draft exists (user requested this to count too)
+  if (currentDraftId) {
+    const anotherDraft = await TaskDraft.findOne({
+      user: userId,
+      _id: { $ne: currentDraftId }
+    }).lean();
+    if (anotherDraft) return { conflict: true, reason: "User has another active draft" };
   }
 
+  return { conflict: false };
+}
+// Reuse this in both Telegram-invoice and Hosted-Checkout flows
+async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   // Create the task with postedAt timestamp
   const now = new Date();
   const expiryDate = new Date(now.getTime() + draft.expiryHours * 3600 * 1000);
@@ -3512,6 +3365,7 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   );
 
 }
+
 // Build a per-user status summary for the admin panel
 async function buildUserStatusSummary(userId) {
   const user = await User.findById(userId);
@@ -5979,34 +5833,6 @@ async function runDoerWorkTimers(bot) {
     // Store a "punishment started" timestamp to avoid repeats
     fresh.punishmentStartedAt = now;
     await fresh.save().catch(()=>{});
-    // Fetch users EARLY (needed by penalty-end audit-with-button)
-    const doer = await User.findById(fresh.doer);
-    const creator = await User.findById(w.taskDoc.creator);
-
-    // Send ONE audit for no-submission at penalty end (with refund button)
-    if (!fresh.penaltyEndNoSubmitAuditSentAt) {
-      try {
-        const taskDoc = w.taskDoc;
-        const paidIntent = await PaymentIntent.findOne({ task: taskDoc._id, status: "paid" });
-
-        await sendRefundAudit(bot, {
-          tag: "#PenaltyEnd_NoSubmission",
-          task: taskDoc,
-          creator,
-          intent: paidIntent,
-          extra: {
-            reason: "Winner task doer did NOT send the completed task before penalty end",
-            showRefundBackButton: true,
-            taskIdForRefundBack: String(taskDoc._id)
-          }
-        });
-
-        fresh.penaltyEndNoSubmitAuditSentAt = new Date();
-        await fresh.save().catch(()=>{});
-      } catch (e) {
-        console.error("Penalty-end no-submission audit failed:", e);
-      }
-    }
 
     // 1) Make the "Completed task sent" button inert (but still displayed, not highlighted)
     try {
@@ -6028,7 +5854,8 @@ async function runDoerWorkTimers(bot) {
     }
 
     // Fetch users
-    
+    const doer = await User.findById(fresh.doer);
+    const creator = await User.findById(w.taskDoc.creator);
     const doerLang = doer?.language || 'en';
     const creatorLang = creator?.language || 'en';
 
@@ -6123,11 +5950,9 @@ async function runDoerWorkTimers(bot) {
       ].join("\n");
       await bot.telegram.sendMessage("-1002616271109", audit, {
         disable_web_page_preview: true,
-        reply_markup: {
-          inline_keyboard: [[
-            { text: "💸 Refund back", callback_data: `PENALTY_END_REFUND_${w.taskDoc._id}` }
-          ]]
-        }
+        reply_markup: Markup.inlineKeyboard([
+          [Markup.button.callback("Refund", `NOTORIOUS_REFUND_${fresh._id}`)]
+        ]).reply_markup
       });
     } catch (e) {
       console.error("Failed to send #notoriousWTD audit:", e);
@@ -6348,46 +6173,41 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
         return res.status(200).send("ok");
       }
 
-      // If this is NOT the active (pending) punishment intent, do NOT unban.
-      // Instead: refund it (stale/duplicate link paid).
+      // Accept this exactly once for normal flow.
+      // If this is a duplicate/late payment on an old punishment link, refund it.
       if (intent.status !== "pending") {
         try {
-          // Ensure refund system has the txRef stored (older intents may miss it)
-          if (!intent.chapaTxRef) intent.chapaTxRef = txRef;
-          if (!intent.reference)  intent.reference  = txRef;
-          await intent.save().catch(() => {});
+          // If this old link got paid later, refund it back to the doer
+          if (["paid", "voided"].includes(String(intent.status).toLowerCase())) {
+            // Mark it paid if Chapa actually paid it and we somehow hadn't stored that
+            if (intent.status !== "paid") {
+              intent.status = "paid";
+              intent.paidAt = new Date();
+              await intent.save().catch(() => {});
+            }
 
-          // Build a lightweight "task-like" object for audit messages
-          const pseudoTask = {
-            _id: intent.task || intent._id,
-            description: "Stale/old punishment fee link paid (should be ignored by bot)",
-            expiry: new Date(),
-            paymentFee: intent.amount
-          };
+            const doer = intent.user ? await User.findById(intent.user) : null;
+            const task = intent.task ? await Task.findById(intent.task) : null;
 
-          const payer = await User.findById(intent.user);
-
-          // This function already:
-          // - sends #refundfailed on first failure
-          // - queues refund forever (refundStatus="queued")
-          // - retries in your existing retry worker
-          // - sends #refund successful when accepted by provider
-          const refundBot = globalThis.TaskifiiBot || bot;
-          await safeQueueFullRefund(refundBot, {
-            task: pseudoTask,
-            creator: payer,
-            intent,
-            reason: `Punishment fee paid on a stale link (intent status=${intent.status}). Refund only.`
-          });
-        } catch (e) {
-          // If even this fails, we still ACK IPN to prevent Chapa hammering you;
-          // your audit + retry is handled inside safeQueueFullRefund when possible.
-          console.error("Failed to queue refund for stale punishment payment:", e);
+            await triggerFullRefundWithRetry({
+              bot: globalThis.TaskifiiBot,
+              intent,
+              task: task || {
+                description: "[Duplicate punishment payment link]",
+                expiry: new Date(),
+                paymentFee: intent.amount
+              },
+              refundUser: doer,
+              reason: "Duplicate punishment payment link was paid after punishment already settled"
+            });
+          }
+        } catch (dupPunishRefundErr) {
+          console.error("Duplicate punishment payment auto-refund failed/queued:", dupPunishRefundErr);
+          // We still ACK IPN so Chapa doesn't keep hammering the endpoint.
         }
 
         return res.status(200).send("ok");
       }
-
 
       // Mark payment intent paid
       intent.status = "paid";
@@ -6482,7 +6302,18 @@ app.post("/chapa/ipn", [express.urlencoded({ extended: true }), express.json()],
 
       return res.status(200).send("stale_draft_refunded");
     }
-
+    const conflict = await hasEscrowConsumeConflict({
+      userId: me._id,
+      currentDraftId: draft?._id || null
+    });
+    if (conflict.conflict) {
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `IPN paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+      return res.status(200).send("conflict_refunded");
+    }
     // Normal happy path: post the task
     await postTaskFromPaidDraft({ ctx: null, me, draft, intent });
     return res.send("ok");
@@ -6868,76 +6699,52 @@ async function retryQueuedPayouts() {
 
 async function retryQueuedRefunds() {
   try {
-    const FIRST_FAIL_FIELD = "refundFirstFailureAuditSentAt";
-    const SUCCESS_FIELD    = "refundSuccessAuditSentAt";
     const queued = await PaymentIntent.find({
-      refundStatus: { $in: ["queued", "requested"] },
-      $or: [
-        { status: "paid" }, // normal escrow / stale-draft refunds
-        { type: "punishment", status: { $in: ["voided", "paid"] } } // stale punishment links too
-      ]
+      status: "paid",
+      refundStatus: { $in: ["queued", "requested"] }
     }).limit(25);
-
 
     for (const intent of queued) {
       try {
         const data = await refundEscrowWithChapa(intent, "Retry queued refund");
-        const task = await Task.findById(intent.task);
-        const taskCreator = task ? await User.findById(task.creator) : null;
+        const task = intent.task ? await Task.findById(intent.task) : null;
 
-        const chapaReference =
-          (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
-        const refundId =
-          (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
-
-        await PaymentIntent.updateOne(
-          { _id: intent._id },
-          { $set: { refundStatus: "pending", refundedAt: new Date(), chapaReference, refundId } }
-        );
-
-        const fresh = await PaymentIntent.findById(intent._id).lean();
-
-        // Load creator even if task is missing (DO NOT redeclare "creator")
-        let creatorFromIntent = null;
-        try {
-          creatorFromIntent = fresh?.user ? await User.findById(fresh.user) : null;
-        } catch (_) {}
-
-        const auditCreator = taskCreator || creatorFromIntent || { telegramId: null, language: "en" };
-        const auditTask =
-          task || {
-            description: "[No task posted – queued refund link]",
-            expiry: new Date(),
-            paymentFee: fresh?.amount
-          };
-
-        if (!fresh?.[SUCCESS_FIELD]) {
-          await sendRefundAudit(globalThis.TaskifiiBot, {
-            tag: "#refund successful",
-            task: auditTask,
-            creator: auditCreator,
-            intent: fresh || intent,
-            extra: {
-              reason: task
-                ? "Retry queued refund (provider accepted)"
-                : "Retry queued refund for stale/duplicate link (provider accepted)",
-              chapaReference,
-              refundId
-            }
-          });
-
-          await PaymentIntent.updateOne(
-            { _id: intent._id },
-            { $set: { [SUCCESS_FIELD]: new Date() } }
-          );
+        // Who should appear in audit as the refunded user?
+        // - normal escrow/task refund => task creator
+        // - duplicate punishment link refund => the doer who paid extra
+        let refundUser = null;
+        if (intent.type === "punishment") {
+          refundUser = intent.user ? await User.findById(intent.user) : null;
+        } else {
+          refundUser = task?.creator ? await User.findById(task.creator) : (intent.user ? await User.findById(intent.user) : null);
         }
 
+        const auditTask = task || {
+          description:
+            intent.type === "punishment"
+              ? "[Duplicate punishment payment link – auto-refund]"
+              : "[No task posted – stale/duplicate checkout link]",
+          expiry: new Date(),
+          paymentFee: intent.amount
+        };
 
-
+        await sendRefundAudit(globalThis.TaskifiiBot, {
+          tag: "#refund successful",
+          task: auditTask,
+          creator: refundUser, // reuse existing audit formatter
+          intent,
+          extra: {
+            reason:
+              intent.type === "punishment"
+                ? "Retry queued refund (duplicate punishment payment link)"
+                : "Retry queued refund (provider accepted)",
+            chapaReference,
+            refundId
+          }
+        });
         console.log("Queued refund request accepted by provider:", intent._id.toString());
       } catch (err) {
         const msg = String(err?.message || "").toLowerCase();
-        
 
         // ❗ IMPORTANT: do NOT mark as failed anymore.
         // Keep it as "queued"/"requested" so this worker retries forever.
@@ -6952,297 +6759,6 @@ async function retryQueuedRefunds() {
   } catch (e) {
     console.error("retryQueuedRefunds error:", e);
   }
-
-}
-async function queueLatePenaltyCreatorRefundForTask(taskId, triggerReason = "Creator approved late task") {
-  try {
-    const task = await Task.findById(taskId).populate("creator").populate("applicants.user");
-    if (!task) return;
-
-    const creator = task.creator;
-    const doer = acceptedDoerUser(task);
-    if (!creator || !doer) return;
-
-    const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
-    if (!intent || !intent.chapaTxRef || intent.provider !== "chapa_hosted") {
-      // No Chapa-hosted payment → cannot do Chapa partial refund
-      return;
-    }
-
-    const totalAmount = Number(intent.amount || task.paymentFee || 0);
-    if (!(totalAmount > 0)) return;
-
-    const commission = round2(totalAmount * 0.05);
-
-    const work = await DoerWork.findOne({ task: task._id })
-      .select("penaltyStartAt penaltyEndAt completedAt")
-      .lean();
-
-    const penaltyPerHour = Number((task.penaltyPerHour ?? task.latePenalty) || 0);
-    if (!work || penaltyPerHour <= 0) return;
-
-    const completedAt  = work.completedAt ? new Date(work.completedAt) : null;
-    const penaltyStart = work.penaltyStartAt ? new Date(work.penaltyStartAt) : null;
-    const penaltyEnd   = work.penaltyEndAt ? new Date(work.penaltyEndAt) : null;
-
-    // Mirror releasePaymentAndFinalize late-penalty logic:
-    // If there is no penaltyStart/completedAt, there was no computable late penalty.
-    if (!completedAt || !penaltyStart) return;
-
-    // Must actually be late enough to incur penalty
-    if (!(completedAt > penaltyStart)) return;
-
-    // If penaltyEnd exists, only refund when submitted before 35% floor point
-    if (penaltyEnd && !(completedAt < penaltyEnd)) return;
-
-    const hoursLate = Math.max(0, Math.ceil((completedAt.getTime() - penaltyStart.getTime()) / 3600000));
-    if (!(hoursLate > 0)) return;
-
-    const maxDeduct = round2(Math.max(0, totalAmount * 0.65)); // cap before 35% floor
-    let latePenaltyDeducted = round2(hoursLate * penaltyPerHour);
-    latePenaltyDeducted = Math.min(latePenaltyDeducted, maxDeduct);
-
-    if (!(latePenaltyDeducted > 0)) return;
-    if (latePenaltyDeducted >= maxDeduct) {
-      // Reached the 35% floor -> per your rule, do not issue this refund
-      return;
-    }
-
-    const refundAmount = round2(latePenaltyDeducted * 0.85);
-    if (!(refundAmount > 0)) return;
-
-    // Upsert once per task so it's idempotent (double taps won't duplicate)
-    const existing = await LatePenaltyRefund.findOne({ task: task._id });
-
-    if (!existing) {
-      const doc = await LatePenaltyRefund.create({
-        task: task._id,
-        creator: creator._id,
-        doer: doer._id,
-        paymentIntentId: intent._id,
-        chapaTxRef: intent.chapaTxRef,
-
-        originalFee: totalAmount,
-        latePenaltyDeducted,
-        refundAmount,
-
-        commission,
-        hoursLate,
-        penaltyPerHour,
-        reason: `${triggerReason}; creator refund = 85% of late penalty deducted`,
-
-        status: "queued",
-        retryCanceled: false,
-      });
-
-      // Try immediately once (same turn), then worker will keep retrying forever if it fails
-      try {
-        const data = await refundEscrowWithChapa(
-          { ...intent.toObject(), amount: totalAmount }, // keep original intent shape
-          "Late penalty refund to creator after approval",
-          { amount: refundAmount } // partial refund
-        );
-
-        const chapaReference =
-          (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
-        const refundId =
-          (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
-
-        await LatePenaltyRefund.updateOne(
-          { _id: doc._id },
-          {
-            $set: {
-              status: "pending",
-              lastAttemptAt: new Date(),
-              lastError: null,
-              chapaReference,
-              refundId
-            }
-          }
-        );
-
-        await sendLatePenaltyRefundAudit(globalThis.TaskifiiBot, {
-          tag: "#latePenaltyRefundSuccessful",
-          task, creator, doer,
-          refundDoc: { ...doc.toObject(), status: "pending", chapaReference, refundId },
-          extra: {
-            reason: doc.reason,
-            chapaReference,
-            refundId
-          }
-        });
-
-        await LatePenaltyRefund.updateOne(
-          { _id: doc._id },
-          { $set: { successAuditSentAt: new Date() } }
-        );
-      } catch (err) {
-        const errorMessage = String(err?.message || err);
-
-        await LatePenaltyRefund.updateOne(
-          { _id: doc._id },
-          {
-            $set: {
-              status: "queued",
-              lastAttemptAt: new Date(),
-              lastError: errorMessage
-            }
-          }
-        );
-
-        // First-failure audit with cancel button
-        await sendLatePenaltyRefundAudit(globalThis.TaskifiiBot, {
-          tag: "#latePenaltyRefundFailed",
-          task, creator, doer,
-          refundDoc: { ...doc.toObject(), status: "queued" },
-          extra: {
-            reason: doc.reason,
-            error: errorMessage,
-            showCancelRetryButton: true
-          }
-        });
-
-        await LatePenaltyRefund.updateOne(
-          { _id: doc._id },
-          { $set: { firstFailureAuditSentAt: new Date() } }
-        );
-      }
-
-      return;
-    }
-
-    // Existing doc found (double click / duplicate finalize path) -> leave it alone if already succeeded/pending/queued
-    // Just make sure it's not accidentally disabled
-    if (!existing.retryCanceled && existing.status !== "succeeded") {
-      // no-op (worker handles it)
-    }
-
-  } catch (e) {
-    console.error("queueLatePenaltyCreatorRefundForTask error:", e);
-  }
-}
-
-async function retryQueuedLatePenaltyRefunds() {
-  try {
-    const queued = await LatePenaltyRefund.find({
-      status: { $in: ["queued", "requested"] },
-      retryCanceled: { $ne: true }
-    }).limit(25);
-
-    for (const doc of queued) {
-      try {
-        const intent = await PaymentIntent.findById(doc.paymentIntentId);
-        if (!intent || !intent.chapaTxRef || intent.provider !== "chapa_hosted") {
-          await LatePenaltyRefund.updateOne(
-            { _id: doc._id },
-            {
-              $set: {
-                lastAttemptAt: new Date(),
-                lastError: "PaymentIntent missing or not Chapa-hosted"
-              }
-            }
-          );
-          continue;
-        }
-
-        // Mark requested (optional visibility)
-        await LatePenaltyRefund.updateOne(
-          { _id: doc._id },
-          { $set: { status: "requested", lastAttemptAt: new Date() } }
-        );
-
-        const data = await refundEscrowWithChapa(
-          { ...intent.toObject(), amount: Number(intent.amount || doc.originalFee || 0) },
-          "Retry late-penalty partial refund to creator",
-          { amount: Number(doc.refundAmount || 0) }
-        );
-
-        const chapaReference =
-          (data && data.data && (data.data.reference || data.data.tx_ref)) || intent.chapaTxRef || null;
-        const refundId =
-          (data && data.data && (data.data.refund_id || data.data.refundId)) || null;
-
-        await LatePenaltyRefund.updateOne(
-          { _id: doc._id },
-          {
-            $set: {
-              status: "pending",
-              lastAttemptAt: new Date(),
-              lastError: null,
-              chapaReference,
-              refundId
-            }
-          }
-        );
-
-        // Success audit only once
-        if (!doc.successAuditSentAt) {
-          const task = await Task.findById(doc.task);
-          const creator = await User.findById(doc.creator);
-          const doer = await User.findById(doc.doer);
-
-          await sendLatePenaltyRefundAudit(globalThis.TaskifiiBot, {
-            tag: "#latePenaltyRefundSuccessful",
-            task, creator, doer,
-            refundDoc: { ...doc.toObject(), status: "pending", chapaReference, refundId },
-            extra: {
-              reason: doc.reason,
-              chapaReference,
-              refundId
-            }
-          });
-
-          await LatePenaltyRefund.updateOne(
-            { _id: doc._id },
-            { $set: { successAuditSentAt: new Date() } }
-          );
-        }
-
-        console.log("Queued late-penalty refund accepted by provider:", doc._id.toString());
-      } catch (err) {
-        const errorMessage = String(err?.message || err);
-
-        await LatePenaltyRefund.updateOne(
-          { _id: doc._id },
-          {
-            $set: {
-              status: "queued",
-              lastAttemptAt: new Date(),
-              lastError: errorMessage
-            }
-          }
-        );
-
-        // First failure audit only once, with cancel button
-        if (!doc.firstFailureAuditSentAt) {
-          const task = await Task.findById(doc.task);
-          const creator = await User.findById(doc.creator);
-          const doer = await User.findById(doc.doer);
-
-          await sendLatePenaltyRefundAudit(globalThis.TaskifiiBot, {
-            tag: "#latePenaltyRefundFailed",
-            task, creator, doer,
-            refundDoc: doc,
-            extra: {
-              reason: doc.reason,
-              error: errorMessage,
-              showCancelRetryButton: true
-            }
-          });
-
-          await LatePenaltyRefund.updateOne(
-            { _id: doc._id },
-            { $set: { firstFailureAuditSentAt: new Date() } }
-          );
-        }
-
-        // Keep retrying forever unless cancel button is used
-        continue;
-      }
-    }
-  } catch (e) {
-    console.error("retryQueuedLatePenaltyRefunds error:", e);
-  }
 }
 
 
@@ -7253,7 +6769,6 @@ async function retryQueuedLatePenaltyRefunds() {
   
   setInterval(checkPendingRefunds, 15 * 60 * 1000);
   setInterval(retryQueuedPayouts, 10 * 60 * 1000);
-  setInterval(retryQueuedLatePenaltyRefunds, 10 * 60 * 1000);
 
   })
   .catch((err) => {
@@ -9722,13 +9237,13 @@ async function disableExpiredTaskButtons(bot) {
           }
 
           if (shouldRefund) {
-            await safeQueueFullRefund(bot, {
-              task,
-              creator,
+            await triggerFullRefundWithRetry({
+              bot,
               intent,
-              reason: `Auto-refund on expiry: ${reason}`
+              task,
+              refundUser: creator,
+              reason
             });
-
 
             // --- NEW: cleanup when accepted doer never started (no "Do the task" before expiry) ---
             if (reason === "Accepted doer did not start (no 'Do the task' before expiry)") {
@@ -10045,7 +9560,7 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
           amount:   amount,
           currency: "ETB",
           status:   "pending",
-          provider: "chapa_hosted",
+          provider: "chapa",
           createdAt:new Date()
         });
 
@@ -11880,14 +11395,9 @@ async function handlePaymentFee(ctx, draft) {
   const val = parseInt(text, 10);
 
   // 2) minimum 50 birr
-  //if (val < 50) {
-    //return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
-  //}
-  // 2) minimum 10 birr
-  if (val < 10) {
+  if (val < 50) {
     return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
   }
-
 
   // 3) NEW RULE (only when editing):
   //    paymentFee must be ≥ 5 * penaltyPerHour
@@ -13002,6 +12512,22 @@ bot.action(/^HOSTED_VERIFY:([a-zA-Z0-9_-]+):([a-f0-9]{24})$/, async (ctx) => {
           : TEXT.duplicateTaskPaymentNotice.en
       );
     }
+    const conflict = await hasEscrowConsumeConflict({
+      userId: me._id,
+      currentDraftId: draft?._id || null
+    });
+
+    if (conflict.conflict) {
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `Paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+
+      return ctx
+        ? ctx.reply(me.language === "am" ? TEXT.duplicateTaskPaymentNotice.am : TEXT.duplicateTaskPaymentNotice.en)
+        : null;
+    }
     // ✅ Before posting, if we were in the related-file step for some draft, terminate it
     await cancelRelatedFileDraftIfActive(ctx);
     // ✅ Use same helper to post task now
@@ -13092,6 +12618,22 @@ bot.on('successful_payment', async (ctx) => {
           : TEXT.duplicateTaskPaymentNotice.en
       );
     }
+    const conflict = await hasEscrowConsumeConflict({
+      userId: me._id,
+      currentDraftId: draft?._id || null
+    });
+
+    if (conflict.conflict) {
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `Paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+
+      return ctx
+        ? ctx.reply(me.language === "am" ? TEXT.duplicateTaskPaymentNotice.am : TEXT.duplicateTaskPaymentNotice.en)
+        : null;
+    }
     // Before posting, clean up any active related-file draft (if user was in that step)
     await cancelRelatedFileDraftIfActive(ctx);
 
@@ -13162,28 +12704,21 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
       status: "paid"
     });
 
-    if (intent && intent.refundStatus !== "succeeded") {
-      // ✅ One unified safe flow:
-      // - tries immediately
-      // - on failure queues for infinite retries
-      // - first-failure audit ONCE
-      // - success audit ONCE
-      await safeQueueFullRefund(bot, {
-        task,
-        creator: user,
+    if (intent) {
+      const result = await triggerFullRefundWithRetry({
+        bot,
         intent,
+        task,
+        refundUser: user,
         reason: "Creator canceled before engagement"
       });
 
-      // Decide which user-facing message to show (without breaking anything else)
-      const freshIntent = await PaymentIntent.findById(intent._id).lean();
-
-      if (freshIntent?.refundStatus === "pending" || freshIntent?.refundStatus === "succeeded") {
+      if (result.code === "REFUND_REQUEST_ACCEPTED" || result.code === "ALREADY_SUCCEEDED") {
         const okMsg = (lang === "am")
           ? "💸 በአደራ ተይዞ የነበረው ገንዘብዎ ወደ መጀመሪያው የመክፈያ ሂሳብዎ ተመላሽ ተደርጓል።"
           : "💸 Your escrow funds have been refunded to your original payment method.";
         await ctx.reply(okMsg);
-      } else {
+      } else if (["QUEUED_FOR_RETRY", "ALREADY_IN_PROGRESS", "ALREADY_CLAIMED"].includes(result.code)) {
         const sorry = (lang === "am")
           ? "ለስራው የከፈሉት ገንዘብ መጀመሪያ ክፍያ ወደፈጸሙበት የመክፈያ ዘዴ ተመላሽ ይደረጋል። ገንዘቡን የመመለስ ሂደቱም በመከናወን ላይ ይገኛል።"
           : "💸 Your task fee will be refunded back to your original payment method. The refund is being processed.";
@@ -13194,7 +12729,6 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
     console.error("Refund flow error:", e);
     // Intentionally silent for the user—task has been canceled already.
   }
-
 
 
   // Disable all application buttons for pending applications
@@ -13453,76 +12987,7 @@ bot.action("EDIT_NAME", async (ctx) => {
 
   return ctx.reply(user.language === "am" ? TEXT.askFullName.am : TEXT.askFullName.en);
 });
-bot.action(/^PENALTY_END_REFUND_(.+)$/, async (ctx) => {
-  try {
-    const chatId = String(ctx?.update?.callback_query?.message?.chat?.id || "");
-    if (chatId !== String(REFUND_AUDIT_CHANNEL_ID)) {
-      return ctx.answerCbQuery("Not allowed here.", { show_alert: true });
-    }
 
-    const taskId = ctx.match[1];
-    const task = await Task.findById(taskId);
-    if (!task) return ctx.answerCbQuery("Task not found.", { show_alert: true });
-
-    // ATOMIC anti-spam lock: first click wins, later clicks do nothing
-    const work = await DoerWork.findOneAndUpdate(
-      {
-        task: task._id,
-        penaltyEndAt: { $exists: true },
-        completedAt: { $exists: false },
-        penaltyEndRefundBackClickedAt: { $exists: false }
-      },
-      { $set: { penaltyEndRefundBackClickedAt: new Date() } },
-      { new: true }
-    );
-
-    if (!work) {
-      // Either already clicked before, or task no longer eligible
-      try {
-        await ctx.editMessageReplyMarkup({ inline_keyboard: [] }).catch(() => {});
-      } catch (_) {}
-      return ctx.answerCbQuery("Refund already triggered (or not eligible).");
-    }
-
-    // Disable button immediately in the audit message to prevent re-clicks
-    try {
-      await ctx.editMessageReplyMarkup({
-        inline_keyboard: [[
-          { text: "✅ Refund back triggered", callback_data: "_DISABLED_PENALTY_END_REFUND" }
-        ]]
-      });
-    } catch (e) {
-      console.error("Failed to disable PENALTY_END_REFUND button:", e);
-    }
-
-    const creator = await User.findById(task.creator);
-    const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
-
-    if (!intent) {
-      return ctx.answerCbQuery("No paid intent found.", { show_alert: true });
-    }
-
-    // Extra safety: if already in progress / done, don't trigger again
-    if (["requested", "pending", "succeeded"].includes(String(intent.refundStatus || ""))) {
-      return ctx.answerCbQuery("Refund already in progress/already handled.");
-    }
-
-    await safeQueueFullRefund(globalThis.TaskifiiBot, {
-      task,
-      creator,
-      intent,
-      reason: "Admin refund back (penalty end reached without submission)"
-    });
-
-    await ctx.answerCbQuery("Refund triggered (will retry until success).");
-  } catch (e) {
-    console.error("Penalty-end refund back button error:", e);
-    try { await ctx.answerCbQuery("Error triggering refund.", { show_alert: true }); } catch (_) {}
-  }
-});
-bot.action("_DISABLED_PENALTY_END_REFUND", async (ctx) => {
-  await ctx.answerCbQuery();
-});
 bot.action("EDIT_PHONE", async (ctx) => {
   await ctx.answerCbQuery();
   const tgId = ctx.from.id;
@@ -14384,6 +13849,22 @@ bot.action(/^HV:([a-f0-9]{24})$/, async (ctx) => {
           : TEXT.duplicateTaskPaymentNotice.en
       );
     }
+    const conflict = await hasEscrowConsumeConflict({
+      userId: me._id,
+      currentDraftId: draft?._id || null
+    });
+
+    if (conflict.conflict) {
+      await refundStaleOrDuplicateEscrow({
+        intent,
+        user: me,
+        reason: `Paid old escrow link but user became active elsewhere (${conflict.reason})`
+      });
+
+      return ctx
+        ? ctx.reply(me.language === "am" ? TEXT.duplicateTaskPaymentNotice.am : TEXT.duplicateTaskPaymentNotice.en)
+        : null;
+    }
     await cancelRelatedFileDraftIfActive(ctx);
 
     // ✅ Use your existing post-from-draft helper
@@ -14751,10 +14232,9 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
     currency: 'ETB',
     type: 'punishment',
     status: 'pending',
-    provider: 'chapa_hosted',
+    provider: 'chapa',
     createdAt: new Date()
   });
-
 
   // Build hosted checkout via Chapa (tx_ref unique per intent)
   const txRef = `punish_${intent._id}`;
@@ -14773,13 +14253,8 @@ bot.action(/^PUNISH_PAY_(.+)$/, async (ctx) => {
 
   await PaymentIntent.updateOne(
     { _id: intent._id },
-    { $set: {
-        reference: txRef,
-        chapaTxRef: txRef,
-        checkoutUrl: checkout?.data?.checkout_url || null
-    } }
+    { $set: { reference: txRef, checkoutUrl: checkout?.data?.checkout_url || null } }
   );
-
 
   const lang = user.language || 'en';
   const lead = (TEXT.punishLinkReady?.[lang] || TEXT.punishLinkReady.en);
@@ -14820,38 +14295,77 @@ bot.action(/^PAYOUT_CANCEL_RETRY_(.+)$/, async (ctx) => {
     await ctx.reply("⚠️ Something went wrong while cancelling retry. Please check the logs.");
   }
 });
-// Admin/audit action: cancel automatic retry for a specific late-penalty creator refund
-bot.action(/^LATE_PENALTY_REFUND_CANCEL_RETRY_(.+)$/, async (ctx) => {
-  const refundId = ctx.match[1];
-
-  await ctx.answerCbQuery("Retry cancelled for this refund.");
-
+// Admin/audit action: manually trigger creator refund for #notoriousWTD case
+bot.action(/^NOTORIOUS_REFUND_([a-f0-9]{24})$/, async (ctx) => {
   try {
-    const doc = await LatePenaltyRefund.findById(refundId);
-    if (!doc) {
-      await ctx.reply("⚠️ Could not find this late-penalty refund document anymore.");
-      return;
+    await ctx.answerCbQuery("Processing refund...");
+
+    const workId = ctx.match[1];
+    const work = await DoerWork.findById(workId);
+    if (!work) {
+      return ctx.reply("⚠️ DoerWork record not found.");
     }
 
-    if (doc.retryCanceled) {
-      await ctx.reply("ℹ️ Automatic retry for this late-penalty refund was already cancelled.");
-      return;
+    // Basic safety: only after penalty window logic has started
+    if (!work.punishmentStartedAt) {
+      return ctx.reply("⚠️ This case is not in punishment-started state.");
     }
 
-    doc.retryCanceled = true;
-    await doc.save();
+    // If completed later (defensive), don't refund
+    if (work.completedAt) {
+      return ctx.reply("⚠️ This work is already marked completed. Refund not triggered.");
+    }
 
-    try {
-      await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-    } catch (_) {}
+    const task = await Task.findById(work.task);
+    if (!task) {
+      return ctx.reply("⚠️ Task not found.");
+    }
 
-    await ctx.reply("🔕 Automatic retry has been cancelled for this late-penalty refund.");
+    const creator = await User.findById(task.creator);
+    if (!creator) {
+      return ctx.reply("⚠️ Task creator not found.");
+    }
+
+    const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
+    if (!intent) {
+      return ctx.reply("⚠️ No paid escrow intent found for this task.");
+    }
+
+    // Trigger idempotent refund flow
+    const result = await triggerFullRefundWithRetry({
+      bot: globalThis.TaskifiiBot,
+      intent,
+      task,
+      refundUser: creator,
+      reason: "Manual refund from #notoriousWTD audit button (doer missed penalty window)"
+    });
+
+    // Button spam protection: if first click started or queued/succeeded, disable the button visually
+    if (["REFUND_REQUEST_ACCEPTED", "QUEUED_FOR_RETRY", "ALREADY_SUCCEEDED", "ALREADY_IN_PROGRESS", "ALREADY_CLAIMED"].includes(result.code)) {
+      try {
+        await ctx.editMessageReplyMarkup({
+          inline_keyboard: [[Markup.button.callback("✔ Refund", "_DISABLED_NOTORIOUS_REFUND")]]
+        });
+      } catch (_) {}
+    }
+
+    if (result.code === "REFUND_REQUEST_ACCEPTED" || result.code === "ALREADY_SUCCEEDED") {
+      return ctx.reply("✅ Refund was triggered successfully (provider accepted).");
+    }
+
+    if (["QUEUED_FOR_RETRY", "ALREADY_IN_PROGRESS", "ALREADY_CLAIMED"].includes(result.code)) {
+      return ctx.reply("⏳ Refund is queued / already processing with automatic retry.");
+    }
+
+    return ctx.reply("⚠️ Refund could not be triggered.");
   } catch (e) {
-    console.error("Failed to cancel late-penalty refund retry:", e);
-    await ctx.reply("⚠️ Something went wrong while cancelling retry. Please check the logs.");
+    console.error("NOTORIOUS_REFUND handler error:", e);
+    try { await ctx.reply("⚠️ Something went wrong while triggering the refund."); } catch (_) {}
   }
 });
-
+bot.action("_DISABLED_NOTORIOUS_REFUND", async (ctx) => {
+  await ctx.answerCbQuery("Refund already triggered.", { show_alert: false });
+});
 // ─── When Doer Marks Task as Completed ───────────────────────────
 bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
   await ctx.answerCbQuery(); // acknowledge tap
@@ -15186,20 +14700,7 @@ bot.action(/^CREATOR_VALID_(.+)$/, async (ctx) => {
     console.error("Error sending early rating prompt:", e);
   }
   // Now proceed with the existing finalize call.
-  try {
-    await releasePaymentAndFinalize(taskId, 'accepted');
-  } catch (e) {
-    console.error("releasePaymentAndFinalize from CREATOR_VALID failed:", e);
-  }
-
-  // NEW: If doer submitted late (but before 35% floor), refund 85% of deducted penalty to creator.
-  // This is isolated and won't block finalization/payout if refund provider is temporarily down.
-  try {
-    await queueLatePenaltyCreatorRefundForTask(taskId, "Creator clicked Valid on late submission");
-  } catch (e) {
-    console.error("Late-penalty creator refund queueing failed (CREATOR_VALID):", e);
-  }
-
+  await releasePaymentAndFinalize(taskId, 'accepted');
 
 });
 
@@ -15937,13 +15438,6 @@ bot.action(/^CREATOR_APPROVE_REVISION_(.+)$/, async (ctx) => {
   } catch (e) {
     console.error("releasePaymentAndFinalize from approve failed:", e);
   }
-  // NEW: Same late-penalty creator refund logic as CREATOR_VALID
-  try {
-    await queueLatePenaltyCreatorRefundForTask(taskId, "Creator clicked Approve on corrected late submission");
-  } catch (e) {
-    console.error("Late-penalty creator refund queueing failed (CREATOR_APPROVE_REVISION):", e);
-  }
-
 });
 
 
