@@ -586,7 +586,10 @@ async function lockBothForTask(taskDoc, doerUserId, creatorUserId) {
 async function isEngagementLocked(telegramId) {
   const u = await User.findOne({ telegramId });
   if (!u) return false;
-  return !!(await EngagementLock.findOne({ user: u._id, active: true }).lean());
+
+  // Self-heal stale locks/work before deciding
+  const reallyActive = await hasRealActiveEngagementAfterCleanup(u._id);
+  return !!reallyActive;
 }
 
 // Optional: when you decide the task is "sorted out", call this.
@@ -596,7 +599,130 @@ async function releaseLocksForTask(taskId) {
     { $set: { active: false, releasedAt: new Date() } }
   );
 }
+// Self-heal stale engagement state that can remain after non-conventional task closures.
+// Returns true if the user still has any REAL active engagement after cleanup.
+async function hasRealActiveEngagementAfterCleanup(userId) {
+  // 1) Load all active locks for this user
+  const activeLocks = await EngagementLock.find({ user: userId, active: true }).lean();
 
+  if (activeLocks.length > 0) {
+    const lockTaskIds = activeLocks
+      .map(l => l.task)
+      .filter(Boolean)
+      .map(id => id.toString());
+
+    const uniqueLockTaskIds = Array.from(new Set(lockTaskIds));
+
+    // Read task statuses for all lock-linked tasks
+    const lockTasks = uniqueLockTaskIds.length
+      ? await Task.find(
+          { _id: { $in: uniqueLockTaskIds } },
+          { _id: 1, status: 1 }
+        ).lean()
+      : [];
+
+    const lockTaskMap = new Map(lockTasks.map(t => [String(t._id), t.status]));
+    const terminalTaskStatuses = new Set(["Completed", "Canceled", "Expired"]);
+
+    const staleLockIds = [];
+    for (const l of activeLocks) {
+      const taskStatus = l.task ? lockTaskMap.get(String(l.task)) : null;
+
+      // stale if task missing OR task terminal
+      if (!taskStatus || terminalTaskStatuses.has(taskStatus)) {
+        staleLockIds.push(l._id);
+      }
+    }
+
+    if (staleLockIds.length > 0) {
+      try {
+        await EngagementLock.updateMany(
+          { _id: { $in: staleLockIds }, active: true },
+          { $set: { active: false, releasedAt: new Date() } }
+        );
+      } catch (e) {
+        console.error("Failed to self-heal stale engagement locks:", e);
+      }
+    }
+  }
+
+  // 2) Self-heal stale active DoerWork rows tied to terminal/missing tasks
+  const activeWorks = await DoerWork.find({
+    doer: userId,
+    status: "active"
+  }, { _id: 1, task: 1 }).lean();
+
+  if (activeWorks.length > 0) {
+    const workTaskIds = activeWorks
+      .map(w => w.task)
+      .filter(Boolean)
+      .map(id => id.toString());
+
+    const uniqueWorkTaskIds = Array.from(new Set(workTaskIds));
+
+    const workTasks = uniqueWorkTaskIds.length
+      ? await Task.find(
+          { _id: { $in: uniqueWorkTaskIds } },
+          { _id: 1, status: 1 }
+        ).lean()
+      : [];
+
+    const workTaskMap = new Map(workTasks.map(t => [String(t._id), t.status]));
+    const terminalTaskStatuses = new Set(["Completed", "Canceled", "Expired"]);
+
+    const staleWorkIds = [];
+    for (const w of activeWorks) {
+      const taskStatus = w.task ? workTaskMap.get(String(w.task)) : null;
+      if (!taskStatus || terminalTaskStatuses.has(taskStatus)) {
+        staleWorkIds.push(w._id);
+      }
+    }
+
+    if (staleWorkIds.length > 0) {
+      try {
+        await DoerWork.updateMany(
+          { _id: { $in: staleWorkIds }, status: "active" },
+          { $set: { status: "completed", completedAt: new Date() } }
+        );
+      } catch (e) {
+        console.error("Failed to self-heal stale active DoerWork:", e);
+      }
+    }
+  }
+
+  // 3) Final truth check: any non-terminal active lock left?
+  const remainingLock = await EngagementLock.findOne({ user: userId, active: true }).lean();
+  if (remainingLock) {
+    const t = await Task.findById(remainingLock.task).select("_id status").lean();
+    if (t && !["Completed", "Canceled", "Expired"].includes(t.status)) {
+      return true;
+    }
+    // If weird race left a stale one, try one more cleanup
+    try {
+      await EngagementLock.updateOne(
+        { _id: remainingLock._id, active: true },
+        { $set: { active: false, releasedAt: new Date() } }
+      );
+    } catch (_) {}
+  }
+
+  // 4) Final truth check for doer work tied to non-terminal task
+  const remainingWork = await DoerWork.findOne({ doer: userId, status: "active" }).lean();
+  if (remainingWork) {
+    const wt = await Task.findById(remainingWork.task).select("_id status").lean();
+    if (wt && !["Completed", "Canceled", "Expired"].includes(wt.status)) {
+      return true;
+    }
+    try {
+      await DoerWork.updateOne(
+        { _id: remainingWork._id, status: "active" },
+        { $set: { status: "completed", completedAt: new Date() } }
+      );
+    } catch (_) {}
+  }
+
+  return false;
+}
 // ------------------------------------
 
 
@@ -3290,26 +3416,20 @@ async function verifyChapaTxRef(txRef) {
 }
 
 async function hasEscrowConsumeConflict({ userId, currentDraftId = null }) {
-  // Active lock as creator or doer
-  const activeLock = await EngagementLock.findOne({ user: userId, active: true }).lean();
-  if (activeLock) return { conflict: true, reason: "User has active engagement lock" };
+  // Self-heal stale locks/work first so we don't false-refund a valid paid escrow
+  const reallyActive = await hasRealActiveEngagementAfterCleanup(userId);
+  if (reallyActive) {
+    return { conflict: true, reason: "User has active engagement lock or active task work" };
+  }
 
-  // Active doer work
-  const activeDoerWork = await DoerWork.findOne({
-    doer: userId,
-    status: "active",
-    completedAt: { $exists: false }
-  }).lean();
-  if (activeDoerWork) return { conflict: true, reason: "User has active DoerWork" };
-
-  // Any currently open task as creator
+  // Any currently open task as creator (real conflict)
   const openCreatedTask = await Task.findOne({
     creator: userId,
     status: { $in: ["Open"] }
   }).lean();
   if (openCreatedTask) return { conflict: true, reason: "User already has an open task as creator" };
 
-  // Another draft exists (user requested this to count too)
+  // Another draft exists (your requested behavior)
   if (currentDraftId) {
     const anotherDraft = await TaskDraft.findOne({
       user: userId,
