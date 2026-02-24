@@ -2223,7 +2223,63 @@ async function checkTaskExpiries(bot) {
       // FIRST - Update task status to Expired and save immediately
       task.status = "Expired";
       await task.save();
+      // --- AUTO-REFUND ON EXPIRY (THIS FUNCTION ACTUALLY RUNS) -----------------
+      try {
+        const intent = await PaymentIntent.findOne({ task: task._id, status: "paid" });
 
+        if (intent && intent.refundStatus !== "succeeded") {
+          const creator = task.creator?._id
+            ? task.creator   // because this function populates creator
+            : await User.findById(task.creator);
+
+          const hasApplicants = Array.isArray(task.applicants) && task.applicants.length > 0;
+          const accepted = (task.applicants || []).filter(a => a.status === "Accepted");
+
+          // Did any accepted doer actually click "Do the task"? (engagement lock)
+          const doerStarted = accepted.length > 0
+            ? !!(await EngagementLock.findOne({ task: task._id, role: "doer", active: true }).lean())
+            : false;
+
+          let shouldRefund = false;
+          let refundReason = "";
+
+          if (!hasApplicants) {
+            shouldRefund = true;
+            refundReason = "Expired with no applicants";
+          } else if (accepted.length === 0) {
+            shouldRefund = true;
+            refundReason = "Expired without creator action (no accepted applicant)";
+          } else if (!doerStarted) {
+            shouldRefund = true;
+            refundReason = "Accepted doer did not start (no 'Do the task' before expiry)";
+          }
+
+          if (shouldRefund) {
+            await triggerFullRefundWithRetry({
+              bot,
+              intent,
+              task,
+              refundUser: creator,
+              reason: refundReason
+            });
+
+            // Cleanup stale active locks/work if accepted doer never started
+            if (refundReason === "Accepted doer did not start (no 'Do the task' before expiry)") {
+              try {
+                await DoerWork.deleteMany({ task: task._id, status: "active" });
+                await EngagementLock.updateMany(
+                  { task: task._id, active: true },
+                  { $set: { active: false, releasedAt: new Date() } }
+                );
+              } catch (cleanupErr) {
+                console.error("Cleanup after expiry (no doer started) failed:", cleanupErr);
+              }
+            }
+          }
+        }
+      } catch (refundErr) {
+        console.error("Auto-refund-on-expiry error in checkTaskExpiries:", refundErr);
+      }
       // Disable application buttons for pending applications
       const pendingApps = task.applicants.filter(app => app.status === "Pending");
       for (const app of pendingApps) {
@@ -6870,7 +6926,7 @@ async function retryQueuedRefunds() {
   
   setInterval(checkPendingRefunds, 15 * 60 * 1000);
   setInterval(retryQueuedPayouts, 10 * 60 * 1000);
-
+  retryQueuedRefunds().catch(e => console.error("Initial retryQueuedRefunds run failed:", e));
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
@@ -12904,7 +12960,9 @@ bot.action(/^CANCEL_TASK_(.+)$/, async (ctx) => {
       status: "paid"
     });
 
-    if (intent) {
+    if (!intent) {
+      console.error("Cancel-task refund: no paid PaymentIntent found for task", String(task._id));
+    } else {
       const result = await triggerFullRefundWithRetry({
         bot,
         intent,

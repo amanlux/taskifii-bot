@@ -40,8 +40,21 @@ const PaymentIntentSchema = new Schema({
   paidAt: Date,
 
   // Refund tracking for escrow
-  refundStatus: { type: String, enum: ["none","requested","succeeded","failed"], default: "none", index: true },
+  refundStatus: { 
+    type: String, 
+    enum: ["none", "requested", "queued", "pending", "succeeded", "failed"], 
+    default: "none", 
+    index: true 
+  },
   refundedAt: Date,
+  // Retry/audit metadata for automatic refund retries
+  lastRefundAttemptAt: Date,
+  lastRefundError: String,
+  firstRefundFailureAuditSentAt: Date,
+
+  // Provider refund tracking
+  refundId: String,
+  chapaReference: String,
 
   // For invalidating old unpaid punishment sessions safely
   voidedAt: Date,
