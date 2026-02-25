@@ -688,6 +688,41 @@ async function releaseLocksForTask(taskId) {
     console.error("releaseLocksForTask failed:", e);
   }
 }
+// Returns true if a linked DoerWork means the engagement should STILL remain locked,
+// even if Task.status already looks terminal (e.g. Expired/Completed/Canceled).
+function shouldKeepEngagementForLinkedWork(linkedWork) {
+  if (!linkedWork) return false;
+
+  // If doer work is still active, absolutely keep lock
+  if (linkedWork.status === "active") return true;
+
+  const nowTs = Date.now();
+
+  const pStart = linkedWork.penaltyStartAt ? new Date(linkedWork.penaltyStartAt).getTime() : null;
+  const pEnd   = linkedWork.penaltyEndAt ? new Date(linkedWork.penaltyEndAt).getTime() : null;
+
+  // Late-penalty window is active and doer hasn't completed and punishment hasn't started yet
+  if (
+    pStart && pEnd &&
+    nowTs >= pStart &&
+    nowTs < pEnd &&
+    !linkedWork.completedAt &&
+    !linkedWork.punishmentStartedAt
+  ) {
+    return true;
+  }
+
+  // Revision flow still active (extra protection)
+  if (
+    linkedWork.currentRevisionStatus &&
+    ["awaiting_fix", "fix_received"].includes(linkedWork.currentRevisionStatus) &&
+    !linkedWork.finalDecisionEnforcedAt
+  ) {
+    return true;
+  }
+
+  return false;
+}
 // Self-heal stale engagement state that can remain after non-conventional task closures.
 // Returns true if the user still has any REAL active engagement after cleanup.
 async function hasRealActiveEngagementAfterCleanup(userId) {
@@ -733,21 +768,7 @@ async function hasRealActiveEngagementAfterCleanup(userId) {
             .lean();
 
           if (linkedWork) {
-            // Keep lock if there is any indication the lifecycle is still being actively processed
-            // (especially if work record is still active).
-            if (linkedWork.status === "active") {
-              keepLock = true;
-            }
-
-            // Optional extra protection: if penalty window exists and punishment hasn't started yet,
-            // treat it as still engaged even if task.status was flipped early elsewhere.
-            const nowTs = Date.now();
-            const pStart = linkedWork.penaltyStartAt ? new Date(linkedWork.penaltyStartAt).getTime() : null;
-            const pEnd   = linkedWork.penaltyEndAt ? new Date(linkedWork.penaltyEndAt).getTime() : null;
-
-            if (!keepLock && pStart && pEnd && nowTs >= pStart && nowTs < pEnd && !linkedWork.completedAt && !linkedWork.punishmentStartedAt) {
-              keepLock = true;
-            }
+            keepLock = shouldKeepEngagementForLinkedWork(linkedWork);
           }
         } catch (e) {
           console.error("Lock self-heal double-check failed:", e);
@@ -803,8 +824,32 @@ async function hasRealActiveEngagementAfterCleanup(userId) {
     const staleWorkIds = [];
     for (const w of activeWorks) {
       const taskStatus = w.task ? workTaskMap.get(String(w.task)) : null;
-      if (!taskStatus || terminalTaskStatuses.has(taskStatus)) {
+
+      // Missing task -> stale for sure
+      if (!taskStatus) {
         staleWorkIds.push(w._id);
+        continue;
+      }
+
+      // If task is terminal, double-check whether this work still represents
+      // an unresolved engagement (late-penalty / revision / punishment pipeline).
+      if (terminalTaskStatuses.has(taskStatus)) {
+        let keepWork = false;
+        try {
+          const linkedWork = await DoerWork.findById(w._id)
+            .select("status completedAt penaltyStartAt penaltyEndAt punishmentStartedAt currentRevisionStatus finalDecisionEnforcedAt")
+            .lean();
+
+          keepWork = shouldKeepEngagementForLinkedWork(linkedWork);
+        } catch (e) {
+          console.error("DoerWork self-heal double-check failed:", e);
+          // Be conservative on errors: do NOT auto-complete the work
+          keepWork = true;
+        }
+
+        if (!keepWork) {
+          staleWorkIds.push(w._id);
+        }
       }
     }
 
@@ -820,14 +865,33 @@ async function hasRealActiveEngagementAfterCleanup(userId) {
     }
   }
 
-  // 3) Final truth check: any non-terminal active lock left?
-  const remainingLock = await EngagementLock.findOne({ user: userId, active: true }).lean();
-  if (remainingLock) {
+  // 3) Final truth check: any REAL active lock left?
+  const remainingLocks = await EngagementLock.find({ user: userId, active: true }).lean();
+
+  for (const remainingLock of remainingLocks) {
     const t = await Task.findById(remainingLock.task).select("_id status").lean();
+
+    // Non-terminal task => definitely still engaged
     if (t && !["Completed", "Canceled", "Expired"].includes(t.status)) {
       return true;
     }
-    // If weird race left a stale one, try one more cleanup
+
+    // Terminal task may STILL be actively engaged (late-penalty / revision / unresolved work)
+    try {
+      const linkedWork = await DoerWork.findOne({ task: remainingLock.task })
+        .select("status completedAt penaltyStartAt penaltyEndAt punishmentStartedAt currentRevisionStatus finalDecisionEnforcedAt")
+        .lean();
+
+      if (shouldKeepEngagementForLinkedWork(linkedWork)) {
+        return true;
+      }
+    } catch (e) {
+      console.error("Final lock truth-check failed:", e);
+      // Conservative: if check fails, treat as active to avoid accidental unlock
+      return true;
+    }
+
+    // If not active by any real criterion, cleanup this one lock
     try {
       await EngagementLock.updateOne(
         { _id: remainingLock._id, active: true },
@@ -836,13 +900,20 @@ async function hasRealActiveEngagementAfterCleanup(userId) {
     } catch (_) {}
   }
 
-  // 4) Final truth check for doer work tied to non-terminal task
+  // 4) Final truth check for doer work (terminal task may still be truly active for lock purposes)
   const remainingWork = await DoerWork.findOne({ doer: userId, status: "active" }).lean();
   if (remainingWork) {
     const wt = await Task.findById(remainingWork.task).select("_id status").lean();
+
     if (wt && !["Completed", "Canceled", "Expired"].includes(wt.status)) {
       return true;
     }
+
+    // Task looks terminal, but the workflow may still be actively engaged (late-penalty / revision / punishment path)
+    if (shouldKeepEngagementForLinkedWork(remainingWork)) {
+      return true;
+    }
+
     try {
       await DoerWork.updateOne(
         { _id: remainingWork._id, status: "active" },
