@@ -301,7 +301,76 @@ async function sendPayoutAudit(bot, {
     console.error("Failed to send payout audit message:", e);
   }
 }
+// ------------------------------------
+// Late-penalty submission audit helper
+// ------------------------------------
+async function sendLatePenaltySubmissionAudit(bot, {
+  task,
+  creator,
+  doer,
+  work,
+  penaltyPerHour,
+  deductedPenaltyBirr
+}) {
+  try {
+    const creatorName = creator?.fullName || creator?.username || String(creator?.telegramId || "");
+    const creatorUserId = creator?._id ? String(creator._id) : "-";
+    const creatorTelegramId = creator?.telegramId ?? "-";
 
+    const doerName = doer?.fullName || doer?.username || String(doer?.telegramId || "");
+    const doerUserId = doer?._id ? String(doer._id) : "-";
+    const doerTelegramId = doer?.telegramId ?? "-";
+
+    const fee = Number(task?.paymentFee || 0);
+    const payoutAfterPenalty = Math.max(0, fee - Number(deductedPenaltyBirr || 0));
+
+    const lines = [
+      `#latePenaltySubmissionAudit`,
+      `Task ID: ${task?._id ? String(task._id) : "-"}`,
+      `Task Description: ${task?.description || "-"}`,
+      `Task Fee (ETB): ${fee}`,
+      `Penalty Per Hour (ETB): ${Number(penaltyPerHour || 0)}`,
+      `Total Deducted Penalty (ETB): ${Number(deductedPenaltyBirr || 0)}`,
+      `Estimated Payout After Penalty (ETB): ${payoutAfterPenalty}`,
+      ``,
+      `Work Started At: ${work?.startedAt ? new Date(work.startedAt).toISOString() : "-"}`,
+      `Work Deadline At: ${work?.deadlineAt ? new Date(work.deadlineAt).toISOString() : "-"}`,
+      `Penalty Window Start At: ${work?.penaltyStartAt ? new Date(work.penaltyStartAt).toISOString() : "-"}`,
+      `Penalty Window End At: ${work?.penaltyEndAt ? new Date(work.penaltyEndAt).toISOString() : "-"}`,
+      `Doer Completed At: ${work?.completedAt ? new Date(work.completedAt).toISOString() : "-"}`,
+      ``,
+      `Creator User ID: ${creatorUserId}`,
+      `Creator Telegram ID: ${creatorTelegramId}`,
+      `Creator Name: ${creatorName}`,
+      `Creator Username: ${creator?.username ? `@${creator.username}` : "-"}`,
+      `Creator Phone: ${creator?.phone || "-"}`,
+      `Creator Email: ${creator?.email || "-"}`,
+      `Creator Language: ${creator?.language || "-"}`,
+      `Creator Onboarding Step: ${creator?.onboardingStep || "-"}`,
+      `Creator Created At: ${creator?.createdAt ? new Date(creator.createdAt).toISOString() : "-"}`,
+      `Creator Skills: ${
+        Array.isArray(creator?.skills) && creator.skills.length
+          ? creator.skills.join(", ")
+          : "-"
+      }`,
+      `Creator Bank Details: ${
+        Array.isArray(creator?.bankDetails) && creator.bankDetails.length
+          ? creator.bankDetails.map(b => `${b.bankName || "-"}:${b.accountNumber || "-"}`).join(" | ")
+          : "-"
+      }`,
+      ``,
+      `Doer User ID: ${doerUserId}`,
+      `Doer Telegram ID: ${doerTelegramId}`,
+      `Doer Name: ${doerName}`,
+    ];
+
+    await bot.telegram.sendMessage(AUDIT_CHANNEL_ID, lines.join("\n"), {
+      disable_web_page_preview: true
+    });
+  } catch (e) {
+    console.error("Failed to send late penalty submission audit:", e);
+  }
+}
 
 
 // Model to track payouts and retries safely (no double payout)
@@ -594,10 +663,30 @@ async function isEngagementLocked(telegramId) {
 
 // Optional: when you decide the task is "sorted out", call this.
 async function releaseLocksForTask(taskId) {
-  await EngagementLock.updateMany(
-    { task: taskId, active: true },
-    { $set: { active: false, releasedAt: new Date() } }
-  );
+  try {
+    const task = await Task.findById(taskId).select("_id status").lean();
+    const work = await DoerWork.findOne({ task: taskId })
+      .select("status completedAt penaltyStartAt penaltyEndAt punishmentStartedAt")
+      .lean();
+
+    // If there is active doer work, never release.
+    if (work?.status === "active") return;
+
+    // If we're inside a late-penalty window and doer has not submitted yet, do not release.
+    const now = Date.now();
+    const pStart = work?.penaltyStartAt ? new Date(work.penaltyStartAt).getTime() : null;
+    const pEnd   = work?.penaltyEndAt ? new Date(work.penaltyEndAt).getTime() : null;
+    if (pStart && pEnd && now >= pStart && now < pEnd && !work?.completedAt && !work?.punishmentStartedAt) {
+      return;
+    }
+
+    await EngagementLock.updateMany(
+      { task: taskId, active: true },
+      { $set: { active: false, releasedAt: new Date() } }
+    );
+  } catch (e) {
+    console.error("releaseLocksForTask failed:", e);
+  }
 }
 // Self-heal stale engagement state that can remain after non-conventional task closures.
 // Returns true if the user still has any REAL active engagement after cleanup.
@@ -628,10 +717,51 @@ async function hasRealActiveEngagementAfterCleanup(userId) {
     for (const l of activeLocks) {
       const taskStatus = l.task ? lockTaskMap.get(String(l.task)) : null;
 
-      // stale if task missing OR task terminal
-      if (!taskStatus || terminalTaskStatuses.has(taskStatus)) {
+      // Missing task -> stale lock for sure
+      if (!taskStatus) {
         staleLockIds.push(l._id);
+        continue;
       }
+
+      // If task looks terminal, double-check whether there is still unresolved doer-work lifecycle.
+      // This prevents accidental unlocks during edge states / late-penalty / revision-related flows.
+      if (terminalTaskStatuses.has(taskStatus)) {
+        let keepLock = false;
+        try {
+          const linkedWork = await DoerWork.findOne({ task: l.task })
+            .select("status completedAt penaltyStartAt penaltyEndAt revisionDeadlineAt currentRevisionStatus finalDecisionEnforcedAt punishmentStartedAt")
+            .lean();
+
+          if (linkedWork) {
+            // Keep lock if there is any indication the lifecycle is still being actively processed
+            // (especially if work record is still active).
+            if (linkedWork.status === "active") {
+              keepLock = true;
+            }
+
+            // Optional extra protection: if penalty window exists and punishment hasn't started yet,
+            // treat it as still engaged even if task.status was flipped early elsewhere.
+            const nowTs = Date.now();
+            const pStart = linkedWork.penaltyStartAt ? new Date(linkedWork.penaltyStartAt).getTime() : null;
+            const pEnd   = linkedWork.penaltyEndAt ? new Date(linkedWork.penaltyEndAt).getTime() : null;
+
+            if (!keepLock && pStart && pEnd && nowTs >= pStart && nowTs < pEnd && !linkedWork.completedAt && !linkedWork.punishmentStartedAt) {
+              keepLock = true;
+            }
+          }
+        } catch (e) {
+          console.error("Lock self-heal double-check failed:", e);
+          // Be conservative on errors: do NOT release the lock.
+          keepLock = true;
+        }
+
+        if (!keepLock) {
+          staleLockIds.push(l._id);
+        }
+        continue;
+      }
+
+      // Non-terminal task -> do not release
     }
 
     if (staleLockIds.length > 0) {
@@ -6134,32 +6264,12 @@ async function runDoerWorkTimers(bot) {
     try {
       const original = Number(w.taskDoc.paymentFee || 0);
       const half = Math.round(original * 0.5);
-
-      // NEW: total deducted penalty birr amount (explicit label)
-      const totalDeductedPenaltyBirr = half;
-
-      // NEW: safer creator audit fields (so nothing breaks if some fields are missing)
-      const creatorTaskifiiUserId = creator?._id ? String(creator._id) : "-";
-      const creatorName = creator?.fullName || "-";
-      const creatorPhone = creator?.phone || "-";
-      const creatorUsername = creator?.username
-        ? (String(creator.username).startsWith("@") ? String(creator.username) : `@${creator.username}`)
-        : "-";
-      const creatorEmail = creator?.email || "-";
-
       const audit = [
         "#notoriousWTD",
         `Task: ${w.taskDoc._id}`,
         `Doer User ID: ${doer?._id}`,
         `Original Fee: ${original}`,
-        `Punishment (50%): ${half}`,
-        `Total Deducted Penalty (ETB): ${totalDeductedPenaltyBirr}`,
-        "",
-        `Creator User ID: ${creatorTaskifiiUserId}`,
-        `Creator Name: ${creatorName}`,
-        `Creator Phone: ${creatorPhone}`,
-        `Creator Telegram Username: ${creatorUsername}`,
-        `Creator Email: ${creatorEmail}`
+        `Punishment (50%): ${half}`
       ].join("\n");
       await bot.telegram.sendMessage("-1002616271109", audit, {
         disable_web_page_preview: true,
@@ -14894,6 +15004,51 @@ bot.action(/^COMPLETED_SENT_(.+)$/, async (ctx) => {
     work.completedAt = new Date();
     work.status = 'completed';
     await work.save();
+    // --- AUDIT: doer submitted during late-penalty window (after deadline but before penalty end) ---
+    try {
+      const fee = Number(task.paymentFee || 0);
+      const penaltyPerHour = Number((task.penaltyPerHour ?? task.latePenalty) || 0);
+
+      const completedAt   = work.completedAt ? new Date(work.completedAt) : null;
+      const deadlineAt    = work.deadlineAt ? new Date(work.deadlineAt) : null;
+      const penaltyStart  = work.penaltyStartAt ? new Date(work.penaltyStartAt) : null;
+      const penaltyEnd    = work.penaltyEndAt ? new Date(work.penaltyEndAt) : null;
+
+      const isLatePenaltyWindowSubmission =
+        completedAt &&
+        deadlineAt &&
+        penaltyStart &&
+        penaltyEnd &&
+        completedAt > deadlineAt &&
+        completedAt >= penaltyStart &&
+        completedAt < penaltyEnd;
+
+      if (isLatePenaltyWindowSubmission) {
+        // Match your existing logic style: charge by hour chunks after penalty window starts
+        let deductedPenaltyBirr = 0;
+        if (penaltyPerHour > 0) {
+          const hoursLateFromPenaltyStart = Math.ceil(
+            (completedAt.getTime() - penaltyStart.getTime()) / 3600000
+          );
+
+          // cap at 65% of fee (same platform rule)
+          const rawPenalty = Math.max(0, hoursLateFromPenaltyStart) * penaltyPerHour;
+          const maxPenalty = Math.max(0, fee * 0.65);
+          deductedPenaltyBirr = Math.min(rawPenalty, maxPenalty);
+        }
+
+        await sendLatePenaltySubmissionAudit({ telegram: ctx.telegram }, {
+          task,
+          creator: creatorUser,
+          doer: doerUser,
+          work,
+          penaltyPerHour,
+          deductedPenaltyBirr
+        });
+      }
+    } catch (auditErr) {
+      console.error("Late penalty submission audit error:", auditErr);
+    }
     
     // Forward remaining doer messages/files to the task creator (skip the one already copied in validation)
     for (let i = firstCopiedIndex + 1; i < entries.length; i++) {
