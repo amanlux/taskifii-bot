@@ -2563,8 +2563,18 @@ async function checkTaskExpiries(bot) {
           const accepted = (task.applicants || []).filter(a => a.status === "Accepted");
 
           // Did any accepted doer actually click "Do the task"? (engagement lock)
-          const doerStarted = accepted.length > 0
-            ? !!(await EngagementLock.findOne({ task: task._id, role: "doer", active: true }).lean())
+          
+          // IMPORTANT: Use DoerWork as the source of truth (more reliable than EngagementLock).
+          const acceptedDoerIds = accepted
+            .map(a => (a.user && a.user._id) ? a.user._id : a.user)
+            .filter(Boolean);
+
+          const doerStarted = acceptedDoerIds.length > 0
+            ? !!(await DoerWork.findOne({
+                task: task._id,
+                doer: { $in: acceptedDoerIds },
+                startedAt: { $exists: true }
+              }).select("_id").lean())
             : false;
 
           let shouldRefund = false;
@@ -5417,6 +5427,7 @@ async function banUserEverywhere(ctx, userDoc) {
 
 
 }
+
 async function unbanUserEverywhere(ctx, userDoc) {
   try { await Banlist.deleteOne({ $or: [{ user: userDoc._id }, { telegramId: userDoc.telegramId }] }); }
   catch (e) { console.error("banlist delete failed", e); }
@@ -5436,6 +5447,102 @@ async function unbanUserEverywhere(ctx, userDoc) {
   // also release any engagement locks so menus/post/apply are usable again
   try { await EngagementLock.updateMany({ user: userDoc._id, active: true }, { $set: { active: false, releasedAt: new Date() } }); }
   catch (e) { console.error("release locks on unban failed", e); }
+}
+// NEW: When admin unbans a user, force-cancel any active tasks involving them
+// so they start fresh and engagement lock cannot remain.
+async function cancelActiveTasksForUserFreshStart(ctx, userDoc) {
+  const terminal = new Set(["Completed", "Canceled", "Expired"]);
+
+  // Collect task ids from multiple sources to be safe
+  const taskIds = new Set();
+
+  // A) Any active engagement locks for the user
+  try {
+    const lockedTaskIds = await EngagementLock.find({ user: userDoc._id, active: true }).distinct("task");
+    for (const id of lockedTaskIds || []) taskIds.add(String(id));
+  } catch (_) {}
+
+  // B) Any doer work that is not fully completed (includes revision/penalty pipelines)
+  try {
+    const doerWorkTaskIds = await DoerWork.find({
+      doer: userDoc._id,
+      $or: [
+        { status: { $ne: "completed" } },
+        { currentRevisionStatus: { $in: ["awaiting_fix", "fix_received"] } },
+        { punishmentStartedAt: { $exists: true, $ne: null }, punishmentPaidAt: { $exists: false } }
+      ]
+    }).distinct("task");
+    for (const id of doerWorkTaskIds || []) taskIds.add(String(id));
+  } catch (_) {}
+
+  // C) Any tasks they created that are still active
+  try {
+    const createdActive = await Task.find({
+      creator: userDoc._id,
+      status: { $nin: Array.from(terminal) }
+    }).distinct("_id");
+    for (const id of createdActive || []) taskIds.add(String(id));
+  } catch (_) {}
+
+  const ids = Array.from(taskIds);
+  if (!ids.length) return { canceledCount: 0 };
+
+  // 1) Cancel the tasks (only if not terminal already)
+  try {
+    await Task.updateMany(
+      { _id: { $in: ids }, status: { $nin: Array.from(terminal) } },
+      { $set: { status: "Canceled", canceledAt: new Date(), cancelReason: "Admin unban fresh-start cleanup" } }
+    );
+  } catch (e) {
+    console.error("cancelActiveTasksForUserFreshStart: Task cancel failed:", e);
+  }
+
+  // 2) Terminate all DoerWork lifecycle so engagement lock can’t “stick”
+  //    (This is what fixes the lingering lock.)
+  try {
+    await DoerWork.updateMany(
+      { task: { $in: ids }, status: { $ne: "completed" } },
+      {
+        $set: {
+          status: "completed",
+          completedAt: new Date(),
+
+          // stop any enforcement timers from acting later
+          halfWindowCanceledAt: new Date(),
+          secondHalfCanceledAt: new Date(),
+          finalDecisionEnforcedAt: new Date(),
+          finalDecisionCanceledAt: new Date(),
+
+          // stop revision-state from being considered active
+          currentRevisionStatus: "accepted",
+          creatorDecisionMessageIdChosen: true
+        }
+      }
+    );
+  } catch (e) {
+    console.error("cancelActiveTasksForUserFreshStart: DoerWork cleanup failed:", e);
+  }
+
+  // 3) Remove escalation/dispute package records for those tasks (terminate “related to task” admin tooling)
+  try { await Escalation.deleteMany({ task: { $in: ids } }); } catch (_) {}
+  try { await DisputePackage.deleteMany({ task: { $in: ids } }); } catch (_) {}
+
+  // 4) Release locks for those tasks + user
+  try {
+    await EngagementLock.updateMany(
+      { task: { $in: ids }, active: true },
+      { $set: { active: false, releasedAt: new Date() } }
+    );
+  } catch (_) {}
+
+  try {
+    await EngagementLock.updateMany(
+      { user: userDoc._id, active: true },
+      { $set: { active: false, releasedAt: new Date() } }
+    );
+  } catch (_) {}
+
+  return { canceledCount: ids.length };
 }
 // Accepts EITHER a Telegraf bot OR ctx.telegram
 async function sendEscalationSummaryToChannel(botOrTelegram, task, creator, doer, reportedByRole) {
@@ -9405,7 +9512,8 @@ bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
 
   // Your existing unban everywhere logic
   await unbanUserEverywhere(ctx, u);
-
+  // NEW: cancel any active tasks involving this user so they start fresh
+  const fresh = await cancelActiveTasksForUserFreshStart(ctx, u);
   // 4f additions:
   // 1) Remove any Banlist rows tied to this user
   try { await Banlist.deleteOne({ user: u._id }); } catch (_) {}
@@ -9450,73 +9558,7 @@ bot.action(/^ADMIN_UNBAN_(.+)$/, async (ctx) => {
 
   await ctx.reply(`User ${u.fullName || u.username || u.telegramId} has been unbanned and can now use Taskifay normally.`);
 
-  // Cancel any half-window enforcement for tasks awaiting creator feedback
-  try {
-    const pending = await DoerWork.find({
-      halfWindowEnforcedAt: { $exists: false },
-      completedAt: { $exists: true },     // doer already submitted
-      status: { $ne: 'completed' }        // still considered active
-    }).lean();
-
-    for (const w of pending) {
-      // Mark canceled so the half-window setTimeout does nothing
-      await DoerWork.updateOne(
-        { _id: w._id },
-        { $set: { halfWindowCanceledAt: new Date(), status: 'completed' } }
-      );
-
-      // Inert the decision buttons (safety), if still on screen
-      try {
-        if (w.creatorDecisionMessageId) {
-          await ctx.telegram.editMessageReplyMarkup(
-            u.telegramId, // if u is the creator here; if not, look up the task’s creator
-            w.creatorDecisionMessageId,
-            undefined,
-            {
-              inline_keyboard: [[
-                Markup.button.callback(TEXT.validBtn[u.language || 'en'], `_DISABLED_VALID`),
-                Markup.button.callback(TEXT.needsFixBtn[u.language || 'en'], `_DISABLED_NEEDS_FIX`)
-              ]]
-            }
-          );
-        }
-      } catch (_) {}
-    }
-  } catch (_) {}
   
-  // Also cancel any doer second-half enforcement and close tasks awaiting fix feedback
-  try {
-    const pendingDoer = await DoerWork.find({
-      secondHalfEnforcedAt: { $exists: false },
-      currentRevisionStatus: 'awaiting_fix',
-      status: { $ne: 'completed' }
-    }).lean();
-
-    for (const w of pendingDoer) {
-      await DoerWork.updateOne(
-        { _id: w._id },
-        { $set: { secondHalfCanceledAt: new Date(), status: 'completed' } }
-      );
-
-      // Inert the doer decision buttons if still on screen
-      try {
-        if (w.doerDecisionMessageId && w.doerTelegramId) {
-          await ctx.telegram.editMessageReplyMarkup(
-            w.doerTelegramId,
-            w.doerDecisionMessageId,
-            undefined,
-            {
-              inline_keyboard: [[
-                Markup.button.callback(TEXT.reportThisBtn?.[u.language || 'en'] || "🚩 Report this", "_DISABLED_DOER_REPORT"),
-                Markup.button.callback(TEXT.sendCorrectedBtn?.[u.language || 'en'] || "📤 Send corrected version", "_DISABLED_DOER_SEND_CORRECTED")
-              ]]
-            }
-          );
-        }
-      } catch (_) {}
-    }
-  } catch (_) {}
-
   
 
 });
