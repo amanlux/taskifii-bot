@@ -5484,8 +5484,47 @@ async function cancelActiveTasksForUserFreshStart(ctx, userDoc) {
     for (const id of createdActive || []) taskIds.add(String(id));
   } catch (_) {}
 
+  // C2) IMPORTANT: tasks they created may already look "terminal", but can still have
+  // pending revision/decision enforcement that will re-ban them.
+  // So we collect any creator-owned tasks that have a linked DoerWork with "active-ish" enforcement state.
+  try {
+    const allCreated = await Task.find({ creator: userDoc._id }).distinct("_id");
+    if (allCreated && allCreated.length) {
+      const risky = await DoerWork.find({
+        task: { $in: allCreated },
+        $or: [
+          // still active work
+          { status: "active" },
+
+          // revision pipeline still active
+          { currentRevisionStatus: { $in: ["awaiting_fix", "fix_received"] } },
+
+          // doer second-half timer would still be eligible to enforce
+          {
+            doerDecisionMessageId: { $exists: true, $ne: null },
+            secondHalfEnforcedAt: { $exists: false },
+            secondHalfCanceledAt: { $exists: false }
+          },
+
+          // creator final-decision timer would still be eligible to enforce
+          {
+            creatorFinalDecisionMessageId: { $exists: true, $ne: null },
+            finalDecisionEnforcedAt: { $exists: false },
+            finalDecisionCanceledAt: { $exists: false }
+          },
+
+          // punishment pipeline still open
+          { punishmentStartedAt: { $exists: true, $ne: null }, punishmentPaidAt: { $exists: false } }
+        ]
+      }).distinct("task");
+
+      for (const id of risky || []) taskIds.add(String(id));
+    }
+  } catch (_) {}
   const ids = Array.from(taskIds);
   if (!ids.length) return { canceledCount: 0 };
+  // NEW: cancel any in-process scheduled enforcements for these tasks
+  cancelScheduledEnforcementsForTasks(ids);
 
   // 1) Cancel the tasks (only if not terminal already)
   try {
@@ -5501,21 +5540,24 @@ async function cancelActiveTasksForUserFreshStart(ctx, userDoc) {
   //    (This is what fixes the lingering lock.)
   try {
     await DoerWork.updateMany(
-      { task: { $in: ids }, status: { $ne: "completed" } },
+      { task: { $in: ids } },
       {
         $set: {
+          // end engagement
           status: "completed",
           completedAt: new Date(),
 
-          // stop any enforcement timers from acting later
+          // cancel all enforcement paths cleanly
           halfWindowCanceledAt: new Date(),
           secondHalfCanceledAt: new Date(),
-          finalDecisionEnforcedAt: new Date(),
           finalDecisionCanceledAt: new Date(),
 
-          // stop revision-state from being considered active
+          // neutralize revision state
           currentRevisionStatus: "accepted",
-          creatorDecisionMessageIdChosen: true
+          creatorDecisionMessageIdChosen: true,
+
+          // stop punishment from being considered "still pending"
+          punishmentPaidAt: new Date()
         }
       }
     );
@@ -5589,23 +5631,73 @@ async function sendEscalationSummaryToChannel(botOrTelegram, task, creator, doer
   }
 }
 // Schedules an in-process timeout for doer second-half enforcement
+// --- NEW: store timeout handles so admin-unban cleanup can cancel them safely ---
+globalThis.__TASKIFII_DOER_SECOND_HALF_TIMEOUTS__ =
+  globalThis.__TASKIFII_DOER_SECOND_HALF_TIMEOUTS__ || new Map();
+
+globalThis.__TASKIFII_CREATOR_FINAL_DECISION_TIMEOUTS__ =
+  globalThis.__TASKIFII_CREATOR_FINAL_DECISION_TIMEOUTS__ || new Map();
+
+// Schedules an in-process timeout for doer second-half enforcement
 function scheduleDoerSecondHalfEnforcement(taskId, delayMs) {
-  setTimeout(async () => {
+  const map = globalThis.__TASKIFII_DOER_SECOND_HALF_TIMEOUTS__;
+
+  // If one already exists for this task, replace it
+  const prev = map.get(String(taskId));
+  if (prev) clearTimeout(prev);
+
+  const handle = setTimeout(async () => {
+    // remove handle first (prevents leaks if enforce throws)
+    map.delete(String(taskId));
     try {
       await enforceDoerSecondHalf(taskId);
     } catch (e) {
       console.error("enforceDoerSecondHalf error:", e);
     }
   }, delayMs);
+
+  map.set(String(taskId), handle);
 }
+
 function scheduleCreatorFinalDecisionEnforcement(taskId, delayMs) {
-  setTimeout(async () => {
+  const map = globalThis.__TASKIFII_CREATOR_FINAL_DECISION_TIMEOUTS__;
+
+  const prev = map.get(String(taskId));
+  if (prev) clearTimeout(prev);
+
+  const handle = setTimeout(async () => {
+    map.delete(String(taskId));
     try {
       await enforceCreatorFinalDecision(taskId);
     } catch (e) {
       console.error("Creator final decision enforcement failed:", e);
     }
   }, delayMs);
+
+  map.set(String(taskId), handle);
+}
+
+// --- NEW: cancel timers for specific tasks only (used by admin-unban fresh start) ---
+function cancelScheduledEnforcementsForTasks(taskIds) {
+  const ids = (taskIds || []).map(String);
+
+  const doerMap = globalThis.__TASKIFII_DOER_SECOND_HALF_TIMEOUTS__;
+  if (doerMap) {
+    for (const id of ids) {
+      const h = doerMap.get(id);
+      if (h) clearTimeout(h);
+      doerMap.delete(id);
+    }
+  }
+
+  const creatorMap = globalThis.__TASKIFII_CREATOR_FINAL_DECISION_TIMEOUTS__;
+  if (creatorMap) {
+    for (const id of ids) {
+      const h = creatorMap.get(id);
+      if (h) clearTimeout(h);
+      creatorMap.delete(id);
+    }
+  }
 }
 
 async function enforceCreatorFinalDecision(taskId) {
