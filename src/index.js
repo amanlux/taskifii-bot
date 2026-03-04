@@ -6511,7 +6511,7 @@ async function runDoerWorkTimers(bot) {
     // 4) Inform the creator (and unlock creator features for this task)
     try {
       const creatorMsg = (creatorLang === 'am')
-        ? "😞 አሰሪው በተሰጠው የጊዜ ገደብ ውስጥ ስራውን አጠናቆ አላስረከበም። በመሆኑም ግለሰቡ ላይ የዲሲፕሊን እርምጃ ተወስዷል። በዚህ ምክንያት ለእርስዎ ተዘግተው የነበሩ አማራጮች አሁን ክፍት ተደርገዋል። ለተፈጠረው አለመመቸት ከልብ ይቅርታ እንጠይቃለን።"
+        ? "😞 ሰሪው በተሰጠው የጊዜ ገደብ ውስጥ ስራውን አጠናቆ አላስረከበም። በመሆኑም ግለሰቡ ላይ የዲሲፕሊን እርምጃ ተወስዷል። በዚህ ምክንያት ለእርስዎ ተዘግተው የነበሩ አማራጮች አሁን ክፍት ተደርገዋል። ለተፈጠረው አለመመቸት ከልብ ይቅርታ እንጠይቃለን።"
         : "😞 The  task doer did not submit within the set time. They’ve received a disciplinary action. Any features that were locked for you are now unlocked. We’re very sorry for the inconvenience.";
       await bot.telegram.sendMessage(creator.telegramId, creatorMsg);
     } catch (e) {
