@@ -12007,13 +12007,10 @@ async function handlePaymentFee(ctx, draft) {
   const val = parseInt(text, 10);
 
   // 2) minimum 50 birr
-  //if (val < 50) {
-    //return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
-  //}
-  // 2) minimum 10 birr
-  if (val < 5) {
+  if (val < 50) {
     return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
   }
+  
 
   // 3) NEW RULE (only when editing):
   //    paymentFee must be ≥ 5 * penaltyPerHour
