@@ -3678,7 +3678,7 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   });
 
   // Post to channel
-  const channelId = process.env.CHANNEL_ID || "-1002254896955";
+  const channelId = process.env.CHANNEL_ID || "-1002557660183";
   const preview = buildChannelPostText(draft, me);
 
   const keyboard = Markup.inlineKeyboard([
@@ -12960,7 +12960,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   });
 
   // Post to channel
-  const channelId = process.env.CHANNEL_ID || "-1002254896955";
+  const channelId = process.env.CHANNEL_ID || "-1002557660183";
   const preview = buildChannelPostText(draft, me);
   
   const keyboard = Markup.inlineKeyboard([
@@ -14482,14 +14482,15 @@ bot.action("FIND_TASK", async (ctx) => {
 
 
   // Get the channel ID from environment variables or use a default
-  const channelId = process.env.CHANNEL_ID || "-1002254896955"; // Replace with your actual channel ID
-  const channelUsername = process.env.CHANNEL_USERNAME || "TaskifiiRemote"; // Replace with your channel username if available
+  const channelId = process.env.CHANNEL_ID || "-1002557660183"; // Replace with your actual channel ID
+  const channelUsername = process.env.CHANNEL_USERNAME || "taskifayremote"; // Replace with your channel username if available
 
   try {
     // Try to generate a proper channel link
-    const channelLink = channelUsername 
-      ? `https://t.me/${channelUsername}`
-      : `https://t.me/c/${channelId.replace('-100', '')}`;
+    const channelLink =
+      channelUsername 
+        ? `https://t.me/${channelUsername}`
+        : `https://t.me/c/${channelId.replace('-100', '')}`;
     
     // Send message with the channel link
     return ctx.reply(
