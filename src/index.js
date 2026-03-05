@@ -2036,12 +2036,12 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
     en: (h, m) => [
       "⏰ Heads up: time is ticking!",
       `You have ${h} hour(s) and ${m} minute(s) left to complete and submit your task.`,
-      "Please send your completed work to the bot, to @taskifaysupport, and to the task creator, then tap “Completed task sent”."
+      "Please send your completed work to the bot, to @taskifaydispute, and to the task creator, then tap “Completed task sent”."
     ].join("\n"),
     am: (h, m) => [
       "⏰ ማሳሰቢያ፡ ጊዜው እያለቀ ነው!",
       `ስራዎን አጠናቀው ለማስረከብ ${h} ሰዓት ከ ${m} ደቂቃ ይቀሮታል።`,
-      "እባክዎ የተሰጠዎትን ስራ አጠናቀው ለቦቱ፣ ለ @taskifaysupport እና ስራውን ለሰጠዎት አካል ይላኩ፤ ከዚያም “ያለቀ ስራ ተልክዋል” የሚለውን ይጫኑ።"
+      "እባክዎ የተሰጠዎትን ስራ አጠናቀው ለቦቱ፣ ለ @taskifaydispute እና ስራውን ለሰጠዎት አካል ይላኩ፤ ከዚያም “ያለቀ ስራ ተልክዋል” የሚለውን ይጫኑ።"
     ].join("\n")
   },
 
@@ -2073,7 +2073,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
           ? `Exact time until your fee would drop to 35%: ${h} hour(s) and ${m} minute(s).`
           : null,
         "If you don’t send a valid completed task and tap “Completed task sent” before the fee hits 35%, your Taskifay access will be banned until you pay a punishment fee (50% of the task fee).",
-        "Please submit to the bot, to @taskifaysupport, and to the task creator as soon as possible."
+        "Please submit to the bot, to @taskifaydispute, and to the task creator as soon as possible."
       ].filter(Boolean).join("\n");
     },
     am: (penaltyPerHour, penaltyEndAt) => {
@@ -2090,7 +2090,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
         penaltyPerHour > 0
           ? `አገልግሎት ክፍያዎ ወደ 35% ዝቅ ለማለት የቀረው ትክክለኛ ጊዜ፡ ${h} ሰዓት ከ ${m} ደቂቃ።`
           : null,
-        "ክፍያው 35% ከመድረሱ በፊት ትክክለኛና የተጠናቀቀ ስራ ልከው “ያለቀ ስራ ተልክዋል” የሚለውን ቁልፍ ካልተጫኑ፣ የታስኪፌይ (Taskifay) አገልግሎትዎ ይታገዳል። እገዳውን ለማንሳትም የቅጣት ክፍያ (የስራው ዋጋ 50%) መክፈል ይኖርብዎታል። እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ @taskifaysupport እና ለስራው ፈጣሪ በተቻለ ፍጥነት ያቅርቡ።"
+        "ክፍያው 35% ከመድረሱ በፊት ትክክለኛና የተጠናቀቀ ስራ ልከው “ያለቀ ስራ ተልክዋል” የሚለውን ቁልፍ ካልተጫኑ፣ የታስኪፌይ (Taskifay) አገልግሎትዎ ይታገዳል። እገዳውን ለማንሳትም የቅጣት ክፍያ (የስራው ዋጋ 50%) መክፈል ይኖርብዎታል። እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ @taskifaydispute እና ለስራው ፈጣሪ በተቻለ ፍጥነት ያቅርቡ።"
       ].filter(Boolean).join("\n");
     }
   },
@@ -4459,7 +4459,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
       
       *1. ለአሰሪው* ( በቴሌግራም አካውንታቸው: ${creatorHandle} ወይም በኢሜይል አድራሻቸው: ${creatorEmail} ወይም ሌላ አንድላይ በምትስማሙበት አማራቾች)፤                                                
       
-      *2. ወደኛ ቴሌግራም አካውንት*: @taskifaysupport ፤                                                                                                        *3. ወደዚ ቦት*             ⚠️*ነገር ግን ወደ ሁሉም አካላት ከላኩት ቡሃላ አታች ያለውን ቁልፍ መጫን አለቦት አለበዚያ ከላይ በተባለው ስዓት እንደላኩት አይቆጠርም‼️*`,
+      *2. ወደኛ ቴሌግራም አካውንት*: @taskifaydispute ፤                                                                                                        *3. ወደዚ ቦት*             ⚠️*ነገር ግን ወደ ሁሉም አካላት ከላኩት ቡሃላ አታች ያለውን ቁልፍ መጫን አለቦት አለበዚያ ከላይ በተባለው ስዓት እንደላኩት አይቆጠርም‼️*`,
       "",
       "",
       "",
@@ -4487,7 +4487,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
     `📝 *Task description(please note that the task creator can't give you more work outside of this description):* ${task.description}.`,
     "",
     "",
-    `📮 *Within ${timeToCompleteH} hour(s)* *submit the completed task* *to the creator* ( via their Telegram account : ${creatorHandle} or their Gmail address: ${creatorEmail} or any other means that you both agree on), *to our telegram account *: @taskifaysupport , and *to this bot* ... in which *you must click the button below after you sent it to all the parties mentioned above, other wise it won't be considered as you sent the completed task/s to any of the parties within the time given above*‼️`,
+    `📮 *Within ${timeToCompleteH} hour(s)* *submit the completed task* *to the creator* ( via their Telegram account : ${creatorHandle} or their Gmail address: ${creatorEmail} or any other means that you both agree on), *to our telegram account *: @taskifaydispute , and *to this bot* ... in which *you must click the button below after you sent it to all the parties mentioned above, other wise it won't be considered as you sent the completed task/s to any of the parties within the time given above*‼️`,
     "",
     "",
     "",
@@ -7493,76 +7493,7 @@ function startBot() {
     
     return next();
   });
-  // 🔁 Global reliability middleware:
-  // Wrap key Telegram API calls with small, safe retries.
-  bot.use(async (ctx, next) => {
-    const MAX_ATTEMPTS = 3;
-    const BASE_DELAY_MS = 500; // 0.5s, 1s, 1.5s
-
-    async function withRetries(fn, ...args) {
-      let lastError;
-      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-        try {
-          // Try the original Telegram call
-          return await fn(...args);
-        } catch (err) {
-          lastError = err;
-          console.error(
-            `Telegram call failed (attempt ${attempt}/${MAX_ATTEMPTS})`,
-            err && err.message ? err.message : err
-          );
-
-          // On the last attempt, behave exactly like before:
-          // re-throw the error so existing try/catch still works.
-          if (attempt === MAX_ATTEMPTS) {
-            throw lastError;
-          }
-
-          // Small backoff before another try
-          await new Promise(res => setTimeout(res, BASE_DELAY_MS * attempt));
-        }
-      }
-    }
-
-    // Patch the low-level Telegram object ONCE per process
-    const tg = ctx.telegram;
-    if (tg && !tg.__taskifiiRetriesPatched) {
-      // Some methods might not exist in some contexts, so we guard each one.
-      const origSendMessage = tg.sendMessage && tg.sendMessage.bind(tg);
-      const origEditMessageText = tg.editMessageText && tg.editMessageText.bind(tg);
-      const origEditMessageReplyMarkup =
-        tg.editMessageReplyMarkup && tg.editMessageReplyMarkup.bind(tg);
-
-      if (origSendMessage) {
-        tg.sendMessage = (...args) => withRetries(origSendMessage, ...args);
-      }
-      if (origEditMessageText) {
-        tg.editMessageText = (...args) => withRetries(origEditMessageText, ...args);
-      }
-      if (origEditMessageReplyMarkup) {
-        tg.editMessageReplyMarkup = (...args) =>
-          withRetries(origEditMessageReplyMarkup, ...args);
-      }
-
-      tg.__taskifiiRetriesPatched = true;
-    }
-
-    // Patch ctx.reply per update (cheap and safe)
-    if (ctx.reply && !ctx.__taskifiiReplyRetriesPatched) {
-      const origReply = ctx.reply.bind(ctx);
-      ctx.reply = (...args) => withRetries(origReply, ...args);
-      ctx.__taskifiiReplyRetriesPatched = true;
-    }
-
-    // Patch ctx.answerCbQuery per update (for button "loading" + alerts)
-    if (ctx.answerCbQuery && !ctx.__taskifiiAnswerRetriesPatched) {
-      const origAnswerCbQuery = ctx.answerCbQuery.bind(ctx);
-      ctx.answerCbQuery = (...args) => withRetries(origAnswerCbQuery, ...args);
-      ctx.__taskifiiAnswerRetriesPatched = true;
-    }
-
-    return next();
-  });
+  
   // Global ban guard: blocks all actions for banned users except "ADMIN_UNBAN_*" and punishment payments
   bot.use(async (ctx, next) => {
     const tgId = ctx.from?.id;
@@ -15606,8 +15537,8 @@ bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
 
   // Notify the creator to list all issues and provide a "Send Fix Notice" button
   const instructMsg = (lang === 'am')
-    ? "❗ እባክዎ መስተካከል ያለባቸውን ነገሮች በሙሉ ከታች ለየብቻ በተነጠሉ መልዕክቶች ይዘርዝሩ ክዛም ቅትታ ወደኛም ቴሌግራም አካውንታችን(@taskifaysupport) እና ወደ ሰሪው ይላኩ። ከመጀመሪያው የስራ ትዕዛዝ (Task description) ውጪ የሆኑ አዳዲስ ለውጦችን መጠየቅ አይችሉም። ይህንን ዝርዝር ለመላክ ጊዜ ያለዎት፣ ለማስተካከያ የተሰጠው ጊዜ ግማሽ እስኪጠናቀቅ ድረስ ብቻ ነው። ዝርዝሩን ልከው ሲጨርሱ 🛠 የማስተካከያ ዝርዝሮች ይላኩ የሚለውን ይጫኑ።"
-    : "❗ Please *list everything* that needs fixing in separate messages below but also make sure to send it/them directly to our telegram account(@taskifaysupport) and to the task doer as well. You cannot request changes beyond the original task description. You have until halfway through the revision period to send this list. Once done, tap **Send Fix Notice**.";
+    ? "❗ እባክዎ መስተካከል ያለባቸውን ነገሮች በሙሉ ከታች ለየብቻ በተነጠሉ መልዕክቶች ይዘርዝሩ ክዛም ቅትታ ወደኛም ቴሌግራም አካውንታችን(@taskifaydispute) እና ወደ ሰሪው ይላኩ። ከመጀመሪያው የስራ ትዕዛዝ (Task description) ውጪ የሆኑ አዳዲስ ለውጦችን መጠየቅ አይችሉም። ይህንን ዝርዝር ለመላክ ጊዜ ያለዎት፣ ለማስተካከያ የተሰጠው ጊዜ ግማሽ እስኪጠናቀቅ ድረስ ብቻ ነው። ዝርዝሩን ልከው ሲጨርሱ 🛠 የማስተካከያ ዝርዝሮች ይላኩ የሚለውን ይጫኑ።"
+    : "❗ Please *list everything* that needs fixing in separate messages below but also make sure to send it/them directly to our telegram account(@taskifaydispute) and to the task doer as well. You cannot request changes beyond the original task description. You have until halfway through the revision period to send this list. Once done, tap **Send Fix Notice**.";
   const sentPrompt = await ctx.reply(instructMsg, {
   parse_mode: "Markdown",
   ...Markup.inlineKeyboard([
