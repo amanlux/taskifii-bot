@@ -7493,7 +7493,76 @@ function startBot() {
     
     return next();
   });
-  
+  // 🔁 Global reliability middleware:
+  // Wrap key Telegram API calls with small, safe retries.
+  bot.use(async (ctx, next) => {
+    const MAX_ATTEMPTS = 3;
+    const BASE_DELAY_MS = 500; // 0.5s, 1s, 1.5s
+
+    async function withRetries(fn, ...args) {
+      let lastError;
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+          // Try the original Telegram call
+          return await fn(...args);
+        } catch (err) {
+          lastError = err;
+          console.error(
+            `Telegram call failed (attempt ${attempt}/${MAX_ATTEMPTS})`,
+            err && err.message ? err.message : err
+          );
+
+          // On the last attempt, behave exactly like before:
+          // re-throw the error so existing try/catch still works.
+          if (attempt === MAX_ATTEMPTS) {
+            throw lastError;
+          }
+
+          // Small backoff before another try
+          await new Promise(res => setTimeout(res, BASE_DELAY_MS * attempt));
+        }
+      }
+    }
+
+    // Patch the low-level Telegram object ONCE per process
+    const tg = ctx.telegram;
+    if (tg && !tg.__taskifiiRetriesPatched) {
+      // Some methods might not exist in some contexts, so we guard each one.
+      const origSendMessage = tg.sendMessage && tg.sendMessage.bind(tg);
+      const origEditMessageText = tg.editMessageText && tg.editMessageText.bind(tg);
+      const origEditMessageReplyMarkup =
+        tg.editMessageReplyMarkup && tg.editMessageReplyMarkup.bind(tg);
+
+      if (origSendMessage) {
+        tg.sendMessage = (...args) => withRetries(origSendMessage, ...args);
+      }
+      if (origEditMessageText) {
+        tg.editMessageText = (...args) => withRetries(origEditMessageText, ...args);
+      }
+      if (origEditMessageReplyMarkup) {
+        tg.editMessageReplyMarkup = (...args) =>
+          withRetries(origEditMessageReplyMarkup, ...args);
+      }
+
+      tg.__taskifiiRetriesPatched = true;
+    }
+
+    // Patch ctx.reply per update (cheap and safe)
+    if (ctx.reply && !ctx.__taskifiiReplyRetriesPatched) {
+      const origReply = ctx.reply.bind(ctx);
+      ctx.reply = (...args) => withRetries(origReply, ...args);
+      ctx.__taskifiiReplyRetriesPatched = true;
+    }
+
+    // Patch ctx.answerCbQuery per update (for button "loading" + alerts)
+    if (ctx.answerCbQuery && !ctx.__taskifiiAnswerRetriesPatched) {
+      const origAnswerCbQuery = ctx.answerCbQuery.bind(ctx);
+      ctx.answerCbQuery = (...args) => withRetries(origAnswerCbQuery, ...args);
+      ctx.__taskifiiAnswerRetriesPatched = true;
+    }
+
+    return next();
+  });
   // Global ban guard: blocks all actions for banned users except "ADMIN_UNBAN_*" and punishment payments
   bot.use(async (ctx, next) => {
     const tgId = ctx.from?.id;
