@@ -2036,12 +2036,12 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
     en: (h, m) => [
       "⏰ Heads up: time is ticking!",
       `You have ${h} hour(s) and ${m} minute(s) left to complete and submit your task.`,
-      "Please send your completed work to the bot, to @taskifayarchive, and to the task creator, then tap “Completed task sent”."
+      "Please send your completed work to the bot, to @taskifaysupport, and to the task creator, then tap “Completed task sent”."
     ].join("\n"),
     am: (h, m) => [
       "⏰ ማሳሰቢያ፡ ጊዜው እያለቀ ነው!",
       `ስራዎን አጠናቀው ለማስረከብ ${h} ሰዓት ከ ${m} ደቂቃ ይቀሮታል።`,
-      "እባክዎ የተሰጠዎትን ስራ አጠናቀው ለቦቱ፣ ለ @taskifayarchive እና ስራውን ለሰጠዎት አካል ይላኩ፤ ከዚያም “ያለቀ ስራ ተልክዋል” የሚለውን ይጫኑ።"
+      "እባክዎ የተሰጠዎትን ስራ አጠናቀው ለቦቱ፣ ለ @taskifaysupport እና ስራውን ለሰጠዎት አካል ይላኩ፤ ከዚያም “ያለቀ ስራ ተልክዋል” የሚለውን ይጫኑ።"
     ].join("\n")
   },
 
@@ -2073,7 +2073,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
           ? `Exact time until your fee would drop to 35%: ${h} hour(s) and ${m} minute(s).`
           : null,
         "If you don’t send a valid completed task and tap “Completed task sent” before the fee hits 35%, your Taskifay access will be banned until you pay a punishment fee (50% of the task fee).",
-        "Please submit to the bot, to @taskifayarchive, and to the task creator as soon as possible."
+        "Please submit to the bot, to @taskifaysupport, and to the task creator as soon as possible."
       ].filter(Boolean).join("\n");
     },
     am: (penaltyPerHour, penaltyEndAt) => {
@@ -2090,7 +2090,7 @@ If a deletion request conflicts with dispute handling, fraud prevention, legal o
         penaltyPerHour > 0
           ? `አገልግሎት ክፍያዎ ወደ 35% ዝቅ ለማለት የቀረው ትክክለኛ ጊዜ፡ ${h} ሰዓት ከ ${m} ደቂቃ።`
           : null,
-        "ክፍያው 35% ከመድረሱ በፊት ትክክለኛና የተጠናቀቀ ስራ ልከው “ያለቀ ስራ ተልክዋል” የሚለውን ቁልፍ ካልተጫኑ፣ የታስኪፌይ (Taskifay) አገልግሎትዎ ይታገዳል። እገዳውን ለማንሳትም የቅጣት ክፍያ (የስራው ዋጋ 50%) መክፈል ይኖርብዎታል። እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ @taskifayarchive እና ለስራው ፈጣሪ በተቻለ ፍጥነት ያቅርቡ።"
+        "ክፍያው 35% ከመድረሱ በፊት ትክክለኛና የተጠናቀቀ ስራ ልከው “ያለቀ ስራ ተልክዋል” የሚለውን ቁልፍ ካልተጫኑ፣ የታስኪፌይ (Taskifay) አገልግሎትዎ ይታገዳል። እገዳውን ለማንሳትም የቅጣት ክፍያ (የስራው ዋጋ 50%) መክፈል ይኖርብዎታል። እባክዎ የተጠናቀቀውን ስራ ለቦቱ፣ ለ @taskifaysupport እና ለስራው ፈጣሪ በተቻለ ፍጥነት ያቅርቡ።"
       ].filter(Boolean).join("\n");
     }
   },
@@ -3678,7 +3678,7 @@ async function postTaskFromPaidDraft({ ctx, me, draft, intent }) {
   });
 
   // Post to channel
-  const channelId = process.env.CHANNEL_ID || "-1002557660183";
+  const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, me);
 
   const keyboard = Markup.inlineKeyboard([
@@ -4459,7 +4459,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
       
       *1. ለአሰሪው* ( በቴሌግራም አካውንታቸው: ${creatorHandle} ወይም በኢሜይል አድራሻቸው: ${creatorEmail} ወይም ሌላ አንድላይ በምትስማሙበት አማራቾች)፤                                                
       
-      *2. ወደኛ ቴሌግራም አካውንት*: @taskifayarchive ፤                                                                                                        *3. ወደዚ ቦት*             ⚠️*ነገር ግን ወደ ሁሉም አካላት ከላኩት ቡሃላ አታች ያለውን ቁልፍ መጫን አለቦት አለበዚያ ከላይ በተባለው ስዓት እንደላኩት አይቆጠርም‼️*`,
+      *2. ወደኛ ቴሌግራም አካውንት*: @taskifaysupport ፤                                                                                                        *3. ወደዚ ቦት*             ⚠️*ነገር ግን ወደ ሁሉም አካላት ከላኩት ቡሃላ አታች ያለውን ቁልፍ መጫን አለቦት አለበዚያ ከላይ በተባለው ስዓት እንደላኩት አይቆጠርም‼️*`,
       "",
       "",
       "",
@@ -4487,7 +4487,7 @@ function buildWinnerDoerMessage({ task, creator, doerLang, totalMinutes, revMinu
     `📝 *Task description(please note that the task creator can't give you more work outside of this description):* ${task.description}.`,
     "",
     "",
-    `📮 *Within ${timeToCompleteH} hour(s)* *submit the completed task* *to the creator* ( via their Telegram account : ${creatorHandle} or their Gmail address: ${creatorEmail} or any other means that you both agree on), *to our telegram account *: @taskifayarchive , and *to this bot* ... in which *you must click the button below after you sent it to all the parties mentioned above, other wise it won't be considered as you sent the completed task/s to any of the parties within the time given above*‼️`,
+    `📮 *Within ${timeToCompleteH} hour(s)* *submit the completed task* *to the creator* ( via their Telegram account : ${creatorHandle} or their Gmail address: ${creatorEmail} or any other means that you both agree on), *to our telegram account *: @taskifaysupport , and *to this bot* ... in which *you must click the button below after you sent it to all the parties mentioned above, other wise it won't be considered as you sent the completed task/s to any of the parties within the time given above*‼️`,
     "",
     "",
     "",
@@ -7463,15 +7463,7 @@ function startBot() {
 
   // 2) Store a fallback username we can use when ctx is null
   let BOT_USERNAME = process.env.BOT_USERNAME || "";
-
-  bot.telegram.getMe()
-    .then(me => {
-      BOT_USERNAME = me.username || BOT_USERNAME;
-      console.log("🤖 Connected as bot:", BOT_USERNAME, "(", me.id, ")");
-    })
-    .catch((err) => {
-      console.error("getMe failed:", err);
-    });
+  bot.telegram.getMe().then(me => { BOT_USERNAME = me.username || BOT_USERNAME; }).catch(() => {});
 
   if (!process.env.CHAPA_PROVIDER_TOKEN) {
     console.warn("⚠️ CHAPA_PROVIDER_TOKEN is not set — invoices will fail.");
@@ -7935,7 +7927,6 @@ bot.use(applyGatekeeper);
     if (!ctx.chat || ctx.chat.type !== "private") {
       return;
     }
-    console.log(">>> /start from", ctx.from.id, ctx.from.username || "", "payload:", ctx.startPayload);
     // Initialize session
     ctx.session = ctx.session || {};
     await cancelRelatedFileDraftIfActive(ctx);
@@ -7950,7 +7941,7 @@ bot.use(applyGatekeeper);
         ? "በአሁን ሰዓት በሂደት ላይ ያለ ስራ ስላለዎት፤ ይህ ጉዳይ ተጠናቆ እልባት እስኪያገኝ ድረስ ሜኑ መክፈት፣ አዲስ ስራ መለጠፍ ወይም ለሌሎች ስራዎች ማመልከት አይችሉም።"
         : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
-      await ctx.reply(lockedMsg);
+      await ctx.reply(msg0);
       return;
     }
 
@@ -12016,10 +12007,13 @@ async function handlePaymentFee(ctx, draft) {
   const val = parseInt(text, 10);
 
   // 2) minimum 50 birr
-  if (val < 50) {
+  //if (val < 50) {
+    //return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
+  //}
+  // 2) minimum 10 birr
+  if (val < 5) {
     return ctx.reply(TEXT.paymentFeeErrorMin[lang]);
   }
-  
 
   // 3) NEW RULE (only when editing):
   //    paymentFee must be ≥ 5 * penaltyPerHour
@@ -12966,7 +12960,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
   });
 
   // Post to channel
-  const channelId = process.env.CHANNEL_ID || "-1002557660183";
+  const channelId = process.env.CHANNEL_ID || "-1002254896955";
   const preview = buildChannelPostText(draft, me);
   
   const keyboard = Markup.inlineKeyboard([
@@ -14488,15 +14482,14 @@ bot.action("FIND_TASK", async (ctx) => {
 
 
   // Get the channel ID from environment variables or use a default
-  const channelId = process.env.CHANNEL_ID || "-1002557660183"; // Replace with your actual channel ID
-  const channelUsername = process.env.CHANNEL_USERNAME || "taskifayremote"; // Replace with your channel username if available
+  const channelId = process.env.CHANNEL_ID || "-1002254896955"; // Replace with your actual channel ID
+  const channelUsername = process.env.CHANNEL_USERNAME || "TaskifiiRemote"; // Replace with your channel username if available
 
   try {
     // Try to generate a proper channel link
-    const channelLink =
-      channelUsername 
-        ? `https://t.me/${channelUsername}`
-        : `https://t.me/c/${channelId.replace('-100', '')}`;
+    const channelLink = channelUsername 
+      ? `https://t.me/${channelUsername}`
+      : `https://t.me/c/${channelId.replace('-100', '')}`;
     
     // Send message with the channel link
     return ctx.reply(
@@ -15546,8 +15539,8 @@ bot.action(/^CREATOR_NEEDS_FIX_(.+)$/, async (ctx) => {
 
   // Notify the creator to list all issues and provide a "Send Fix Notice" button
   const instructMsg = (lang === 'am')
-    ? "❗ እባክዎ መስተካከል ያለባቸውን ነገሮች በሙሉ ከታች ለየብቻ በተነጠሉ መልዕክቶች ይዘርዝሩ ክዛም ቅትታ ወደኛም ቴሌግራም አካውንታችን(@taskifayarchive) እና ወደ ሰሪው ይላኩ። ከመጀመሪያው የስራ ትዕዛዝ (Task description) ውጪ የሆኑ አዳዲስ ለውጦችን መጠየቅ አይችሉም። ይህንን ዝርዝር ለመላክ ጊዜ ያለዎት፣ ለማስተካከያ የተሰጠው ጊዜ ግማሽ እስኪጠናቀቅ ድረስ ብቻ ነው። ዝርዝሩን ልከው ሲጨርሱ 🛠 የማስተካከያ ዝርዝሮች ይላኩ የሚለውን ይጫኑ።"
-    : "❗ Please *list everything* that needs fixing in separate messages below but also make sure to send it/them directly to our telegram account(@taskifayarchive) and to the task doer as well. You cannot request changes beyond the original task description. You have until halfway through the revision period to send this list. Once done, tap **Send Fix Notice**.";
+    ? "❗ እባክዎ መስተካከል ያለባቸውን ነገሮች በሙሉ ከታች ለየብቻ በተነጠሉ መልዕክቶች ይዘርዝሩ ክዛም ቅትታ ወደኛም ቴሌግራም አካውንታችን(@taskifaysupport) እና ወደ ሰሪው ይላኩ። ከመጀመሪያው የስራ ትዕዛዝ (Task description) ውጪ የሆኑ አዳዲስ ለውጦችን መጠየቅ አይችሉም። ይህንን ዝርዝር ለመላክ ጊዜ ያለዎት፣ ለማስተካከያ የተሰጠው ጊዜ ግማሽ እስኪጠናቀቅ ድረስ ብቻ ነው። ዝርዝሩን ልከው ሲጨርሱ 🛠 የማስተካከያ ዝርዝሮች ይላኩ የሚለውን ይጫኑ።"
+    : "❗ Please *list everything* that needs fixing in separate messages below but also make sure to send it/them directly to our telegram account(@taskifaysupport) and to the task doer as well. You cannot request changes beyond the original task description. You have until halfway through the revision period to send this list. Once done, tap **Send Fix Notice**.";
   const sentPrompt = await ctx.reply(instructMsg, {
   parse_mode: "Markdown",
   ...Markup.inlineKeyboard([
@@ -16325,7 +16318,7 @@ bot.action("_DISABLED_SEND_FIX_NOTICE", async (ctx) => {
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
   // Only send error message if it's not during profile completion
-  if (ctx.session?.onboardingStep !== "completed") {
+  if (!ctx.session?.onboardingStep === "completed") {
     return ctx.reply("An error occurred. Please try again.");
   }
 });
