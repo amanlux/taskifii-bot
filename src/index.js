@@ -7941,7 +7941,7 @@ bot.use(applyGatekeeper);
         ? "በአሁን ሰዓት በሂደት ላይ ያለ ስራ ስላለዎት፤ ይህ ጉዳይ ተጠናቆ እልባት እስኪያገኝ ድረስ ሜኑ መክፈት፣ አዲስ ስራ መለጠፍ ወይም ለሌሎች ስራዎች ማመልከት አይችሉም።"
         : "You're actively involved in a task right now, so you can't open the menu, post a task, or apply to other tasks until everything about the current task is sorted out.";
 
-      await ctx.reply(msg0);
+      await ctx.reply(lockedMsg);
       return;
     }
 
