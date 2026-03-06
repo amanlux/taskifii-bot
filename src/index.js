@@ -7931,7 +7931,43 @@ bot.use(applyGatekeeper);
     ctx.session = ctx.session || {};
     await cancelRelatedFileDraftIfActive(ctx);
 
+    // QUICK PATH: brand-new user hitting /start (not from apply_ deep-link)
+    try {
+      const text = ctx.message?.text || "";
+      const payloadFromText = text.startsWith("/start")
+        ? (text.split(" ")[1] || "")
+        : "";
+      const isApplyDeepLink =
+        typeof payloadFromText === "string" &&
+        payloadFromText.toLowerCase().startsWith("apply_");
 
+      // Only auto-onboard if:
+      //  - it's NOT an apply_ deep-link, and
+      //  - there is no existing User record yet
+      if (!isApplyDeepLink) {
+        const existingUser = await User.findOne({ telegramId: ctx.from.id });
+        if (!existingUser) {
+          const newUser = new User({
+            telegramId: ctx.from.id,
+            onboardingStep: "language",
+          });
+          await newUser.save();
+
+          return ctx.reply(
+            `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
+            Markup.inlineKeyboard([
+              [
+                Markup.button.callback("English", "LANG_EN"),
+                Markup.button.callback("አማርኛ", "LANG_AM"),
+              ],
+            ])
+          );
+        }
+      }
+    } catch (e) {
+      console.error("start quick onboarding check failed:", e);
+      // If anything goes wrong here, fall through to the existing logic.
+    }
     // HARD-GUARD: block all menu/apply flows while engagement-locked
     if (await isEngagementLocked(ctx.from.id)) {
       const u0 = await User.findOne({ telegramId: ctx.from.id });
