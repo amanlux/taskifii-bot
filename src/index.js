@@ -8032,8 +8032,8 @@ bot.use(applyGatekeeper);
         `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
         Markup.inlineKeyboard([
           [
-            Markup.button.callback("English", "SET_LANG_EN"),
-            Markup.button.callback("አማርኛ", "SET_LANG_AM"),
+            Markup.button.callback("English", "LANG_EN"),
+            Markup.button.callback("አማርኛ", "LANG_AM"),
           ],
         ])
       );
