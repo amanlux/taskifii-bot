@@ -7463,7 +7463,15 @@ function startBot() {
 
   // 2) Store a fallback username we can use when ctx is null
   let BOT_USERNAME = process.env.BOT_USERNAME || "";
-  bot.telegram.getMe().then(me => { BOT_USERNAME = me.username || BOT_USERNAME; }).catch(() => {});
+
+  bot.telegram.getMe()
+    .then(me => {
+      BOT_USERNAME = me.username || BOT_USERNAME;
+      console.log("🤖 Connected as bot:", BOT_USERNAME, "(", me.id, ")");
+    })
+    .catch((err) => {
+      console.error("getMe failed:", err);
+    });
 
   if (!process.env.CHAPA_PROVIDER_TOKEN) {
     console.warn("⚠️ CHAPA_PROVIDER_TOKEN is not set — invoices will fail.");
@@ -7927,6 +7935,7 @@ bot.use(applyGatekeeper);
     if (!ctx.chat || ctx.chat.type !== "private") {
       return;
     }
+    console.log(">>> /start from", ctx.from.id, ctx.from.username || "", "payload:", ctx.startPayload);
     // Initialize session
     ctx.session = ctx.session || {};
     await cancelRelatedFileDraftIfActive(ctx);
@@ -16316,7 +16325,7 @@ bot.action("_DISABLED_SEND_FIX_NOTICE", async (ctx) => {
 bot.catch((err, ctx) => {
   console.error(`Error for ${ctx.updateType}`, err);
   // Only send error message if it's not during profile completion
-  if (!ctx.session?.onboardingStep === "completed") {
+  if (ctx.session?.onboardingStep !== "completed") {
     return ctx.reply("An error occurred. Please try again.");
   }
 });
