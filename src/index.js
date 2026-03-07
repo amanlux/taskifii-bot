@@ -45,39 +45,7 @@ if (!process.env.MONGODB_URI) {
 //    - language: allow null in enum
 // ------------------------------------
 
-const Schema = mongoose.Schema;
 
-const userSchema = new Schema({
-  telegramId:     { type: Number, unique: true, required: true },
-  onboardingStep: { type: String, required: true }, // "language", "fullName", etc.
-  language:       { type: String, enum: ["en", "am", null], default: null },
-  fullName:       { type: String, default: null },
-  phone:          { type: String, unique: true, sparse: true, default: null },
-  email:          { type: String, unique: true, sparse: true, default: null },
-  username:       { type: String, unique: true, sparse: true, default: null },
-  // NEW: skills (fields) the user is good at – used for recommendations
-  skills:         { type: [String], default: [] },
-  bankDetails:    [
-    {
-      bankName:      String,
-      accountNumber: String
-    }
-  ],
-  stats: {
-    totalEarned:   { type: Number, default: 0 },
-    totalSpent:    { type: Number, default: 0 },
-    averageRating: { type: Number, default: 0 },
-    ratingCount:   { type: Number, default: 0 }
-  },
-  lastReminderInterval: { type: Number, default: 0 },
-  
-  createdAt:      { type: Date, default: Date.now }
-});
-
-// Explicitly add sparse unique indexes for username, email, phone:
-userSchema.index({ username: 1 }, { unique: true, sparse: true });
-userSchema.index({ email:    1 }, { unique: true, sparse: true });
-userSchema.index({ phone:    1 }, { unique: true, sparse: true });
 
 
 
@@ -7040,10 +7008,51 @@ mongoose
       );
 
     }
+    async function migrateUserIndexes() {
+      const col = mongoose.connection.collection("users");
 
+      // Drop old indexes if they exist
+      try { await col.dropIndex("username_1"); } catch (e) {}
+      try { await col.dropIndex("phone_1"); } catch (e) {}
+      try { await col.dropIndex("email_1"); } catch (e) {}
+
+      // Recreate them as partial unique indexes
+      await col.createIndex(
+        { username: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            username: { $type: "string", $ne: "" }
+          }
+        }
+      );
+
+      await col.createIndex(
+        { phone: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            phone: { $type: "string", $ne: "" }
+          }
+        }
+      );
+
+      await col.createIndex(
+        { email: 1 },
+        {
+          unique: true,
+          partialFilterExpression: {
+            email: { $type: "string", $ne: "" }
+          }
+        }
+      );
+    }
     // Run it before the bot or timers create any new PaymentIntents
     await migratePaymentIntentIndexes().catch(err =>
       console.error('migratePaymentIntentIndexes failed:', err)
+    );
+    await migrateUserIndexes().catch(err =>
+      console.error("migrateUserIndexes failed:", err)
     );
 
     const bot = startBot(); // Make sure startBot() returns the bot instance
@@ -7931,43 +7940,7 @@ bot.use(applyGatekeeper);
     ctx.session = ctx.session || {};
     await cancelRelatedFileDraftIfActive(ctx);
 
-    // QUICK PATH: brand-new user hitting /start (not from apply_ deep-link)
-    try {
-      const text = ctx.message?.text || "";
-      const payloadFromText = text.startsWith("/start")
-        ? (text.split(" ")[1] || "")
-        : "";
-      const isApplyDeepLink =
-        typeof payloadFromText === "string" &&
-        payloadFromText.toLowerCase().startsWith("apply_");
 
-      // Only auto-onboard if:
-      //  - it's NOT an apply_ deep-link, and
-      //  - there is no existing User record yet
-      if (!isApplyDeepLink) {
-        const existingUser = await User.findOne({ telegramId: ctx.from.id });
-        if (!existingUser) {
-          const newUser = new User({
-            telegramId: ctx.from.id,
-            onboardingStep: "language",
-          });
-          await newUser.save();
-
-          return ctx.reply(
-            `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
-            Markup.inlineKeyboard([
-              [
-                Markup.button.callback("English", "LANG_EN"),
-                Markup.button.callback("አማርኛ", "LANG_AM"),
-              ],
-            ])
-          );
-        }
-      }
-    } catch (e) {
-      console.error("start quick onboarding check failed:", e);
-      // If anything goes wrong here, fall through to the existing logic.
-    }
     // HARD-GUARD: block all menu/apply flows while engagement-locked
     if (await isEngagementLocked(ctx.from.id)) {
       const u0 = await User.findOne({ telegramId: ctx.from.id });
@@ -8043,37 +8016,6 @@ bot.use(applyGatekeeper);
       }
     }
     // ===== END OF ADDITION =====
-    // 🔹 NEW SAFETY NET:
-    // If there is no user yet, or onboarding is not completed,
-    // AND this /start is NOT an "apply_" deep link,
-    // always start (or restart) onboarding from the language step.
-    if ((!user || user.onboardingStep !== "completed") &&
-        !(startPayload && startPayload.startsWith("apply_"))) {
-
-      if (!user) {
-        // Brand-new user: create a minimal record at the "language" step
-        user = new User({
-          telegramId: tgId,
-          onboardingStep: "language",
-        });
-      } else {
-        // Existing but not completed: just move them back to language selection
-        user.onboardingStep = "language";
-      }
-
-      await user.save();
-
-      // Show the same language selection UI you already use elsewhere
-      return ctx.reply(
-        `${TEXT.chooseLanguage.en}\n${TEXT.chooseLanguage.am}`,
-        Markup.inlineKeyboard([
-          [
-            Markup.button.callback("English", "LANG_EN"),
-            Markup.button.callback("አማርኛ", "LANG_AM"),
-          ],
-        ])
-      );
-    }
 
     // Rest of your existing start handler...
     if (user && user.onboardingStep === "completed") {
