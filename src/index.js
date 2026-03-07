@@ -21,6 +21,7 @@ const USE_CHAPA_HOSTED_FOR_ESCROW = process.env.USE_CHAPA_HOSTED_FOR_ESCROW === 
 
 const { Telegraf, Markup, session } = require("telegraf");
 const mongoose = require("mongoose");
+const { Schema } = mongoose;
 const Task = require("./models/Task");
 const User = require("./models/User");
 
