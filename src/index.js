@@ -7677,17 +7677,7 @@ function startBot() {
         data.startsWith("CREATOR_SEND_FIX_NOTICE_") ||
         // ✅ NEW: allow bank selection + payout pagination to be clicked freely
         data.startsWith("PAYOUT_SELECT_") ||
-        data.startsWith("PAYOUT_PAGE_") ||
-        // ✅ NEW: exclude profile edit & back buttons from "first button wins"
-        data === "EDIT_PROFILE" ||
-        data === "EDIT_BACK" ||
-        data === "EDIT_NAME" ||
-        data === "EDIT_PHONE" ||
-        data === "EDIT_EMAIL" ||
-        data === "EDIT_USERNAME" ||
-        data === "EDIT_SKILLS" ||
-        // and all the disabled profile-edit buttons so they don't 'consume' the message
-        data.startsWith("_DISABLED_EDIT_")
+        data.startsWith("PAYOUT_PAGE_")
       ) {
         return next();
       }
@@ -7781,6 +7771,24 @@ function startBot() {
     }
   });
   
+  function clearButtonThrottleForMessage(ctx) {
+    try {
+      if (!ctx?.callbackQuery?.message || !ctx?.from?.id) return;
+
+      const msg = ctx.callbackQuery.message;
+      const userId = ctx.from.id;
+
+      if (!msg.chat || msg.message_id == null) return;
+
+      const store = globalThis.__TASKIFII_BUTTON_THROTTLE__;
+      if (!store) return;
+
+      const key = `${userId}:${msg.chat.id}:${msg.message_id}`;
+      store.delete(key);
+    } catch (err) {
+      console.error("clearButtonThrottleForMessage error:", err);
+    }
+  }
   
 
 
@@ -13638,6 +13646,7 @@ bot.action("EDIT_PROFILE", async (ctx) => {
 // Update the EDIT_BACK handler
 bot.action("EDIT_BACK", async (ctx) => {
   await ctx.answerCbQuery();
+
   const tgId = ctx.from.id;
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
@@ -13658,7 +13667,6 @@ bot.action("EDIT_BACK", async (ctx) => {
     console.error("Error editing message markup:", err);
   }
 
-  // Edit the existing message to show profile with working menu buttons
   const menu = Markup.inlineKeyboard([
     [Markup.button.callback(TEXT.postTaskBtn[user.language], "POST_TASK")],
     [Markup.button.callback(TEXT.findTaskBtn[user.language], "FIND_TASK")],
@@ -13667,11 +13675,18 @@ bot.action("EDIT_BACK", async (ctx) => {
     [Markup.button.callback(TEXT.termsBtn[user.language], "VIEW_TERMS")]
   ]);
 
+  try {
+    await ctx.editMessageText(buildProfileText(user), {
+      reply_markup: menu.reply_markup
+    });
 
-  return ctx.editMessageText(
-    buildProfileText(user),
-    menu
-  );
+    // IMPORTANT:
+    // This message has now become a fresh menu again,
+    // so re-arm it for one new valid click.
+    clearButtonThrottleForMessage(ctx);
+  } catch (err) {
+    console.error("Error editing message text in EDIT_BACK:", err);
+  }
 });
 
 
