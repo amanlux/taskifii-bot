@@ -8399,15 +8399,11 @@ bot.use(applyGatekeeper);
   // ─── TERMS & CONDITIONS Actions ────────────────────────────────────
   bot.action("TC_AGREE", async (ctx) => {
     await ctx.answerCbQuery();
-    const user = await User.findOne({ telegramId: ctx.from.id });
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    if (user.onboardingStep !== "terms") {
-      return ctx.reply(user.language === "am"
-        ? "ይህ ቁልፍ ከአሁኑ ሂደት ጋር አይዛመድም። እባክዎ /start ልከው ከአዲስ ይጀምሩ።"
-        : "This button is no longer valid for your current step. Please /start again.");
-    }
-
+    // Highlight “Agree”; disable “Disagree”
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [
         [Markup.button.callback(`✔ ${TEXT.agreeBtn[user.language]}`, `_DISABLED_TC_AGREE`)],
@@ -8417,7 +8413,6 @@ bot.use(applyGatekeeper);
 
     user.onboardingStep = "age";
     await user.save();
-
     return ctx.reply(
       user.language === "am" ? TEXT.askAge.am : TEXT.askAge.en,
       Markup.inlineKeyboard([[
@@ -8452,21 +8447,11 @@ bot.use(applyGatekeeper);
     // ─── AGE VERIFICATION Actions ────────────────────────────────────
   bot.action("AGE_YES", async (ctx) => {
     await ctx.answerCbQuery();
-    const user = await User.findOne({ telegramId: ctx.from.id });
+    const tgId = ctx.from.id;
+    const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
 
-    if (user.onboardingStep !== "age") {
-      return ctx.reply(user.language === "am"
-        ? "ይህ ቁልፍ ከአሁኑ ሂደት ጋር አይዛመድም። እባክዎ /start ይላኩ እና ከአዲስ ይመዝገቡ።"
-        : "This button is no longer valid for your current step. Please /start again.");
-    }
-
-    if (!user.fullName || !user.phone || !user.email || !user.username || !user.skills?.length ) {
-      return ctx.reply(user.language === "am"
-        ? "ፕሮፋይሉ ሙሉ አይደለም። እባክዎ /start ልከው እንደገና ይሙሉት።"
-        : "Your profile is incomplete. Please /start and complete the missing steps.");
-    }
-
+    // Highlight "Yes I am"; disable "No I'm not"
     await ctx.editMessageReplyMarkup({
       inline_keyboard: [[
         Markup.button.callback(`✔ ${TEXT.ageYesBtn[user.language]}`, `_DISABLED_AGE_YES`),
@@ -8474,13 +8459,17 @@ bot.use(applyGatekeeper);
       ]]
     });
 
+    // Mark onboarding as completed and save to DB
     user.onboardingStep = "completed";
     await user.save();
 
+    // 🔒 VERY IMPORTANT:
+    // Always ensure there is an Admin Profile post for this user
     try {
       await updateAdminProfilePost(ctx, user, user.adminMessageId);
     } catch (err) {
       console.error("Failed to create admin profile post during onboarding:", err);
+      // Keep your existing error message so behavior is familiar to you
       return ctx.reply("Profile created, but failed to notify admin. Please contact support.");
     }
 
@@ -13567,22 +13556,21 @@ function buildProfileText(user, showCongrats = false) {
 }
 
 function buildAdminProfileText(user) {
-  const safe = (v) => (v == null || v === "" ? "N/A" : v);
-
   const skillsList = user.skills && user.skills.length
     ? user.skills.map((s, i) => `${i + 1}. ${s}`).join("\n")
     : "N/A";
-
-  const lines = user.language === "am"
+  
+  // Add user ID to the header
+  const lines = user.language === "am" 
     ? [
-        `📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ** (User ID: ${user._id})`,
-        `• ሙሉ ስም: ${safe(user.fullName)}`,
-        `• ስልክ: ${safe(user.phone)}`,
-        `• ኢሜይል: ${safe(user.email)}`,
-        `• ተጠቃሚ ስም: @${safe(user.username)}`,
+        `📋 **መግለጫ ፕሮፋይል ለአስተዳደር ማረጋገጫ** (User ID: ${user._id})`, // Added user ID
+        `• ሙሉ ስም: ${user.fullName}`,
+        `• ስልክ: ${user.phone}`,
+        `• ኢሜይል: ${user.email}`,
+        `• ተጠቃሚ ስም: @${user.username}`,
         `• የስራ ልምድ(ዕውቀት):\n${skillsList}`,
         `• ቋንቋ: ${user.language === "am" ? "አማርኛ" : "English"}`,
-        `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", {
+        `• ተመዝግቦበት ቀን: ${user.createdAt.toLocaleString("en-US", { 
           timeZone: "Africa/Addis_Ababa",
           month: "short", day: "numeric", year: "numeric",
           hour: "numeric", minute: "2-digit", hour12: true
@@ -13592,11 +13580,11 @@ function buildAdminProfileText(user) {
         `🔹 ኖቬሌሽን: ${user.stats.ratingCount > 0 ? user.stats.averageRating.toFixed(1) : "N/A"} ★ (${user.stats.ratingCount} ግምገማዎች)`
       ]
     : [
-        `📋 **Profile Post for Approval** (User ID: ${user._id})`,
-        `• Full Name: ${safe(user.fullName)}`,
-        `• Phone: ${safe(user.phone)}`,
-        `• Email: ${safe(user.email)}`,
-        `• Username: @${safe(user.username)}`,
+        `📋 **Profile Post for Approval** (User ID: ${user._id})`, // Added user ID
+        `• Full Name: ${user.fullName}`,
+        `• Phone: ${user.phone}`,
+        `• Email: ${user.email}`,
+        `• Username: @${user.username}`,
         `• Skill fields:\n${skillsList}`,
         `• Language: ${user.language === "am" ? "Amharic" : "English"}`,
         `• Registered: ${user.createdAt.toLocaleString("en-US", { 
