@@ -7639,7 +7639,59 @@ function startBot() {
       return next();
     }
   });
+    // ─────────── Old onboarding replies become inert after normal /start ───────────
+  bot.use(async (ctx, next) => {
+    try {
+      // only care about plain text messages in private chat
+      if (!ctx.message || !("text" in ctx.message)) {
+        return next();
+      }
 
+      if (!ctx.chat || ctx.chat.type !== "private") {
+        return next();
+      }
+
+      if (!ctx.session?.lastStartAt) {
+        return next();
+      }
+
+      const user = await User.findOne({ telegramId: ctx.from.id }).select("language onboardingStep").lean();
+      if (!user) {
+        return next();
+      }
+
+      // only protect non-registered / still-onboarding users
+      if (user.onboardingStep === "completed") {
+        return next();
+      }
+
+      // only block when they are replying to an older bot prompt
+      const replied = ctx.message.reply_to_message;
+      if (!replied || !replied.date) {
+        return next();
+      }
+
+      const lastStartAtSec = Math.floor(ctx.session.lastStartAt / 1000);
+
+      // if the replied-to prompt is older than the latest /start, ignore this message
+      if (replied.date < lastStartAtSec) {
+        const lang = user.language || "en";
+
+        await ctx.reply(
+          lang === "am"
+            ? "⏹ ይህ መልስ ከድሮ የምዝገባ ሂደት ጋር የተያያዘ ነው። እባክዎ ከመጨረሻው /start በኋላ የተላከውን አዲሱን ጥያቄ ብቻ ይመልሱ።"
+            : "⏹ That reply belongs to an older onboarding session. Please shift your focus to the latest prompt sent after your most recent /start."
+        );
+
+        return;
+      }
+
+      return next();
+    } catch (err) {
+      console.error("old onboarding reply guard error:", err);
+      return next();
+    }
+  });
 
   // ─────────── Global "first button wins" throttle (per message) ───────────
   bot.use(async (ctx, next) => {
@@ -8052,6 +8104,7 @@ bot.use(applyGatekeeper);
         delete ctx.session.newUsername;
         delete ctx.session.usernameProvided;
         delete ctx.session.editUsernamePromptId;
+        delete ctx.session.onboardingUsernamePromptId;
       }
       // 🔹 If this is the main admin, also cancel any manual punishment
       // flows that were waiting for a birr amount.
@@ -8101,7 +8154,30 @@ bot.use(applyGatekeeper);
         ])
       );
     }
+    // 🔹 NEW: normal /start reset for non-registered / not-yet-completed users
+    // This should NOT run for apply deep-link /start because that has its own flow.
+    if (!startPayload || !startPayload.startsWith('apply_')) {
+      ctx.session = ctx.session || {};
 
+      // mark this as the latest onboarding session so older buttons become inert
+      ctx.session.lastStartAt = Date.now();
+
+      // clear any old waiting/intermediate state from earlier onboarding attempts
+      delete ctx.session.pendingTaskId;
+      delete ctx.session.applyFlow;
+
+      // clear any profile-edit leftovers just in case
+      delete ctx.session.editing;
+      delete ctx.session.newUsername;
+      delete ctx.session.usernameProvided;
+      delete ctx.session.editUsernamePromptId;
+
+      // clear onboarding-specific prompt tracking
+      delete ctx.session.onboardingUsernamePromptId;
+
+      // optional cleanup for any task-post draft flow that should not survive a fresh onboarding /start
+      delete ctx.session.taskFlow;
+    }
     // Original onboarding flow for new/uncompleted users
     if (startPayload && startPayload.startsWith('apply_')) {
       const taskId = startPayload.split('_')[1];
