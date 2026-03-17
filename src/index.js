@@ -8332,6 +8332,10 @@ bot.use(applyGatekeeper);
     const tgId = ctx.from.id;
     const user = await User.findOne({ telegramId: tgId });
     if (!user) return ctx.reply("Unexpected error. Please /start again.");
+    // Ignore stale/spam taps if the user already moved past username step
+    if (user.onboardingStep !== "usernameConfirm") {
+      return ctx.answerCbQuery();
+    }
 
     // Highlight “Yes, keep it”; disable it
     await ctx.editMessageReplyMarkup({
@@ -13865,6 +13869,8 @@ bot.action("EDIT_USERNAME", async (ctx) => {
 
   // Initialize session
   ctx.session = ctx.session || {};
+  delete ctx.session.usernameProvided;
+  delete ctx.session.newUsername;
   ctx.session.editing = {
     field: "username",
     adminMessageId: user.adminMessageId
@@ -13955,6 +13961,10 @@ bot.action("USERNAME_KEEP_EDIT", async (ctx) => {
   const tgId = ctx.from.id;
   const user = await User.findOne({ telegramId: tgId });
   if (!user) return ctx.reply("User not found. Please /start again.");
+  // Ignore stale/spam taps unless user is actively editing username
+  if (ctx.session?.editing?.field !== "username") {
+    return ctx.answerCbQuery();
+  }
 
   // If username was already provided, don't proceed
   if (ctx.session?.usernameProvided) {
