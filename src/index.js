@@ -8461,7 +8461,7 @@ bot.use(applyGatekeeper);
         : "This button is no longer valid for your current step. Please /start again.");
     }
 
-    if (!user.fullName || !user.phone || !user.email || !user.username || !user.skills?.length || !user.bankDetails?.length) {
+    if (!user.fullName || !user.phone || !user.email || !user.username || !user.skills?.length ) {
       return ctx.reply(user.language === "am"
         ? "ፕሮፋይሉ ሙሉ አይደለም። እባክዎ /start ልከው እንደገና ይሙሉት።"
         : "Your profile is incomplete. Please /start and complete the missing steps.");
