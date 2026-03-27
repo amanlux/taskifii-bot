@@ -67,7 +67,7 @@ PaymentIntentSchema.index(
   { payload: 1 },
   {
     unique: true,
-    partialFilterExpression: { payload: { $type: "string", $ne: "" } }
+    partialFilterExpression: { payload: { $exists: true, $gt: "" } }
   }
 );
 

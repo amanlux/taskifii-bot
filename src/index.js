@@ -7023,7 +7023,7 @@ mongoose
         {
           unique: true,
           partialFilterExpression: {
-            username: { $type: "string", $ne: "" }
+            username: { $exists: true, $gt: "" }
           }
         }
       );
@@ -7033,7 +7033,7 @@ mongoose
         {
           unique: true,
           partialFilterExpression: {
-            phone: { $type: "string", $ne: "" }
+            phone: { $exists: true, $gt: "" }
           }
         }
       );
@@ -7043,7 +7043,7 @@ mongoose
         {
           unique: true,
           partialFilterExpression: {
-            email: { $type: "string", $ne: "" }
+            email: { $exists: true, $gt: "" }
           }
         }
       );

@@ -64,7 +64,7 @@ UserSchema.index(
   {
     unique: true,
     partialFilterExpression: {
-      username: { $type: "string", $ne: "" }
+      username: { $exists: true, $gt: "" }
     }
   }
 );
@@ -74,7 +74,7 @@ UserSchema.index(
   {
     unique: true,
     partialFilterExpression: {
-      phone: { $type: "string", $ne: "" }
+      phone: { $exists: true, $gt: "" }
     }
   }
 );
@@ -84,7 +84,7 @@ UserSchema.index(
   {
     unique: true,
     partialFilterExpression: {
-      email: { $type: "string", $ne: "" }
+      email: { $exists: true, $gt: "" }
     }
   }
 );
