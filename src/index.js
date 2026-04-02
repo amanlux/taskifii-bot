@@ -12916,7 +12916,7 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
         await ctx.reply(
           user.language === "am"
             ? "የስራውን ክፍያ ለመፈጸም ከታች ያለውን ቁልፍ ይጫኑ። የከፈሉት ገንዘብ ሰሪው ስራውን እርሶን በሚያረካ መልኩ እስኪያጠናቅቅ ወይም ገንዘብዎ ተመላሽ (Refund) እስኪደረግ ድረስ፣ በእኛ የአደራ ሂሳብ (Escrow Account) ውስጥ በአስተማማኝ ሁኔታ ተይዞ ይቆያል።"
-            : "💳 Click the button below to pay the task fee to our escrow account in which the funds will be securely held there until task doer satisfies your needs or until refund is triggered.",
+            : "💳 Click the button below to pay the task fee to our escrow account in which the funds will be securely held there until task doer satisfies your needs or until refund is triggered. ",
           {
             reply_markup: {
               inline_keyboard: [
