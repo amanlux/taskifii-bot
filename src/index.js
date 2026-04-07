@@ -12915,8 +12915,8 @@ bot.action("TASK_POST_CONFIRM", async (ctx) => {
         // Show the pay link + a “I’ve paid” verify button
         await ctx.reply(
           user.language === "am"
-            ? "የስራውን ክፍያ ለመፈጸም ከታች ያለውን ቁልፍ ይጫኑ። የከፈሉት ገንዘብ ሰሪው ስራውን እርሶን በሚያረካ መልኩ እስኪያጠናቅቅ ወይም ገንዘብዎ ተመላሽ (Refund) እስኪደረግ ድረስ፣ በእኛ የአደራ ሂሳብ (Escrow Account) ውስጥ በአስተማማኝ ሁኔታ ተይዞ ይቆያል።"
-            : "💳 Click the button below to pay the task fee to our escrow account in which the funds will be securely held there until task doer satisfies your needs or until refund is triggered. ",
+            ? "የስራውን ክፍያ ለመፈጸም ከታች ያለውን ቁልፍ ይጫኑ። የከፈሉት ገንዘብ ሰሪው ስራውን እርሶን በሚያረካ መልኩ እስኪያጠናቅቅ ወይም ገንዘብዎ ተመላሽ (Refund) እስኪደረግ ድረስ፣ በእኛ የአደራ ሂሳብ (Escrow Account) ውስጥ በአስተማማኝ ሁኔታ ተይዞ ይቆያል።                                                                                           እባክዎ ክፍያ ሲፈጽሙ በሚከፍሉት ሂሳብ ላይ የጫፓ የአገልግሎት ክፍያ (ይህ ክፍያ የእኛ ሳይሆን የጫፓ ነው) ተጨምሮ እንደሚታሰብ ልብ ይበሉ!!!"
+            : "💳 Click the button below to pay the task fee to our escrow account in which the funds will be securely held there until task doer satisfies your needs or until refund is triggered.                                                                                   And please note that chapa's transaction fee(not ours) will be added to the payment fee amount when you pay!!!",
           {
             reply_markup: {
               inline_keyboard: [
