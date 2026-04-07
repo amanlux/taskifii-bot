@@ -3602,20 +3602,38 @@ async function hasEscrowConsumeConflict({ userId, currentDraftId = null }) {
     return { conflict: true, reason: "User has active engagement lock or active task work" };
   }
 
-  // Any currently open task as creator (real conflict)
+  // Any currently postable/open task as creator (real conflict)
+  // IMPORTANT:
+  // - We only want to block when the user truly has a task that is still open for applications.
+  // - If decisionsLockedAt is already set, that task has already moved forward in the workflow
+  //   and should not block a brand-new paid draft, even if its status field still says "Open".
   const openCreatedTask = await Task.findOne({
     creator: userId,
-    status: { $in: ["Open"] }
+    status: "Open",
+    $or: [
+      { decisionsLockedAt: { $exists: false } },
+      { decisionsLockedAt: null }
+    ]
   }).lean();
-  if (openCreatedTask) return { conflict: true, reason: "User already has an open task as creator" };
+
+  if (openCreatedTask) {
+    return { conflict: true, reason: "User already has a currently open task as creator" };
+  }
 
   // Another draft exists (your requested behavior)
   if (currentDraftId) {
-    const anotherDraft = await TaskDraft.findOne({
-      user: userId,
-      _id: { $ne: currentDraftId }
-    }).lean();
-    if (anotherDraft) return { conflict: true, reason: "User has another active draft" };
+    const me = await User.findById(userId).select("telegramId").lean();
+
+    const anotherDraft = me
+      ? await TaskDraft.findOne({
+          creatorTelegramId: me.telegramId,
+          _id: { $ne: currentDraftId }
+        }).lean()
+      : null;
+
+    if (anotherDraft) {
+      return { conflict: true, reason: "User has another active draft" };
+    }
   }
 
   return { conflict: false };
