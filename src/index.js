@@ -8693,6 +8693,11 @@ bot.action(/^APPLY_(.+)$/, async ctx => {
         { show_alert: true }
       );
     }
+
+    // If a doer has already confirmed this task, show "already taken"
+    if (decisionsLocked(task)) {
+      return ctx.answerCbQuery(TEXT.taskAlreadyTaken[lang], { show_alert: true });
+    }
     // NEW CHECK: Prevent creators from applying to their own tasks
     if (task.creator.toString() === user._id.toString()) {
       return ctx.reply(TEXT.creatorSelfApplyError[lang]);
@@ -8758,6 +8763,11 @@ bot.hears(/^\/apply_(.+)$/, async ctx => {
           ? "❌ ይህ ስራ ጊዜው ስላለፈበት ማመልከት አይቻልም።" 
           : "❌ This task has expired and is no longer available for application."
       );
+    }
+
+    // If a doer has already confirmed this task, show "already taken"
+    if (decisionsLocked(task)) {
+      return ctx.reply(TEXT.taskAlreadyTaken[lang]);
     }
 
     // NEW CHECK: Prevent creators from applying to their own tasks
@@ -10392,7 +10402,10 @@ bot.on(['text','photo','document','video','audio'], async (ctx, next) => {
               ? "❌ የዚህ ስራ ማመለከቻ ጊዜ አልፎበታል።" 
               : "❌ This task is no longer available.");
       }
-
+      if (decisionsLocked(task)) {
+          delete ctx.session.applyFlow;
+          return ctx.reply(TEXT.taskAlreadyTaken[lang]);
+      }
       const alreadyApplied = await hasUserApplied(task._id, user._id);
       if (alreadyApplied) {
           delete ctx.session.applyFlow;
